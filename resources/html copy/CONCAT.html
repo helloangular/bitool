@@ -1,0 +1,25 @@
+        <div class=partcontainer>
+                <div id=part>
+                        <div class=first-div>
+                                <div>
+                                        <input type="radio" id="string" onclick="replaceFunction(this,'string');" name="partType1" value="string" checked />
+                                        <label for="string">String</label>
+                                </div>
+                                <div>
+                                        <input type="radio" id="column" onclick="replaceFunction(this, 'selectcolumn');" name="partType1" value="Column" />
+                                        <label for="column">Column</label>
+                                </div>
+                        </div>
+                        <div class=second-div id=functionPart>
+                                <label for="name">String</label>
+                                <input type="text" id="name" name="name" />
+                        </div>
+                        <div>
+                                <input type=button id=deletePart value="Delete Part" onclick="deleteRow(this)" >
+                        </div>
+                </div>
+        </div>
+        <div  class=first-div >
+                <input type=button id=addPart value="Add Part" onclick="addNewDiv()" >
+        </div>
+

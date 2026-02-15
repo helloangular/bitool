@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Custom Web Component with HTMLElements</title>
+  <link rel="stylesheet" href="./app.css" />
+  <link rel="stylesheet" href="./source/styles/smart.default.css" />
+  <style>
+    .rename-form {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .button-container {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      padding: 16px;
+      background-color: #f5f5f5;
+      width: 100%;
+      box-sizing: border-box;
+      border-top: 1px solid #ddd;
+    }
+
+    label {
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+
+<body style="display: flex;margin:0;height:100vh;">
+  <tree-component
+    style="display: flex; justify-content: center; align-items: center;  height: 100vh; width: 100%; position: fixed; top: 0; left: 0;"></tree-component>
+
+  <column-list-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </column-list-component>
+
+  <smart-window class="association-dialog" label="Select Text Association Target">
+  </smart-window>
+
+  <smart-window class="column-edit-dialog" label="Edit Column" style="width:80%;height:80%;left:10%;top:10%;">
+  </smart-window>
+
+  <smart-window class="insert-values-dialog" label="Insert Values" style="width:30%;height:64%;left:40%;top:10%;">
+  </smart-window>
+
+  <association-editor-component
+    style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </association-editor-component>
+
+  <filter-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </filter-component>
+
+  <projection-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </projection-component>
+
+  <smart-window id="renameDialog" label="Change Name" style="width:400px;height:400px;position:fixed;left:40%;top:20%">
+    <div class="rename-form">
+      <div>
+        <label>Business Name:</label>
+        <smart-input id="businessNameInput" class="outlined" style="width:100%"></smart-input>
+      </div>
+      <div>
+        <label>Technical Name:</label>
+        <smart-input id="technicalNameInput" class="outlined" style="width:100%"></smart-input>
+      </div>
+    </div>
+    <div class="button-container">
+      <smart-button id="renameButton">Rename</smart-button>
+      <smart-button id="cancelButton">Cancel</smart-button>
+    </div>
+  </smart-window>
+
+  <rename-dialog>
+  </rename-dialog>
+
+  <script type="module" src="customWebComponent.js"></script>
+  <script type="module" src="treeComponent.js"></script>
+  <script type="module" src="columnListComponent.js"></script>
+  <script type="module" src="rectangleComponent.js"></script>
+  <script type="module" src="associationEditorComponent.js"></script>
+  <script type="module" src="addTextAssociationDialog.js"></script>
+  <script type="module" src="filterComponent.js"></script>
+  <script type="module" src="projectionComponent.js"></script>
+  <script type="module" src="renameDialog.js"></script>
+
+  <svg>
+    <line id="line" x1="0" y1="0" x2="0" y2="0" stroke="lightgray" stroke-width="2" style="visibility: hidden;"></line>
+  </svg>
+
+  <script>
+    window.data = {
+      rectangles: [{
+        alias: "Projection",
+        parent_object: "Table_view",
+        business_name: "Table 1 business name",
+        technical_name: "Table 1 technical name",
+        items: [
+          {
+            business_name: "Item ID",
+            technical_name: "Item",
+            semantic_type: "String",
+            data_type: "long",
+            key: "yes",
+            column_type: "column"
+          },
+          {
+            business_name: "Product ID",
+            technical_name: "Product",
+            semantic_type: "String",
+            data_type: "long",
+            key: "no",
+            column_type: "column"
+          },
+          {
+            business_name: "Unit",
+            technical_name: "Unit",
+            semantic_type: "String",
+            data_type: "string",
+            key: "no",
+            column_type: "column"
+          },
+          {
+            business_name: "Quantity",
+            technical_name: "Quantity",
+            semantic_type: "Number",
+            data_type: "float",
+            key: "no",
+            column_type: "column"
+          },
+        ]
+      },
+      {
+        alias: "Table",
+        parent_object: "Table_view",
+        business_name: "Table 2 business name",
+        technical_name: "Table 2 technical name",
+        items: [
+          {
+            business_name: "Item ID",
+            technical_name: "Item",
+            semantic_type: "String",
+            data_type: "long",
+            key: "yes",
+            column_type: "column"
+          },
+          {
+            business_name: "Product ID",
+            technical_name: "Product",
+            semantic_type: "String",
+            data_type: "long",
+            key: "no",
+            column_type: "column"
+          },
+          {
+            business_name: "Unit",
+            technical_name: "Unit",
+            semantic_type: "String",
+            data_type: "string",
+            key: "no",
+            column_type: "column"
+          },
+          {
+            business_name: "Quantity",
+            technical_name: "Quantity",
+            semantic_type: "Number",
+            data_type: "float",
+            key: "no",
+            column_type: "column"
+          }
+        ]
+      },
+      {
+        alias: "View",
+        parent_object: "Projection",
+        business_name: "View 1 business name",
+        technical_name: "View 1 technical name",
+        items: [
+          {
+            business_name: "Item ID",
+            technical_name: "Item",
+            semantic_type: "String",
+            data_type: "long",
+            key: "yes",
+            column_type: "column"
+          },
+          {
+            business_name: "Product ID",
+            technical_name: "Product",
+            semantic_type: "String",
+            data_type: "long",
+            key: "no",
+            column_type: "column"
+          },
+          {
+            business_name: "Unit",
+            technical_name: "Unit",
+            semantic_type: "String",
+            data_type: "string",
+            key: "no",
+            column_type: "column"
+          },
+          {
+            business_name: "Quantity",
+            technical_name: "Quantity",
+            semantic_type: "Number",
+            data_type: "float",
+            key: "no",
+            column_type: "column"
+          }
+        ]
+      },
+      {
+        alias: "Output",
+        parent_object: "Output",
+        business_name: "View 2 business name",
+        technical_name: "View 2 technical name",
+        items: [
+          {
+            business_name: "Item ID",
+            technical_name: "Item",
+            semantic_type: "String",
+            data_type: "long",
+            key: "yes",
+            column_type: "attribute"
+          },
+          {
+            business_name: "Product ID",
+            technical_name: "Product",
+            semantic_type: "String",
+            data_type: "long",
+            key: "no",
+            column_type: "attribute"
+          },
+          {
+            business_name: "Unit",
+            technical_name: "Unit",
+            semantic_type: "String",
+            data_type: "string",
+            key: "no",
+            column_type: "measure"
+          },
+          {
+            business_name: "Quantity",
+            technical_name: "Quantity",
+            semantic_type: "Number",
+            data_type: "float",
+            key: "no",
+            column_type: "measure"
+          }
+        ]
+      }],
+      associations: [
+        { target1: "table 1", target2: "View 2", items: [] },
+        { target1: "table 1", target2: "Table 3", items: [] },
+      ],
+      selectedRectangle: "",
+      selectedAssociation: "",
+      treeItems: [
+        {
+          label: "RDBMS",
+          items: [
+            {
+              label: "Oracle",
+            },
+            {
+              label: "SQL Server",
+            },
+          ],
+        },
+        {
+          label: "NoSQL",
+          items: [
+            {
+              label: "MongoDB",
+            },
+            {
+              label: "Cassandra",
+            },
+          ]
+        },
+        {
+          label: "Kafka",
+        },
+        {
+          label: "Hadoop",
+        }
+      ],
+      connections: []
+    };
+  </script>
+</body>
+
+</html>

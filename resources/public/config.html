@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Pagination Configuration Form</title>
+    <script type="module" src="./source/modules/smart.card.js"></script>
+    <script type="module" src="./source/modules/smart.input.js"></script>
+    <script type="module" src="./source/modules/smart.button.js"></script>
+    <script type="module" src="./source/modules/smart.dropdownlist.js"></script>
+    <script type="module" src="./source/modules/smart.checkbox.js"></script>
+    <script type="module" src="./source/modules/smart.textarea.js"></script>
+    <script type="module" src="./source/modules/smart.tabs.js"></script>
+    <script type="module" src="./source/modules/smart.accordion.js"></script>
+    <link rel="stylesheet" href="./source/styles/smart.default.css" type="text/css" />
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .form-container {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 1.5em;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #4CAF50;
+            display: flex;
+            align-items: center;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: #4CAF50;
+            margin-right: 10px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group label {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+            font-size: 0.95em;
+        }
+
+        .form-group .description {
+            font-size: 0.85em;
+            color: #777;
+            margin-bottom: 8px;
+            font-style: italic;
+        }
+
+        smart-input, smart-dropdown, smart-textarea {
+            width: 100%;
+            height: 40px;
+            margin-bottom: 5px;
+        }
+
+        smart-textarea {
+            height: 80px;
+        }
+
+        .pagination-strategy-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .strategy-specific {
+            display: none;
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .strategy-specific.active {
+            display: block;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        smart-button {
+            min-width: 120px;
+            height: 45px;
+            border-radius: 25px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .primary-btn {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        }
+
+        .secondary-btn {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+        }
+
+        .test-btn {
+            background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+        }
+
+        .result-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .result-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .config-output {
+            background: #2d3748;
+            color: #68d391;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .template-section {
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+
+        .template-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .template-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .template-card:hover {
+            border-color: #4CAF50;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .template-card.selected {
+            border-color: #4CAF50;
+            background: #e8f5e8;
+        }
+
+        .template-card h4 {
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .template-card p {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .validation-message {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+
+        .validation-error {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ffcdd2;
+        }
+
+        .validation-success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #c8e6c9;
+        }
+
+        .collapsible-section {
+            margin-bottom: 20px;
+        }
+
+        .collapsible-header {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #e0e0e0;
+        }
+
+        .collapsible-header:hover {
+            background: #eeeeee;
+        }
+
+        .collapsible-content {
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            display: none;
+        }
+
+        .collapsible-content.open {
+            display: block;
+        }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            margin-left: 5px;
+        }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 200px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -100px;
+            font-size: 0.8em;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .template-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>API Pagination Configuration</h1>
+            <p>Configure your API pagination settings for seamless data fetching</p>
+        </div>
+
+        <div class="form-container">
+            <!-- API Template Selection -->
+            <div class="template-section">
+                <h3>🚀 Quick Start - Choose API Template</h3>
+                <p>Select a pre-configured template for popular APIs or create a custom configuration</p>
+                <div class="template-grid">
+                    <div class="template-card" data-template="github">
+                        <h4>GitHub</h4>
+                        <p>Link header pagination</p>
+                    </div>
+                    <div class="template-card" data-template="stripe">
+                        <h4>Stripe</h4>
+                        <p>Cursor-based pagination</p>
+                    </div>
+                    <div class="template-card" data-template="twitter">
+                        <h4>Twitter v2</h4>
+                        <p>Token pagination</p>
+                    </div>
+                    <div class="template-card" data-template="facebook">
+                        <h4>Facebook</h4>
+                        <p>Cursor pagination</p>
+                    </div>
+                    <div class="template-card" data-template="hubspot">
+                        <h4>HubSpot</h4>
+                        <p>Offset pagination</p>
+                    </div>
+                    <div class="template-card" data-template="custom" selected>
+                        <h4>Custom API</h4>
+                        <p>Build from scratch</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Basic API Configuration -->
+            <div class="section">
+                <h2 class="section-title">🔧 Basic API Configuration</h2>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="apiName">API Name *</label>
+                        <div class="description">Friendly name for this API configuration</div>
+                        <smart-input id="apiName" placeholder="e.g., GitHub Users API"></smart-input>
+                    </div>
+                    <div class="form-group">
+                        <label for="baseUrl">Base URL *</label>
+                        <div class="description">The root URL of the API</div>
+                        <smart-input id="baseUrl" placeholder="https://api.example.com"></smart-input>
+                    </div>
+                    <div class="form-group">
+                        <label for="endpointPath">Endpoint Path</label>
+                        <div class="description">Specific endpoint path (optional)</div>
+                        <smart-input id="endpointPath" placeholder="/users"></smart-input>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pagination Strategy -->
+            <div class="section">
+                <h2 class="section-title">📄 Pagination Strategy</h2>
+                <div class="pagination-strategy-section">
+                    <div class="form-group">
+                        <label for="paginationStrategy">Pagination Type *</label>
+                        <div class="description">Choose the pagination method used by your API</div>
+                        <smart-dropdown id="paginationStrategy">
+                            <smart-list-item value="offset">Offset-Based (limit/offset)</smart-list-item>
+                            <smart-list-item value="page">Page-Based (page/size)</smart-list-item>
+                            <smart-list-item value="cursor">Cursor-Based (cursor/token)</smart-list-item>
+                            <smart-list-item value="link-header">Link Header (GitHub style)</smart-list-item>
+                            <smart-list-item value="token">Token-Based (next_token)</smart-list-item>
+                            <smart-list-item value="keyset">Keyset (ID-based)</smart-list-item>
+                        </smart-dropdown>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pageSize">Page Size</label>
+                        <div class="description">Number of records per page</div>
+                        <smart-input id="pageSize" type="number" value="100"></smart-input>
+                    </div>
+
+                    <!-- Offset Pagination Specific -->
+                    <div id="offsetConfig" class="strategy-specific">
+                        <h4>Offset Pagination Parameters</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="limitParam">Limit Parameter Name</label>
+                                <smart-input id="limitParam" value="limit" placeholder="limit"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="offsetParam">Offset Parameter Name</label>
+                                <smart-input id="offsetParam" value="offset" placeholder="offset"></smart-input>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Page Pagination Specific -->
+                    <div id="pageConfig" class="strategy-specific">
+                        <h4>Page Pagination Parameters</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="pageParam">Page Parameter Name</label>
+                                <smart-input id="pageParam" value="page" placeholder="page"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="sizeParam">Size Parameter Name</label>
+                                <smart-input id="sizeParam" value="size" placeholder="size"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="startPage">Starting Page</label>
+                                <smart-input id="startPage" type="number" value="1"></smart-input>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cursor Pagination Specific -->
+                    <div id="cursorConfig" class="strategy-specific">
+                        <h4>Cursor Pagination Parameters</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="cursorParam">Cursor Parameter Name</label>
+                                <smart-input id="cursorParam" value="cursor" placeholder="cursor"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="cursorLimitParam">Limit Parameter Name</label>
+                                <smart-input id="cursorLimitParam" value="limit" placeholder="limit"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="nextCursorPath">Next Cursor JSON Path</label>
+                                <div class="description">Path to next cursor in response (e.g., next_cursor or paging.next)</div>
+                                <smart-input id="nextCursorPath" value="next_cursor" placeholder="next_cursor"></smart-input>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Token Pagination Specific -->
+                    <div id="tokenConfig" class="strategy-specific">
+                        <h4>Token Pagination Parameters</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="tokenParam">Token Parameter Name</label>
+                                <smart-input id="tokenParam" value="page_token" placeholder="page_token"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="tokenLimitParam">Limit Parameter Name</label>
+                                <smart-input id="tokenLimitParam" value="page_size" placeholder="page_size"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="nextTokenPath">Next Token JSON Path</label>
+                                <smart-input id="nextTokenPath" value="next_page_token" placeholder="next_page_token"></smart-input>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Link Header Specific -->
+                    <div id="linkHeaderConfig" class="strategy-specific">
+                        <h4>Link Header Parameters</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="linkHeaderName">Link Header Name</label>
+                                <smart-input id="linkHeaderName" value="link" placeholder="link"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="nextRelName">Next Relation Name</label>
+                                <smart-input id="nextRelName" value="next" placeholder="next"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="linkLimitParam">Limit Parameter Name</label>
+                                <smart-input id="linkLimitParam" value="per_page" placeholder="per_page"></smart-input>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Keyset Pagination Specific -->
+                    <div id="keysetConfig" class="strategy-specific">
+                        <h4>Keyset Pagination Parameters</h4>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="idParam">ID Parameter Name</label>
+                                <smart-input id="idParam" value="since_id" placeholder="since_id"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="keysetLimitParam">Limit Parameter Name</label>
+                                <smart-input id="keysetLimitParam" value="count" placeholder="count"></smart-input>
+                            </div>
+                            <div class="form-group">
+                                <label for="idField">ID Field Name</label>
+                                <smart-input id="idField" value="id" placeholder="id"></smart-input>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Response Configuration -->
+            <div class="section">
+                <h2 class="section-title">📋 Response Configuration</h2>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="dataPath">Data JSON Path</label>
+                        <div class="description">Path to data array in response (e.g., data, items, results)</div>
+                        <smart-input id="dataPath" placeholder="data"></smart-input>
+                    </div>
+                    <div class="form-group">
+                        <label for="hasMorePath">Has More JSON Path</label>
+                        <div class="description">Path to "has more" boolean (optional)</div>
+                        <smart-input id="hasMorePath" placeholder="has_more"></smart-input>
+                    </div>
+                    <div class="form-group">
+                        <label for="totalPath">Total Records Path</label>
+                        <div class="description">Path to total record count (optional)</div>
+                        <smart-input id="totalPath" placeholder="total"></smart-input>
+                    </div>
+                    <div class="form-group">
+                        <label for="totalPagesPath">Total Pages Path</label>
+                        <div class="description">Path to total page count (optional)</div>
+                        <smart-input id="totalPagesPath" placeholder="total_pages"></smart-input>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Authentication & Headers -->
+            <div class="collapsible-section">
+                <div class="collapsible-header" onclick="toggleCollapsible('authSection')">
+                    <span>🔐 Authentication & Headers</span>
+                    <span>▼</span>
+                </div>
+                <div id="authSection" class="collapsible-content">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="authType">Authentication Type</label>
+                            <smart-dropdown id="authType">
+                                <smart-list-item value="none">None</smart-list-item>
+                                <smart-list-item value="bearer">Bearer Token</smart-list-item>
+                                <smart-list-item value="api-key">API Key</smart-list-item>
+                                <smart-list-item value="basic">Basic Auth</smart-list-item>
+                                <smart-list-item value="custom">Custom Header</smart-list-item>
+                            </smart-dropdown>
+                        </div>
+                        <div class="form-group">
+                            <label for="authValue">Authentication Value</label>
+                            <smart-input id="authValue" placeholder="your-token-here" type="password"></smart-input>
+                        </div>
+                        <div class="form-group">
+                            <label for="customHeaders">Custom Headers (JSON)</label>
+                            <div class="description">Additional headers as JSON object</div>
+                            <smart-textarea id="customHeaders" placeholder='{"User-Agent": "MyApp/1.0"}'></smart-textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Settings -->
+            <div class="collapsible-section">
+                <div class="collapsible-header" onclick="toggleCollapsible('perfSection')">
+                    <span>⚡ Performance Settings</span>
+                    <span>▼</span>
+                </div>
+                <div id="perfSection" class="collapsible-content">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="maxPages">Max Pages</label>
+                            <smart-input id="maxPages" type="number" value="100"></smart-input>
+                        </div>
+                        <div class="form-group">
+                            <label for="concurrentRequests">Concurrent Requests</label>
+                            <smart-input id="concurrentRequests" type="number" value="5"></smart-input>
+                        </div>
+                        <div class="form-group">
+                            <label for="rateLimit">Rate Limit (req/sec)</label>
+                            <smart-input id="rateLimit" type="number" value="10"></smart-input>
+                        </div>
+                        <div class="form-group">
+                            <label for="bufferSize">Buffer Size</label>
+                            <smart-input id="bufferSize" type="number" value="20"></smart-input>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="button-group">
+                <smart-button class="primary-btn" onclick="generateConfig()">
+                    Generate Config
+                </smart-button>
+                <smart-button class="test-btn" onclick="testConfig()">
+                    Test Configuration
+                </smart-button>
+                <smart-button class="secondary-btn" onclick="downloadConfig()">
+                    Download Config
+                </smart-button>
+                <smart-button onclick="resetForm()">
+                    Reset Form
+                </smart-button>
+            </div>
+
+            <!-- Validation Messages -->
+            <div id="validationMessage"></div>
+
+            <!-- Generated Configuration -->
+            <div id="resultSection" class="result-section" style="display: none;">
+                <h3>Generated Configuration</h3>
+                <div class="config-output" id="configOutput"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Templates
+        const apiTemplates = {
+            github: {
+                apiName: 'GitHub API',
+                baseUrl: 'https://api.github.com',
+                endpointPath: '/users/{username}/repos',
+                paginationStrategy: 'link-header',
+                pageSize: 100,
+                linkHeaderName: 'link',
+                nextRelName: 'next',
+                linkLimitParam: 'per_page',
+                dataPath: '',
+                authType: 'bearer',
+                authValue: 'your-github-token'
+            },
+            stripe: {
+                apiName: 'Stripe API',
+                baseUrl: 'https://api.stripe.com/v1',
+                endpointPath: '/customers',
+                paginationStrategy: 'cursor',
+                pageSize: 100,
+                cursorParam: 'starting_after',
+                cursorLimitParam: 'limit',
+                nextCursorPath: 'data.-1.id',
+                dataPath: 'data',
+                hasMorePath: 'has_more',
+                authType: 'bearer',
+                authValue: 'sk_...'
+            },
+            twitter: {
+                apiName: 'Twitter API v2',
+                baseUrl: 'https://api.twitter.com/2',
+                endpointPath: '/tweets/search/recent',
+                paginationStrategy: 'token',
+                pageSize: 100,
+                tokenParam: 'next_token',
+                tokenLimitParam: 'max_results',
+                nextTokenPath: 'meta.next_token',
+                dataPath: 'data',
+                authType: 'bearer',
+                authValue: 'your-bearer-token'
+            },
+            facebook: {
+                apiName: 'Facebook Graph API',
+                baseUrl: 'https://graph.facebook.com',
+                endpointPath: '/{page-id}/posts',
+                paginationStrategy: 'cursor',
+                pageSize: 25,
+                cursorParam: 'after',
+                cursorLimitParam: 'limit',
+                nextCursorPath: 'paging.cursors.after',
+                dataPath: 'data',
+                hasMorePath: 'paging.next',
+                authType: 'api-key',
+                authValue: 'your-access-token'
+            },
+            hubspot: {
+                apiName: 'HubSpot API',
+                baseUrl: 'https://api.hubapi.com',
+                endpointPath: '/crm/v3/objects/contacts',
+                paginationStrategy: 'offset',
+                pageSize: 100,
+                limitParam: 'limit',
+                offsetParam: 'offset',
+                dataPath: 'results',
+                hasMorePath: 'hasMore',
+                totalPath: 'total',
+                authType: 'bearer',
+                authValue: 'your-hubspot-token'
+            }
+        };
+
+        // Initialize form
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set up template selection
+            document.querySelectorAll('.template-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    selectTemplate(this.dataset.template);
+                });
+            });
+
+            // Set up strategy change listener
+            const strategyDropdown = document.getElementById('paginationStrategy');
+            strategyDropdown.addEventListener('change', function() {
+                showStrategyConfig(this.value);
+            });
+
+            // Default to custom template
+            selectTemplate('custom');
+        });
+
+        function selectTemplate(templateName) {
+            // Update UI
+            document.querySelectorAll('.template-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            document.querySelector(`[data-template="${templateName}"]`).classList.add('selected');
+
+            // Load template data
+            if (templateName !== 'custom' && apiTemplates[templateName]) {
+                loadTemplate(apiTemplates[templateName]);
+            } else {
+                // Clear form for custom
+                resetForm();
+            }
+        }
+
+        function loadTemplate(template) {
+            // Populate form fields
+            Object.keys(template).forEach(key => {
+                const element = document.getElementById(key);
+                if (element) {
+                    element.value = template[key];
+                }
+            });
+
+            // Show appropriate strategy config
+            showStrategyConfig(template.paginationStrategy);
+        }
+
+        function showStrategyConfig(strategy) {
+            // Hide all strategy configs
+            document.querySelectorAll('.strategy-specific').forEach(config => {
+                config.classList.remove('active');
+            });
+
+            // Show selected strategy config
+            const configMap = {
+                'offset': 'offsetConfig',
+                'page': 'pageConfig',
+                'cursor': 'cursorConfig',
+                'token': 'tokenConfig',
+                'link-header': 'linkHeaderConfig',
+                'keyset': 'keysetConfig'
+            };
+
+            const configId = configMap[strategy];
+            if (configId) {
+                document.getElementById(configId).classList.add('active');
+            }
+        }
+
+        function toggleCollapsible(sectionId) {
+            const content = document.getElementById(sectionId);
+            const header = content.previousElementSibling;
+            const arrow = header.querySelector('span:last-child');
+            
+            if (content.classList.contains('open')) {
+                content.classList.remove('open');
+                arrow.textContent = '▼';
+            } else {
+                content.classList.add('open');
+                arrow.textContent = '▲';
+            }
+        }
+
+        function generateConfig() {
+            try {
+                const config = collectFormData();
+                const validation = validateConfig(config);
+                
+                if (!validation.isValid) {
+                    showValidationMessage(validation.errors, 'error');
+                    return;
+                }
+
+                const clojureConfig = generateClojureConfig(config);
+                displayConfig(clojureConfig);
+                showValidationMessage(['Configuration generated successfully!'], 'success');
+                
+            } catch (error) {
+                showValidationMessage([`Error generating config: ${error.message}`], 'error');
+            }
+        }
+
+        function collectFormData() {
+            const strategy = document.getElementById('paginationStrategy').value;
+            
+            const config = {
+                apiName: document.getElementById('apiName').value,
+                baseUrl: document.getElementById('baseUrl').value,
+                endpointPath: document.getElementById('endpointPath').value,
+                strategy: strategy,
+                pagination: {
+                    pageSize: parseInt(document.getElementById('pageSize').value) || 100
+                },
+                performance: {
+                    maxPages: parseInt(document.getElementById('maxPages').value) || 100,
+                    concurrentRequests: parseInt(document.getElementById('concurrentRequests').value) || 5,
+                    rateLimit: parseInt(document.getElementById('rateLimit').value) || 10,
+                    bufferSize: parseInt(document.getElementById('bufferSize').value) || 20
+                }
+            };
+
+            // Add strategy-specific parameters
+            switch (strategy) {
+                case 'offset':
+                    config.pagination.limitParam = document.getElementById('limitParam').value || 'limit';
+                    config.pagination.offsetParam = document.getElementById('offsetParam').value || 'offset';
+                    break;
+                case 'page':
+                    config.pagination.pageParam = document.getElementById('pageParam').value || 'page';
+                    config.pagination.sizeParam = document.getElementById('sizeParam').value || 'size';
+                    config.pagination.startPage = parseInt(document.getElementById('startPage').value) || 1;
+                    break;
+                case 'cursor':
+                    config.pagination.cursorParam = document.getElementById('cursorParam').value || 'cursor';
+                    config.pagination.limitParam = document.getElementById('cursorLimitParam').value || 'limit';
+                    config.pagination.nextCursorPath = parseJsonPath(document.getElementById('nextCursorPath').value);
+                    break;
+                case 'token':
+                    config.pagination.tokenParam = document.getElementById('tokenParam').value || 'page_token';
+                    config.pagination.limitParam = document.getElementById('tokenLimitParam').value || 'page_size';
+                    config.pagination.nextTokenPath = parseJsonPath(document.getElementById('nextTokenPath').value);
+                    break;
+                case 'link-header':
+                    config.pagination.linkHeaderName = document.getElementById('linkHeaderName').value || 'link';
+                    config.pagination.nextRelName = document.getElementById('nextRelName').value || 'next';
+                    config.pagination.limitParam = document.getElementById('linkLimitParam').value || 'per_page';
+                    break;
+                case 'keyset':
+                    config.pagination.idParam = document.getElementById('idParam').value || 'since_id';
+                    config.pagination.limitParam = document.getElementById('keysetLimitParam').value || 'count';
+                    config.pagination.idField = document.getElementById('idField').value || 'id';
+                    break;
+            }
+
+            // Add response configuration
+            const dataPath = document.getElementById('dataPath').value;
+            if (dataPath) config.pagination.dataPath = parseJsonPath(dataPath);
+            
+            const hasMorePath = document.getElementById('hasMorePath').value;
+            if (hasMorePath) config.pagination.hasMorePath = parseJsonPath(hasMorePath);
+            
+            const totalPath = document.getElementById('totalPath').value;
+            if (totalPath) config.pagination.totalPath = parseJsonPath(totalPath);
+            
+            const totalPagesPath = document.getElementById('totalPagesPath').value;
+            if (totalPagesPath) config.pagination.totalPagesPath = parseJsonPath(totalPagesPath);
+
+            // Add authentication
+            const authType = document.getElementById('authType').value;
+            const authValue = document.getElementById('authValue').value;
+            
+            config.headers = {};
+            if (authType !== 'none' && authValue) {
+                switch (authType) {
+                    case 'bearer':
+                        config.headers['Authorization'] = `Bearer ${authValue}`;
+                        break;
+                    case 'api-key':
+                        config.headers['X-API-Key'] = authValue;
+                        break;
+                    case 'basic':
+                        config.headers['Authorization'] = `Basic ${btoa(authValue)}`;
+                        break;
+                    case 'custom':
+                        config.headers['Authorization'] = authValue;
+                        break;
+                }
+            }
+
+            // Add custom headers
+            const customHeaders = document.getElementById('customHeaders').value;
+            if (customHeaders) {
+                try {
+                    const parsed = JSON.parse(customHeaders);
+                    Object.assign(config.headers, parsed);
+                } catch (e) {
+                    console.warn('Invalid custom headers JSON:', e);
+                }
+            }
+
+            return config;
+        }
+
+        function parseJsonPath(pathString) {
+            if (!pathString) return null;
+            if (pathString.includes('.')) {
+                return pathString.split('.').map(part => 
+                    part.includes('-') && /^-?\d+$/.test(part) ? parseInt(part) : part
+                );
+            }
+            return [pathString];
+        }
+
+        function validateConfig(config) {
+            const errors = [];
+            
+            if (!config.apiName) errors.push('API Name is required');
+            if (!config.baseUrl) errors.push('Base URL is required');
+            if (!config.strategy) errors.push('Pagination strategy is required');
+            
+            // Validate URL format
+            try {
+                new URL(config.baseUrl);
+            } catch (e) {
+                errors.push('Base URL must be a valid URL');
+            }
+
+            // Strategy-specific validation
+            switch (config.strategy) {
+                case 'offset':
+                    if (!config.pagination.limitParam) errors.push('Limit parameter is required for offset pagination');
+                    if (!config.pagination.offsetParam) errors.push('Offset parameter is required for offset pagination');
+                    break;
+                case 'page':
+                    if (!config.pagination.pageParam) errors.push('Page parameter is required for page pagination');
+                    if (!config.pagination.sizeParam) errors.push('Size parameter is required for page pagination');
+                    break;
+                case 'cursor':
+                    if (!config.pagination.cursorParam) errors.push('Cursor parameter is required for cursor pagination');
+                    if (!config.pagination.nextCursorPath) errors.push('Next cursor path is required for cursor pagination');
+                    break;
+                case 'token':
+                    if (!config.pagination.tokenParam) errors.push('Token parameter is required for token pagination');
+                    if (!config.pagination.nextTokenPath) errors.push('Next token path is required for token pagination');
+                    break;
+            }
+
+            return {
+                isValid: errors.length === 0,
+                errors: errors
+            };
+        }
+
+        function generateClojureConfig(config) {
+            const strategy = config.strategy;
+            const pagination = config.pagination;
+            
+            let clojureConfig = `;; Generated API Pagination Configuration
+;; API: ${config.apiName}
+;; Strategy: ${strategy}
+
+(def ${config.apiName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-config
+  {:base-url "${config.baseUrl}"`;
+
+            if (config.endpointPath) {
+                clojureConfig += `\n   :endpoint-path "${config.endpointPath}"`;
+            }
+
+            clojureConfig += `\n   :strategy :${strategy}`;
+
+            // Pagination configuration
+            clojureConfig += `\n   :pagination {`;
+            
+            // Common parameters
+            clojureConfig += `\n     :page-size ${pagination.pageSize}`;
+
+            // Strategy-specific parameters
+            switch (strategy) {
+                case 'offset':
+                    clojureConfig += `\n     :limit-param "${pagination.limitParam}"`;
+                    clojureConfig += `\n     :offset-param "${pagination.offsetParam}"`;
+                    break;
+                case 'page':
+                    clojureConfig += `\n     :page-param "${pagination.pageParam}"`;
+                    clojureConfig += `\n     :size-param "${pagination.sizeParam}"`;
+                    clojureConfig += `\n     :start-page ${pagination.startPage}`;
+                    break;
+                case 'cursor':
+                    clojureConfig += `\n     :cursor-param "${pagination.cursorParam}"`;
+                    clojureConfig += `\n     :limit-param "${pagination.limitParam}"`;
+                    clojureConfig += `\n     :next-cursor-path ${formatClojurePath(pagination.nextCursorPath)}`;
+                    break;
+                case 'token':
+                    clojureConfig += `\n     :token-param "${pagination.tokenParam}"`;
+                    clojureConfig += `\n     :limit-param "${pagination.limitParam}"`;
+                    clojureConfig += `\n     :next-token-path ${formatClojurePath(pagination.nextTokenPath)}`;
+                    break;
+                case 'link-header':
+                    clojureConfig += `\n     :link-header-name "${pagination.linkHeaderName}"`;
+                    clojureConfig += `\n     :next-rel-name "${pagination.nextRelName}"`;
+                    clojureConfig += `\n     :limit-param "${pagination.limitParam}"`;
+                    break;
+                case 'keyset':
+                    clojureConfig += `\n     :id-param "${pagination.idParam}"`;
+                    clojureConfig += `\n     :limit-param "${pagination.limitParam}"`;
+                    clojureConfig += `\n     :id-field "${pagination.idField}"`;
+                    break;
+            }
+
+            // Response paths
+            if (pagination.dataPath) {
+                clojureConfig += `\n     :data-path ${formatClojurePath(pagination.dataPath)}`;
+            }
+            if (pagination.hasMorePath) {
+                clojureConfig += `\n     :has-more-path ${formatClojurePath(pagination.hasMorePath)}`;
+            }
+            if (pagination.totalPath) {
+                clojureConfig += `\n     :total-path ${formatClojurePath(pagination.totalPath)}`;
+            }
+            if (pagination.totalPagesPath) {
+                clojureConfig += `\n     :total-pages-path ${formatClojurePath(pagination.totalPagesPath)}`;
+            }
+
+            clojureConfig += `\n   }`;
+
+            // Headers
+            if (config.headers && Object.keys(config.headers).length > 0) {
+                clojureConfig += `\n   :headers {`;
+                Object.entries(config.headers).forEach(([key, value]) => {
+                    clojureConfig += `\n     "${key}" "${value}"`;
+                });
+                clojureConfig += `\n   }`;
+            }
+
+            clojureConfig += `})
+
+;; Usage Example:
+(defn fetch-${config.apiName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-data []
+  "Fetch data from ${config.apiName}"
+  (paginate-api ${config.apiName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-config
+                :max-pages ${config.performance.maxPages}
+                :concurrent-requests ${config.performance.concurrentRequests}
+                :rate-limit ${config.performance.rateLimit}
+                :buffer-size ${config.performance.bufferSize}))
+
+;; Test Configuration:
+(defn test-${config.apiName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-config []
+  "Test the configuration with a single request"
+  (go
+    (let [result (<! (test-pagination-config ${config.apiName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-config))]
+      (if (:success result)
+        (println "✅ Configuration test successful!")
+        (println "❌ Configuration test failed:" (:error result))))))`;
+
+            return clojureConfig;
+        }
+
+        function formatClojurePath(path) {
+            if (!path) return 'nil';
+            if (Array.isArray(path)) {
+                return `[${path.map(p => typeof p === 'string' ? `:${p}` : p).join(' ')}]`;
+            }
+            return `[:${path}]`;
+        }
+
+        function displayConfig(config) {
+            const resultSection = document.getElementById('resultSection');
+            const configOutput = document.getElementById('configOutput');
+            
+            configOutput.textContent = config;
+            resultSection.style.display = 'block';
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function showValidationMessage(messages, type) {
+            const messageDiv = document.getElementById('validationMessage');
+            messageDiv.innerHTML = '';
+            
+            if (messages.length > 0) {
+                const messageElement = document.createElement('div');
+                messageElement.className = `validation-message validation-${type}`;
+                messageElement.innerHTML = messages.map(msg => `• ${msg}`).join('<br>');
+                messageDiv.appendChild(messageElement);
+                
+                // Auto-hide success messages
+                if (type === 'success') {
+                    setTimeout(() => {
+                        messageDiv.innerHTML = '';
+                    }, 5000);
+                }
+            }
+        }
+
+        function testConfig() {
+            try {
+                const config = collectFormData();
+                const validation = validateConfig(config);
+                
+                if (!validation.isValid) {
+                    showValidationMessage(validation.errors, 'error');
+                    return;
+                }
+
+                // Simulate API test
+                showValidationMessage(['Testing configuration...'], 'success');
+                
+                setTimeout(() => {
+                    // Simulate test results
+                    const testResult = {
+                        success: true,
+                        canParallelize: ['offset', 'page'].includes(config.strategy),
+                        estimatedSpeed: config.strategy === 'cursor' ? 'Sequential (slower)' : 'Parallel (faster)',
+                        recommendations: generateRecommendations(config)
+                    };
+                    
+                    const messages = [
+                        `✅ Configuration test passed`,
+                        `🚀 Parallelization: ${testResult.canParallelize ? 'Supported' : 'Not supported'}`,
+                        `⚡ Speed: ${testResult.estimatedSpeed}`,
+                        ...testResult.recommendations
+                    ];
+                    
+                    showValidationMessage(messages, 'success');
+                }, 1000);
+                
+            } catch (error) {
+                showValidationMessage([`Test failed: ${error.message}`], 'error');
+            }
+        }
+
+        function generateRecommendations(config) {
+            const recommendations = [];
+            
+            if (config.pagination.pageSize > 1000) {
+                recommendations.push('⚠️ Consider reducing page size for better performance');
+            }
+            
+            if (config.performance.concurrentRequests > 10) {
+                recommendations.push('⚠️ High concurrent requests may trigger rate limits');
+            }
+            
+            if (config.strategy === 'cursor' && config.performance.concurrentRequests > 1) {
+                recommendations.push('ℹ️ Cursor pagination uses sequential fetching (concurrent requests ignored)');
+            }
+            
+            if (!config.pagination.hasMorePath && config.strategy !== 'link-header') {
+                recommendations.push('💡 Consider adding has-more-path for better pagination control');
+            }
+            
+            return recommendations;
+        }
+
+        function downloadConfig() {
+            try {
+                const config = collectFormData();
+                const validation = validateConfig(config);
+                
+                if (!validation.isValid) {
+                    showValidationMessage(validation.errors, 'error');
+                    return;
+                }
+
+                const clojureConfig = generateClojureConfig(config);
+                const blob = new Blob([clojureConfig], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${config.apiName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-pagination-config.clj`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showValidationMessage(['Configuration downloaded successfully!'], 'success');
+                
+            } catch (error) {
+                showValidationMessage([`Download failed: ${error.message}`], 'error');
+            }
+        }
+
+        function resetForm() {
+            // Reset all input fields
+            document.querySelectorAll('smart-input, smart-dropdown, smart-textarea').forEach(element => {
+                element.value = '';
+            });
+            
+            // Reset to default values
+            document.getElementById('pageSize').value = '100';
+            document.getElementById('maxPages').value = '100';
+            document.getElementById('concurrentRequests').value = '5';
+            document.getElementById('rateLimit').value = '10';
+            document.getElementById('bufferSize').value = '20';
+            document.getElementById('startPage').value = '1';
+            
+            // Reset strategy configs
+            document.querySelectorAll('.strategy-specific').forEach(config => {
+                config.classList.remove('active');
+            });
+            
+            // Reset template selection
+            document.querySelectorAll('.template-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            document.querySelector('[data-template="custom"]').classList.add('selected');
+            
+            // Hide result section
+            document.getElementById('resultSection').style.display = 'none';
+            document.getElementById('validationMessage').innerHTML = '';
+            
+            showValidationMessage(['Form reset successfully!'], 'success');
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                switch (e.key) {
+                    case 'Enter':
+                        e.preventDefault();
+                        generateConfig();
+                        break;
+                    case 's':
+                        e.preventDefault();
+                        downloadConfig();
+                        break;
+                    case 'r':
+                        e.preventDefault();
+                        resetForm();
+                        break;
+                }
+            }
+        });
+
+        // Auto-save to localStorage
+        function autoSave() {
+            try {
+                const config = collectFormData();
+                localStorage.setItem('apiPaginationConfig', JSON.stringify(config));
+            } catch (e) {
+                // Ignore auto-save errors
+            }
+        }
+
+        // Auto-save on form changes
+        document.addEventListener('input', debounce(autoSave, 1000));
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Load saved config on page load
+        window.addEventListener('load', function() {
+            try {
+                const saved = localStorage.getItem('apiPaginationConfig');
+                if (saved) {
+                    const config = JSON.parse(saved);
+                    // You could implement loadConfig(config) here if desired
+                }
+            } catch (e) {
+                // Ignore load errors
+            }
+        });
+    </script>
+</body>
+</html>

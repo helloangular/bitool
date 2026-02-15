@@ -1,0 +1,1 @@
+{:tname "tCatalog" :tcols ["cat_id" ,"item_id","item_name" ,"price"]}

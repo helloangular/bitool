@@ -1,0 +1,35 @@
+.section {
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+.padding {
+    padding: 10px;
+}
+.margin-left {
+    margin-left: 10px; 
+}
+.button {
+    padding: 10px 20px;
+    border: none;
+    background-color: #4CAF50;
+    color: white;
+    text-align: center;
+}
+.bt {
+    border-top: 1px solid gray;
+}
+.br {
+    border-right: 1px solid gray;
+}
+.bb {
+    border-bottom: 1px solid gray;
+}
+.bl {
+    border-left: 1px solid gray;
+}
+.pb {
+    padding-bottom: 5px;
+}
+.border {
+    border: 1px solid gray;
+}

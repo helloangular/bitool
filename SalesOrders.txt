@@ -1,0 +1,1 @@
+{:tname "tSalesOrders" :tdistinct "checked" :tcols ["order_id" ,"order_date","first_name" ,"city"]}}

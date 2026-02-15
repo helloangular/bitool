@@ -1,0 +1,41 @@
+<table>
+<tr>
+<td><div>
+ <input type=text name=tableName value="{{table.tname}}">
+</div>
+</td>
+<td>
+<div>
+<input type="checkbox" id="distinct" name="distinct" {{table.tdistinct}} value="">
+<label for="distinct">Distinct Values</label><br>
+</div>
+</td>
+</ tr>
+<tr>
+<td colspan=2 >
+<div>
+<input type="text" id="myInput" onkeyup="myFunction()" placeholder="Search for names.." title="Type in a Clumn Name">
+</td>
+</tr>
+<tr>
+<td colspan=2 >
+
+<ul id="myUL">
+{% for col in table.tcols %}
+  <li><a href="#">{{col}}</a></li>
+{% endfor %}
+<!--
+  <li><a href="#">Lastname</a></li>
+
+  <li><a href="#">city</a></li>
+  <li><a href="#">zipcode</a></li>
+
+  <li><a href="#">title</a></li>
+  <li><a href="#">salary</a></li>
+  <li><a href="#">years_of_service</a></li>
+-->
+</ul>
+</td>
+</tr>
+</table>
+</div>

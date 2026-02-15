@@ -1,0 +1,23 @@
+const targetDiv = document.getElementById("targetDiv");
+const floater = document.getElementById("floater");
+
+// Function to open the floater at the mouse pointer's position
+function openFloater(event) {
+    event.preventDefault(); // Prevent the default context menu from appearing
+    const mouseX = event.clientX;
+    const mouseY = event.clientY;
+    floater.style.display = "block";
+    floater.style.left = mouseX + "px";
+    floater.style.top = mouseY + "px";
+}
+
+// Add a contextmenu event listener to the target div
+targetDiv.addEventListener("contextmenu", openFloater);
+
+// Close the floater when clicking anywhere else on the page
+document.addEventListener("click", function(event) {
+    if (event.target !== targetDiv && event.target !== floater) {
+        floater.style.display = "none";
+    }
+});
+

@@ -1,0 +1,1 @@
+{:tname "tCatalog" :tdistinct "checked" :tcols ["cat_id" ,"item_id","item_name" ,"price"]}}

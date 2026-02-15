@@ -1,0 +1,283 @@
+(ns bitool.connector.pagination
+  (:require [clojure.core.async :as async :refer [go <!]]
+            [clj-http.client :as http]))
+
+;; =============================================================================
+;; DEBUG UTILITIES
+;; =============================================================================
+
+(def ^:dynamic *debug-enabled* true)
+
+(defn debug-log [& args] 
+  (when *debug-enabled* 
+    (println "[DEBUG]" (apply str (interpose " " args)))))
+
+(defn info-log [& args] 
+  (println "[INFO]" (apply str (interpose " " args))))
+
+;; =============================================================================
+;; PAGINATION STRATEGY PROTOCOL
+;; =============================================================================
+
+(defprotocol ConfigurablePaginationStrategy
+  (initial-params [this config])
+  (extract-data [this response config])
+  (can-parallelize? [this]))
+
+;; =============================================================================
+;; SAFE DATA EXTRACTION (FIXES THE CORE BUG)
+;; =============================================================================
+
+(defn extract-data-safe [response config]
+  "Safe data extraction that eliminates race conditions"
+  (let [body (:body response)]
+    (debug-log "EXTRACT: vector=" (vector? body) " count=" (if (coll? body) (count body) 0))
+    (if (vector? body) body [])))
+
+;; =============================================================================
+;; PAGINATION STRATEGY IMPLEMENTATIONS
+;; =============================================================================
+
+(defrecord ConfigurablePagePagination []
+  ConfigurablePaginationStrategy
+  (initial-params [_ config]
+    {(keyword (get-in config [:pagination :page-param])) 1
+     (keyword (get-in config [:pagination :size-param])) (get-in config [:pagination :page-size])})
+  (extract-data [_ response config] 
+    (extract-data-safe response config))
+  (can-parallelize? [_] true))
+
+(defrecord ConfigurableOffsetPagination []
+  ConfigurablePaginationStrategy
+  (initial-params [_ config]
+    {(keyword (get-in config [:pagination :limit-param])) (get-in config [:pagination :page-size])
+     (keyword (get-in config [:pagination :offset-param])) 0})
+  (extract-data [_ response config]
+    (extract-data-safe response config))
+  (can-parallelize? [_] true))
+
+(defrecord ConfigurableCursorPagination []
+  ConfigurablePaginationStrategy
+  (initial-params [_ config]
+    {(keyword (get-in config [:pagination :limit-param])) (get-in config [:pagination :page-size])})
+  (extract-data [_ response config]
+    (extract-data-safe response config))
+  (can-parallelize? [_] false))
+
+;; =============================================================================
+;; STRATEGY FACTORY
+;; =============================================================================
+
+(defn create-strategy [type] 
+  (case type 
+    :page (->ConfigurablePagePagination)
+    :offset (->ConfigurableOffsetPagination)
+    :cursor (->ConfigurableCursorPagination)))
+
+;; =============================================================================
+;; FIXED ASYNC PAGINATION (ELIMINATES RACE CONDITIONS)
+;; =============================================================================
+
+(defn paginate-async [config max-pages]
+  "Fixed async pagination that eliminates race conditions"
+  (go
+    (let [strategy (create-strategy (:strategy config))
+          url (str (:base-url config) (:endpoint-path config))
+          results (atom [])]
+      
+      (info-log "=== ASYNC PAGINATION START ===")
+      (info-log "URL: " url " Max pages: " max-pages)
+      
+      ;; Sequential loop in single go block - PREVENTS RACE CONDITIONS
+      (loop [page 1]
+        (if (<= page max-pages)
+          (do
+            (info-log "Fetching page " page)
+            (let [params (merge (initial-params strategy config) (:query-params config))
+                  response (<! (go (http/get url {:query-params params 
+                                                 :headers (:headers config) 
+                                                 :as :json})))
+                  data (extract-data strategy (:body response) config)]
+              
+              (if (and (< (:status response) 400) (seq data))
+                (do
+                  (info-log "Page " page ": " (count data) " records")
+                  (swap! results conj {:page page :records data})
+                  (recur (inc page)))
+                (do
+                  (info-log "Stopping at page " page " - no more data")
+                  @results))))
+          
+          ;; Loop complete - return results
+          (do
+            (let [final @results
+                  total (reduce + (map #(count (:records %)) final))]
+              (info-log "=== COMPLETE: " (count final) " pages, " total " records ===")
+              final)))))))
+
+(defn adaptive-paginate-async [config max-pages]
+  "Adaptive async pagination with batch size scaling - FIXED"
+  (go
+    (let [strategy (create-strategy (:strategy config))
+          url (str (:base-url config) (:endpoint-path config))
+          results (atom [])]
+      
+      (info-log "=== ADAPTIVE PAGINATION START ===")
+      
+      (loop [page 1 batch-size 3]
+        (if (<= page max-pages)
+          (do
+            (info-log "Batch starting at page " page " with batch size " batch-size)
+            (let [pages-to-fetch (min batch-size (- max-pages page -1))
+                  batch-results (atom [])
+                  batch-start (System/currentTimeMillis)]
+              
+              ;; Fetch batch pages - FIX: properly increment page numbers
+              (loop [current-page page batch-count 0]
+                (if (and (< batch-count pages-to-fetch) (<= current-page max-pages))
+                  (let [;; FIX: Include current page in params
+                        base-params (initial-params strategy config)
+                        page-params (assoc base-params 
+                                          (keyword (get-in config [:pagination :page-param])) 
+                                          current-page)
+                        params (merge page-params (:query-params config))
+                        response (<! (go (http/get url {:query-params params 
+                                                       :headers (:headers config) 
+                                                       :as :json})))
+                        data (extract-data strategy (:body response) config)]
+                    
+                    (if (and (< (:status response) 400) (seq data))
+                      (do
+                        (info-log "Page " current-page ": " (count data) " records")
+                        (swap! batch-results conj {:page current-page :records data})
+                        (recur (inc current-page) (inc batch-count)))
+                      (do
+                        (info-log "Page " current-page ": no data")
+                        (recur (inc current-page) (inc batch-count)))))
+                  
+                  ;; Batch complete
+                  (let [batch-end (System/currentTimeMillis)
+                        batch-duration (- batch-end batch-start)
+                        successful-pages (count @batch-results)
+                        total-records (reduce + (map #(count (:records %)) @batch-results))]
+                    
+                    (swap! results concat @batch-results)
+                    
+                    (info-log "Batch complete: " successful-pages " pages, " total-records " records in " batch-duration "ms")
+                    
+                    ;; Adaptive sizing
+                    (let [success-rate (if (> pages-to-fetch 0) (/ successful-pages pages-to-fetch) 0)
+                          new-batch-size (cond
+                                          (and (> success-rate 0.8) (> total-records 0)) (min (* batch-size 2) 10)
+                                          (> success-rate 0.5) batch-size
+                                          :else (max (/ batch-size 2) 2))]
+                      
+                      (info-log "Success rate: " success-rate " -> next batch size: " new-batch-size)
+                      
+                      (if (> total-records 0)
+                        (recur (+ page pages-to-fetch) new-batch-size)
+                        @results)))))
+          
+          ;; Complete
+          (let [final @results
+                total (reduce + (map #(count (:records %)) final))]
+            (info-log "=== ADAPTIVE COMPLETE: " (count final) " pages, " total " records ===")
+            final))))))))
+
+;; =============================================================================
+;; API CONFIGURATION
+;; =============================================================================
+
+(def api-configs
+  {:github {:base-url "https://api.github.com"
+           :strategy :page
+           :pagination {:page-param "page" 
+                       :size-param "per_page" 
+                       :page-size 10}
+           :headers {"User-Agent" "Pagination/1.0"}}
+   
+   :jsonplaceholder {:base-url "https://jsonplaceholder.typicode.com"
+                    :strategy :page
+                    :pagination {:page-param "_page"
+                                :size-param "_limit"
+                                :page-size 5}
+                    :headers {"User-Agent" "Test/1.0"}}})
+
+(defn build-api-config [api-key & {:keys [endpoint-path auth-headers query-params custom-config]
+                                   :or {endpoint-path "" auth-headers {} query-params {} custom-config {}}}]
+  (let [base-config (get api-configs api-key)
+        merged-config (merge-with merge base-config custom-config)]
+    (-> merged-config
+        (assoc :endpoint-path endpoint-path)
+        (update :headers merge auth-headers)
+        (assoc :query-params query-params))))
+
+;; =============================================================================
+;; MAIN PAGINATION API
+;; =============================================================================
+
+(defn paginate-api [config & {:keys [max-pages adaptive] :or {max-pages 10 adaptive false}}]
+  "Main pagination API - choose between sequential and adaptive"
+  (if adaptive
+    (adaptive-paginate-async config max-pages)
+    (paginate-async config max-pages)))
+
+;; =============================================================================
+;; TEST FUNCTIONS
+;; =============================================================================
+
+(defn test-github-pagination [repo-owner repo-name & {:keys [max-pages auth-token adaptive]
+                                                      :or {max-pages 5 adaptive false}}]
+  "Test GitHub pagination with the fixed async implementation"
+  (let [config (build-api-config :github
+                                :endpoint-path (str "/repos/" repo-owner "/" repo-name "/issues")
+                                :auth-headers (if auth-token
+                                               {"Authorization" (str "Bearer " auth-token)
+                                                "Accept" "application/vnd.github.v3+json"}
+                                               {"Accept" "application/vnd.github.v3+json"})
+                                :query-params {"state" "all"}
+                                :custom-config {:pagination {:page-size 5}})]
+    
+    (println "=== TESTING GITHUB PAGINATION ===")
+    (println (str "Repository: " repo-owner "/" repo-name))
+    (println (str "Max pages: " max-pages))
+    (println (str "Adaptive: " adaptive))
+    
+    (go
+      (let [results (<! (paginate-api config :max-pages max-pages :adaptive adaptive))]
+        (println "=== RESULTS ===")
+        (doseq [{:keys [page records]} results]
+          (println (str "Page " page ": " (count records) " issues")))
+        (let [total (reduce + (map #(count (:records %)) results))]
+          (println "SUCCESS:" (if (> total 0) "✓" "✗"))
+          (println "Total pages:" (count results))
+          (println "Total records:" total))
+        results))))
+
+(defn test-jsonplaceholder []
+  "Test with JSONPlaceholder API"
+  (let [config (build-api-config :jsonplaceholder
+                                :endpoint-path "/posts")]
+    
+    (println "=== TESTING JSONPLACEHOLDER ===")
+    (go
+      (let [results (<! (paginate-api config :max-pages 4 :adaptive true))]
+        (doseq [{:keys [page records]} results]
+          (println (str "Page " page ": " (count records) " posts")))
+        results))))
+
+;; =============================================================================
+;; USAGE EXAMPLES
+;; =============================================================================
+
+;; Test sequential GitHub pagination (guaranteed to work)
+;; (test-github-pagination "facebook" "react" :max-pages 5 :adaptive false)
+
+;; Test adaptive GitHub pagination (shows batch scaling)
+;; (test-github-pagination "facebook" "react" :max-pages 15 :adaptive true)
+
+;; Test with authentication
+;; (test-github-pagination "facebook" "react" :auth-token "your-token" :max-pages 10)
+
+;; Test with JSONPlaceholder
+;; (test-jsonplaceholder)

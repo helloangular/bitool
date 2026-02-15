@@ -1,0 +1,1 @@
+{:tname nil, :where nil, :jcondition [["Catalog.cat_id" "Address.cust_id"]]}

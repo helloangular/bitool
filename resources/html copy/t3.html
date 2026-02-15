@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Draw Line on Drag and Drop Between Rectangles</title>
+<style>
+  .rectangle {
+    width: 100px;
+    height: 50px;
+    background-color: lightblue;
+    border: 1px solid blue;
+    position: absolute;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: grab;
+  }
+
+  #rect1 {
+    top: 50px;
+    left: 50px;
+  }
+
+  #rect2 {
+    top: 200px;
+    left: 250px;
+  }
+
+  #canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="rect1" class="rectangle">Rectangle 1</div>
+<div id="rect2" class="rectangle">Rectangle 2</div>
+<canvas id="canvas"></canvas>
+
+<script>
+  const rect1 = document.getElementById('rect1');
+  const rect2 = document.getElementById('rect2');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let isDragging = false;
+  let currentDraggable = null;
+  let startPoint = null;
+  let endPoint = null;
+  let offsetX, offsetY;
+
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    drawExistingLine(); // Redraw if a line exists on resize
+  }
+
+  function getCenter(element) {
+    const rect = element.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+  }
+
+  function drawExistingLine() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (startPoint && endPoint) {
+      ctx.beginPath();
+      ctx.moveTo(startPoint.x, startPoint.y);
+      ctx.lineTo(endPoint.x, endPoint.y);
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  function handleMouseDown(e) {
+    const target = e.target;
+    if (target.classList.contains('rectangle')) {
+      isDragging = true;
+      currentDraggable = target;
+      offsetX = e.clientX - target.getBoundingClientRect().left;
+      offsetY = e.clientY - target.getBoundingClientRect().top;
+      target.style.cursor = 'grabbing';
+      startPoint = getCenter(target); // Set the starting point when dragging begins
+      endPoint = null; // Reset the end point
+      drawExistingLine(); // Clear any previous line
+    }
+  }
+
+  function handleMouseMove(e) {
+    if (!isDragging) return;
+
+    currentDraggable.style.left = e.clientX - offsetX + 'px';
+    currentDraggable.style.top = e.clientY - offsetY + 'px';
+
+    // Optionally draw a temporary line following the cursor
+    // ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // ctx.beginPath();
+    // ctx.moveTo(startPoint.x, startPoint.y);
+    // ctx.lineTo(e.clientX, e.clientY);
+    // ctx.strokeStyle = 'gray'; // Indicate temporary line
+    // ctx.lineWidth = 1;
+    // ctx.stroke();
+  }
+
+  function handleMouseUp(e) {
+    if (!isDragging) return;
+
+    isDragging = false;
+    currentDraggable.style.cursor = 'grab';
+
+    const releasedOn = e.target;
+    if (releasedOn !== currentDraggable && releasedOn.classList.contains('rectangle')) {
+      endPoint = getCenter(releasedOn);
+      drawExistingLine(); // Draw the final line
+    } else {
+      startPoint = null; // Clear start point if not dropped on the other rectangle
+      drawExistingLine(); // Clear any temporary drawing
+    }
+
+    currentDraggable = null;
+  }
+
+  // Event listeners for dragging
+  rect1.addEventListener('mousedown', handleMouseDown);
+  rect2.addEventListener('mousedown', handleMouseDown);
+  window.addEventListener('mousemove', handleMouseMove);
+  window.addEventListener('mouseup', handleMouseUp);
+
+  // Initial canvas resize
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+</script>
+
+</body>
+</html>

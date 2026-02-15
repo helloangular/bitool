@@ -1,0 +1,85 @@
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<link rel="stylesheet" href="./styles/apiComponent.css" />
+<div class="side-panel">
+  <div class="panel-item">
+    <div class="form-group">
+      <label for="apiName">Api Name</label>
+      <input type="text" name="api_name" id="apiName" placeholder="Enter api name">
+    </div>
+
+    <div class="form-group">
+      <label for="connections">Connection</label>
+      <select name="connection">
+        <option value="MySQL">MySQL</option>
+        <option value="PostGres">PostGres</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="api-input">
+        <label for="endpointUrl" style="font-weight:600;margin-right:6px">API Spec</label>
+        <input id="endpointUrl" name="specification_url" type="text" value="" />
+        <button class="btn" id="getEndpoints">Get Endpoints</button>
+      </div>
+
+      <div class="endpoint-table-container">
+        <div style="max-height:250px;overflow-y:auto;">
+          <table aria-label="endpoints table">
+            <thead style="position:sticky;top:0;background:#fff;z-index:1">
+              <th>
+                <label style="font-size:14px;font-weight:600">End Points: </label>
+                <input type="text" id="endpointSearch" placeholder="Search endpoints..." />
+                <select name="fetch_method" id="fetchMethod">
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="DELETE">DELETE</option>
+                </select>
+              </th>
+              <th></th>
+              <th>Table Names</th>
+              <th></th>
+            </thead>
+            <tbody id="endpointsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bottom-actions">
+        <button class="secondary-btn" id="addBtn">Add</button>
+      </div>
+    </div>
+
+    <div class="form-group" id="tokenGroup">
+      <label for="token">Personal Access Token(s)*</label>
+      <select id="authSelect" name="authentication">
+        <option value="">-- Select Auth Type --</option>
+        <option value="noauth">No Auth</option>
+        <option value="basic">Basic Auth</option>
+        <option value="bearer">Bearer Token</option>
+        <option value="apikey">API Key</option>
+        <option value="oauth">OAuth2</option>
+        <option value="customheader">Custom Header</option>
+        <option value="hmac">HMAC / Signed Request</option>
+      </select>
+
+      <div class="auth-fields" id="noauth"> <p>No authentication required.</p> </div>
+      <div class="auth-fields" id="basic"> <input type="text" name="username" placeholder="Username"> <input type="password" name="password" placeholder="Password"> </div>
+      <div class="auth-fields" id="bearer"> <input type="text" name="bearer_token" placeholder="Bearer Token"> </div>
+      <div class="auth-fields" id="apikey"> <input type="text" name="api_key" placeholder="API Key"> <input type="text" name="key_name" placeholder="Key Name (optional)"> <select name="key_location"><option value="header">Header</option><option value="query">Query</option></select></div>
+      <div class="auth-fields" id="oauth"> <input type="text" name="client_id" placeholder="Client ID"> <input type="text" name="client_secret" placeholder="Client Secret"> <input type="text" name="auth_url" placeholder="Auth URL"> <input type="text" name="token_url" placeholder="Token URL"> <input type="text" name="redirect_url" placeholder="Redirect URI"> <input type="text" name="scope" placeholder="Scope (space-separated)"> </div>
+      <div class="auth-fields" id="customheader"> <input type="text" name="header_name" placeholder="Header Name"> <input type="text" name="header_value" placeholder="Header Value"> </div>
+      <div class="auth-fields" id="hmac"> <input type="text" name="access_key" placeholder="Access Key"> <input type="text" name="secret_key" placeholder="Secret Key"> <input type="text" name="algorithm" placeholder="Algorithm (e.g. SHA256)"> </div>
+    </div>
+
+    <div>
+      <label for="customRateLimit">Custom Rate Limit</label>
+      <input type="checkbox" name="custom_rate_limit" id="customRateLimit" /><br/>
+    </div>
+
+    <div class="panel-header">
+      <button class="save" id="saveButton">Save</button>
+      <button class="close" id="closeButton">Close</button>
+    </div>
+  </div>
+</div>

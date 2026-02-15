@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lambda Builder</title>
+  <!-- Smart HTML Elements (Web Components) -->
+  <link rel="stylesheet" href="https://unpkg.com/smart-webcomponents@latest/source/styles/smart.default.css"/>
+  <script type="module" src="https://unpkg.com/smart-webcomponents@latest/source/modules/smart.elements.js"></script>
+  <style>
+    body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"; background:#f7f7fb; margin:0;}
+    header{padding:16px 20px; background:#fff; border-bottom:1px solid #eee; position:sticky; top:0; z-index:10}
+    .container{max-width:1200px; margin:20px auto; padding:0 16px;}
+    .grid{display:grid; grid-template-columns: 1.1fr 0.9fr; gap:16px;}
+    smart-card{--smart-border-radius:16px;}
+    .row{display:flex; gap:12px; align-items:center;}
+    .row > *{flex:1}
+    pre.code{background:#0b1020; color:#e9edf1; padding:14px; border-radius:12px; overflow:auto; max-height:260px;}
+    .chip{display:inline-flex; align-items:center; gap:8px; border:1px solid #ddd; padding:6px 10px; border-radius:999px; background:#fff;}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+    .palette{display:flex; flex-wrap:wrap; gap:8px}
+    .palette smart-button{--smart-border-radius:999px}
+    footer{padding:14px; text-align:center; color:#777}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container row" style="justify-content:space-between">
+      <div class="row" style="flex:unset">
+        <img src="https://img.icons8.com/?size=100&id=pvVY8u4hu3A0&format=png&color=000000" alt="fx" width="26" height="26"/>
+        <strong>Lambda Builder</strong>
+      </div>
+      <div class="row" style="flex:unset">
+        <smart-button id="btnCopyJS" class="primary">Copy JS</smart-button>
+        <smart-button id="btnCopyJSON">Copy JSON</smart-button>
+      </div>
+    </div>
+  </header>
+
+  <div class="container grid">
+    <!-- Left: Editor -->
+    <smart-card>
+      <div class="card-content" style="padding:18px">
+        <h3 style="margin:6px 0 14px">Define Lambda</h3>
+        <div class="row">
+          <smart-input id="fname" label="Name" value="MyFormula"></smart-input>
+        </div>
+
+        <div style="margin-top:14px">
+          <div class="row" style="justify-content:space-between">
+            <h4 style="margin:0">Parameters</h4>
+            <div class="row" style="flex:unset">
+              <smart-button id="addParam">Add</smart-button>
+              <smart-button id="delParam" class="danger">Delete</smart-button>
+            </div>
+          </div>
+          <smart-grid id="paramGrid" style="height:180px; margin-top:8px"></smart-grid>
+        </div>
+
+        <div style="margin-top:18px">
+          <div class="row" style="justify-content:space-between">
+            <h4 style="margin:0">Let Bindings</h4>
+            <div class="row" style="flex:unset">
+              <smart-button id="addLet">Add</smart-button>
+              <smart-button id="delLet" class="danger">Delete</smart-button>
+            </div>
+          </div>
+          <smart-grid id="letGrid" style="height:220px; margin-top:8px"></smart-grid>
+        </div>
+
+        <div style="margin-top:18px">
+          <h4 style="margin:0 0 8px">Return Expression</h4>
+          <smart-text-area id="retExpr" class="mono" placeholder="e.g. (d*d + e*e + a*b*c)">(d*d + e*e + a*b*c)</smart-text-area>
+        </div>
+
+        <div style="margin-top:18px">
+          <div class="row" style="justify-content:space-between">
+            <h4 style="margin:0">Function Palette</h4>
+            <smart-drop-down-list id="targetSelect" selection-display-mode="inline" selected-index="0">
+              <smart-list-item value="let">Insert into Let expression</smart-list-item>
+              <smart-list-item value="return">Insert into Return</smart-list-item>
+            </smart-drop-down-list>
+          </div>
+          <div class="palette" style="margin-top:10px">
+            <smart-button class="flat" data-insert="+">+</smart-button>
+            <smart-button class="flat" data-insert="-">-</smart-button>
+            <smart-button class="flat" data-insert="*">*</smart-button>
+            <smart-button class="flat" data-insert="/">/</smart-button>
+            <smart-button class="flat" data-insert="%">%</smart-button>
+            <smart-button class="flat" data-insert="( )">( )</smart-button>
+            <smart-button class="flat" data-insert="sqrt( )">sqrt( )</smart-button>
+            <smart-button class="flat" data-insert="abs( )">abs( )</smart-button>
+            <smart-button class="flat" data-insert="min( , )">min( , )</smart-button>
+            <smart-button class="flat" data-insert="max( , )">max( , )</smart-button>
+            <smart-button class="flat" data-insert="round( )">round( )</smart-button>
+            <smart-button class="flat" data-insert="sin( )">sin( )</smart-button>
+            <smart-button class="flat" data-insert="cos( )">cos( )</smart-button>
+            <smart-button class="flat" data-insert="tan( )">tan( )</smart-button>
+          </div>
+        </div>
+      </div>
+    </smart-card>
+
+    <!-- Right: Preview / Output -->
+    <smart-card>
+      <div class="card-content" style="padding:18px">
+        <h3 style="margin:6px 0 14px">Preview & Output</h3>
+        <div class="chip mono" style="margin-bottom:10px"><span>λ</span> <span id="sig">MyFormula(a:int, b:int, c:int)</span></div>
+        <pre class="code mono" id="jsOut"></pre>
+        <smart-tabs style="margin-top:12px">
+          <smart-tab-item label="JSON Spec">
+            <pre class="code mono" id="jsonOut" style="max-height:200px"></pre>
+          </smart-tab-item>
+          <smart-tab-item label="Validation">
+            <div id="valBox" style="padding:8px 0 2px; color:#c62828"></div>
+          </smart-tab-item>
+        </smart-tabs>
+        <div style="margin-top:10px; display:flex; gap:10px">
+          <smart-button id="btnDownload">Download Spec</smart-button>
+          <smart-button id="btnTest">Run Test (console)</smart-button>
+        </div>
+      </div>
+    </smart-card>
+  </div>
+
+  <footer>Built with Smart HTML Elements • Plain HTML + JS • No React</footer>
+
+<script type="module">
+  // --- Utilities ---
+  const idOk = (s) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s || "");
+  const tokenize = (expr) => (expr || "").match(/[A-Za-z_][A-Za-z0-9_]*|\d+\.\d+|\d+|[()+\-*/%^!,<>=&|]/g) || [];
+  const refsIn = (expr) => tokenize(expr).filter((t) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(t));
+
+  // --- Elements ---
+  const fname = document.getElementById('fname');
+  const paramGrid = document.getElementById('paramGrid');
+  const letGrid = document.getElementById('letGrid');
+  const retExpr = document.getElementById('retExpr');
+  const jsOut = document.getElementById('jsOut');
+  const jsonOut = document.getElementById('jsonOut');
+  const valBox = document.getElementById('valBox');
+  const sig = document.getElementById('sig');
+
+  // --- Initialize Param Grid ---
+  const PARAM_TYPES = ["int","float","number"];
+  const paramsDS = [
+    { type: 'int', name: 'a' },
+    { type: 'int', name: 'b' },
+    { type: 'int', name: 'c' }
+  ];
+  paramGrid.columns = [
+    { label: 'Type', dataField: 'type', editor: 'dropDownList', template: 'dropDownList',
+      dropDownList: {dataSource: PARAM_TYPES} },
+    { label: 'Name', dataField: 'name' }
+  ];
+  paramGrid.dataSource = paramsDS;
+  paramGrid.selection = { enabled: true, mode: 'extended' };
+  paramGrid.editing = { enabled: true, mode: 'cell' };
+
+  // --- Initialize Let Grid ---
+  const letsDS = [
+    { name: 'd', expr: '3 * a + b' },
+    { name: 'e', expr: '(d/4) + c' }
+  ];
+  letGrid.columns = [
+    { label: 'Name', dataField: 'name', width: 120 },
+    { label: 'Expression', dataField: 'expr' }
+  ];
+  letGrid.dataSource = letsDS;
+  letGrid.selection = { enabled: true, mode: 'extended' };
+  letGrid.editing = { enabled: true, mode: 'cell' };
+
+  // --- Toolbar Buttons ---
+  document.getElementById('addParam').addEventListener('click', () => {
+    paramGrid.dataSource = [...paramGrid.dataSource, { type: 'int', name: `p${paramGrid.dataSource.length+1}` }];
+    refresh();
+  });
+  document.getElementById('delParam').addEventListener('click', () => {
+    const rows = paramGrid.getSelection()?.rows || [];
+    const idxs = new Set(rows.map(r => r.index));
+    paramGrid.dataSource = paramGrid.dataSource.filter((_,i)=>!idxs.has(i));
+    refresh();
+  });
+  document.getElementById('addLet').addEventListener('click', () => {
+    letGrid.dataSource = [...letGrid.dataSource, { name: `x${letGrid.dataSource.length+1}`, expr: '' }];
+    refresh();
+  });
+  document.getElementById('delLet').addEventListener('click', () => {
+    const rows = letGrid.getSelection()?.rows || [];
+    const idxs = new Set(rows.map(r => r.index));
+    letGrid.dataSource = letGrid.dataSource.filter((_,i)=>!idxs.has(i));
+    refresh();
+  });
+
+  // --- Function Palette Insertion ---
+  let lastFocusedLetCell = null; // track active expr editor
+  letGrid.addEventListener('cellBeginEdit', (e) => {
+    if (e.detail.dataField === 'expr') {
+      lastFocusedLetCell = e; // store event; we will query editor element
+    }
+  });
+  letGrid.addEventListener('cellEndEdit', () => { lastFocusedLetCell = null; });
+
+  const targetSelect = document.getElementById('targetSelect');
+  document.querySelectorAll('.palette smart-button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const raw = btn.getAttribute('data-insert');
+      const text = raw.includes('( )') ? raw.replace('( )','()') : raw;
+      const target = targetSelect.selectedValues?.[0] || 'let';
+      if (target === 'return') {
+        insertIntoTextarea(retExpr, text);
+      } else {
+        // insert into currently editing Let expr cell if any; else append to last row
+        if (lastFocusedLetCell && lastFocusedLetCell.detail?.editor) {
+          const input = lastFocusedLetCell.detail.editor.querySelector('input, textarea') || lastFocusedLetCell.detail.editor;
+          insertIntoInput(input, text);
+        } else {
+          // fallback: append to last let row's expr
+          const ds = [...letGrid.dataSource];
+          if (ds.length) {
+            ds[ds.length-1] = { ...ds[ds.length-1], expr: (ds[ds.length-1].expr || '') + text };
+            letGrid.dataSource = ds;
+            refresh();
+          }
+        }
+      }
+    });
+  });
+
+  function insertIntoTextarea(el, text){
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    el.value = el.value.slice(0,start) + text + el.value.slice(end);
+    el.selectionStart = el.selectionEnd = start + text.length;
+    el.dispatchEvent(new Event('input', {bubbles:true}));
+    el.focus();
+  }
+  function insertIntoInput(el, text){
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    el.value = (el.value || '').slice(0,start) + text + (el.value || '').slice(end);
+    el.selectionStart = el.selectionEnd = start + text.length;
+    el.dispatchEvent(new Event('change', {bubbles:true}));
+    el.focus();
+  }
+
+  // --- Outputs ---
+  const toSpec = () => ({
+    name: fname.value.trim(),
+    params: (paramGrid.dataSource || []).map(r => ({type:r.type, name:r.name})),
+    lets: (letGrid.dataSource || []).map(r => ({name:r.name, expr:r.expr})),
+    return: retExpr.value.trim()
+  });
+
+  const toJS = (spec) => {
+    const pnames = spec.params.map(p=>p.name).join(', ');
+    const lines = [];
+    lines.push(`// ${spec.name}`);
+    lines.push(`function ${spec.name}(${pnames}) {`);
+    for(const b of spec.lets){ lines.push(`  const ${b.name} = ${b.expr};`); }
+    lines.push(`  return ${spec.return};`);
+    lines.push('}');
+    return lines.join('\n');
+  };
+
+  const validate = (spec) => {
+    const errs = [];
+    if(!idOk(spec.name)) errs.push('Name must be a valid identifier.');
+    const pnameSet = new Set();
+    for(const p of spec.params){
+      if(!idOk(p.name)) errs.push(`Param name '${p.name}' is invalid.`);
+      if(pnameSet.has(p.name)) errs.push(`Duplicate param '${p.name}'.`);
+      pnameSet.add(p.name);
+    }
+    const letNames = new Set();
+    for(const b of spec.lets){
+      if(!idOk(b.name)) errs.push(`Let name '${b.name}' is invalid.`);
+      if(pnameSet.has(b.name)) errs.push(`Let '${b.name}' clashes with a param.`);
+      if(letNames.has(b.name)) errs.push(`Duplicate let '${b.name}'.`);
+      letNames.add(b.name);
+      const refs = refsIn(b.expr);
+      for(const r of refs){ if(!(pnameSet.has(r) || letNames.has(r) || ['Math'].includes(r))) {
+        // allow forward reference? Warn only
+        if(!spec.lets.find(x=>x.name===r)) errs.push(`Binding '${b.name}' references unknown identifier '${r}'.`);
+      }}
+    }
+    const retRefs = refsIn(spec.return);
+    const known = new Set([...pnameSet, ...letNames, 'Math']);
+    for(const r of retRefs){ if(!known.has(r)) errs.push(`Return references unknown identifier '${r}'.`); }
+    return errs;
+  };
+
+  function refresh(){
+    const spec = toSpec();
+    const errs = validate(spec);
+    const sigStr = `${spec.name}(${spec.params.map(p=>`${p.name}:${p.type}`).join(', ')})`;
+    sig.textContent = sigStr;
+    jsOut.textContent = toJS(spec);
+    jsonOut.textContent = JSON.stringify(spec, null, 2);
+    valBox.innerHTML = errs.length ? '<ul>'+errs.map(e=>`<li>• ${e}</li>`).join('')+'</ul>' : '<em>No issues found.</em>';
+  }
+
+  // Event bindings
+  fname.addEventListener('change', refresh);
+  retExpr.addEventListener('input', refresh);
+  paramGrid.addEventListener('endEdit', refresh);
+  paramGrid.addEventListener('change', refresh);
+  letGrid.addEventListener('endEdit', refresh);
+  letGrid.addEventListener('change', refresh);
+
+  // Actions
+  document.getElementById('btnCopyJS').addEventListener('click', async () => {
+    await navigator.clipboard.writeText(jsOut.textContent);
+    toast('JavaScript copied');
+  });
+  document.getElementById('btnCopyJSON').addEventListener('click', async () => {
+    await navigator.clipboard.writeText(jsonOut.textContent);
+    toast('JSON copied');
+  });
+  document.getElementById('btnDownload').addEventListener('click', () => {
+    const blob = new Blob([jsonOut.textContent], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${fname.value || 'lambda'}.json`;
+    a.click();
+  });
+  document.getElementById('btnTest').addEventListener('click', () => {
+    try{
+      const spec = toSpec();
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('spec', `return (function(${spec.params.map(p=>p.name).join(', ')}){\n${spec.lets.map(b=>`const ${b.name} = ${b.expr};`).join('\n')}\nreturn ${spec.return};\n})`)(spec);
+      // Test with zeros
+      const zeros = spec.params.map(()=>0);
+      console.log(`Test ${spec.name}(${zeros.join(', ')}) =>`, fn(...zeros));
+      toast('Ran test. Check console.');
+    }catch(err){
+      console.error(err);
+      toast('Error running test. See console.');
+    }
+  });
+
+  function toast(msg){
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:8px 12px;border-radius:10px;opacity:0.95;z-index:9999';
+    document.body.appendChild(t);
+    setTimeout(()=>{ t.remove(); }, 1600);
+  }
+
+  // Kick things off
+  refresh();
+</script>
+</body>
+</html>

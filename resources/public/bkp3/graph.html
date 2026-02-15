@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block content %}
+
+ <div class="container">
+    <div class="left-pane">
+      <!-- Content for the left pane -->
+      <h1>Database</h1>
+    <ul id="dragContainer">
+        <li class="draggable" draggable="true" id=":tCatalog">Catalog</li>
+        <li class="draggable" draggable="true" id=":tAddress">Address</li>
+        <li class="draggable" draggable="true" id=":tCustomer">Customer</li>
+        <li class="draggable" draggable="true" id=":tSalesOrderDetails">SalesOrderDetails</li>
+        <li class="draggable" draggable="true" id=":tSalesOrders">SalesOrders</li>
+    </ul>    </div>
+    <div class="middle-pane">
+    <div id=query><input type=button value=Query hx-get="/getItem?item=query"  hx-target="#replaceMe" hx-swap="innerHTML"   /></div>
+    <div id=newgraph>
+    <form hx-post="/newgraph" hx-target="#graph">
+        <!-- Text Input Field -->
+        <label for="nameInput">Name:</label>
+        <input type="text" id="graphname" name=graphname />
+
+        <!-- Submit Button -->
+        <button type="submit" >
+            Submit
+        </button>
+    </form>
+    </div> 
+    <div id=graph>
+      <!-- Content for the middle pane -->
+{% if items|empty? %}
+    <div id=":op"  class=rectangle ondrop="drop(event)" ondragover="allowDrop(event)" style="position: relative;top:100px;left:100px" >View
+</div>
+{% endif %}
+
+{% for rect in items %}
+    <div id="{{rect.name}}" hx-get="/getItem?id={{rect.tid}}&btype={{rect.btype}}" hx-target="#replaceMe" hx-swap="innerHTML" ondrop="drop(event)" ondragover="allowDrop(event)" class="rectangle {{rect.btype}}" style="position: absolute;bottom: {{rect.y}}px;left: {{rect.x}}px;">{% ifequal "table"  rect.btype %}{{rect.name}}{% else %}{{rect.btype}} {% endifequal %}</div>
+{% endfor %}
+
+    </div>
+	<form method=post id=addtable name=addtable action="/addtable">
+		<input type=hidden name=table1 id=table1 value="" >
+		<input type=hidden name=table2 id=table2 value="" >
+	</form>
+	<form method=post id=addfilter name=addfilter action="">
+	</form>
+    </div>
+    <div class="right-pane" id=replaceMe>
+      <!-- Content for the right pane -->
+    </div>
+    <div class="floater" id="floater">
+        <div class="icon" id="filter" onclick="makeGetRequest('/addFilter?ftype=filter&item=' + iconId);">
+            <img src="filter.svg" alt="Icon 1">
+        </div>
+        <div class="icon" id="function"  onclick="makeGetRequest('/addFilter?ftype=function&item=' + iconId);">
+            <img src="function.svg" alt="Icon 2">
+        </div>
+        <div class="icon" id="grid"  onclick="makeGetRequest('/addFilter?ftype=grid&item=' + iconId);">
+            <img src="grid.svg" alt="Icon 3">
+        </div>
+    </div>
+    <div class="floater2" id="floater2">
+        <div class="icon" id="delete" onclick="makeGetRequest('/deleteTable?ftype=delete&item=' + iconId);">
+            <img src="filter.svg" alt="Icon 1">
+        </div>
+    </div>
+  </div>
+
+<script type="text/javascript">
+     
+var dragged;
+
+  /* events fired on the draggable target */
+  document.addEventListener("drag", function( event ) {
+
+  }, false);
+
+  document.addEventListener("dragstart", function( event ) {
+      // store a ref. on the dragged elem
+      dragged = event.target;
+	event.dataTransfer.setData("Text", dragged.id);
+      // make it half transparent
+      event.target.style.opacity = .5;
+  }, false);
+
+  document.addEventListener("dragend", function( event ) {
+      // reset the transparency
+      event.target.style.opacity = "";
+  }, false);
+
+  /* events fired on the drop targets */
+  document.addEventListener("dragover", function( event ) {
+      // prevent default to allow drop
+      event.preventDefault();
+  }, false);
+
+  document.addEventListener("dragenter", function( event ) {
+      // highlight potential drop target when the draggable element enters it
+      if ( event.target.className == "dropzone" ) {
+          event.target.style.background = "purple";
+      }
+
+  }, false);
+
+  document.addEventListener("dragleave", function( event ) {
+      // reset background of potential drop target when the draggable element leaves it
+      if ( event.target.className == "dropzone" ) {
+          event.target.style.background = "";
+      }
+
+  }, false);
+
+  document.addEventListener("drop", function( event ) {
+      var id = event.dataTransfer.getData("Text");
+
+      // prevent default action (open as link for some elements)
+      event.preventDefault();
+      // move dragged elem to the selected drop target
+      if ( event.target.classList.contains("rectangle") ) {
+		document.getElementById("table1").value = id;
+		document.getElementById("table2").value = event.target.id;
+//		alert(id + ' : ' + event.target.id);
+		document.getElementById("addtable").submit();
+      }
+    
+  }, false);
+
+const targetDiv = document.getElementById("targetDiv");
+const floater = document.getElementById("floater");
+var iconId;
+
+const joins = document.querySelectorAll(".join");
+const projections = document.querySelectorAll(".projection");
+const tables = document.querySelectorAll(".table");
+
+function openFloater(event) {
+    event.preventDefault(); // Prevent the default context menu from appearing
+    const mouseX = event.clientX;
+    const mouseY = event.clientY;
+    floater.style.display = "block";
+    floater.style.left = mouseX + "px";
+    floater.style.top = mouseY + "px";
+
+    iconId = event.currentTarget.id;
+//    setupFloaterTarget(iconId);
+}
+
+joins.forEach(function(div) {
+	div.addEventListener("contextmenu", openFloater);
+});
+
+projections.forEach(function(div) {
+	div.addEventListener("contextmenu", openFloater);
+});
+
+document.addEventListener("click", function(event) {
+    if (event.target !== targetDiv && event.target !== floater) {
+        floater.style.display = "none";
+    }
+});
+
+function makeGetRequest(url) {
+
+	const form = document.getElementById("addfilter");
+	form.action = url;
+	alert('submitting form:' +url); 
+	form.submit();
+}
+
+function setupFloaterTarget(divid) {
+
+	filter = document.getElementById("filter");
+	func = document.getElementById("function");
+	grid = document.getElementById("grid");
+
+        filter.addEventListener("click", makeGetRequest('/addFilter?ftype=filter&item=' + divid));
+        func.addEventListener("click", makeGetRequest('/addFilter?ftype=function&item=' + divid));
+        grid.addEventListener("click", makeGetRequest('/addFilter?ftype=grid&item=' + divid));
+
+}
+
+ </script>
+
+
+{% endblock %}

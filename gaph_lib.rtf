@@ -1,0 +1,20 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2639
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 Menlo-Regular;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\csgray\c0;}
+\paperw11905\paperh16837\margl1440\margr1440\vieww28600\viewh17440\viewkind0
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f0\fs22 \cf2 \CocoaLigature0 EMIT: splevel ( psibling pparent g -- level ) psibling pparent g get-level ;\
+:: get-level ( psibling pparent g -- level ) parent-level "S" = [ psibling g get-level-from-sibling ] [ parent-level ] if ;\
+\
+\
+\
+\
+: level ( node g -- val ) "level" -rot attr ;\
+EMIT: parent-level ( pparent g -- ) pparent g level ;\
+EMIT: sibling-level ( psibling g -- ) psibling g level ;\
+EMIT: sibling-level ( psibling g -- ) psibling g level ;\
+:: get-level-from-sibling ( psibling g -- level )  psibling [ sibling-level [ ] [ "L" ] if* ]\
+                                                         [ "S" ] if ;\
+}

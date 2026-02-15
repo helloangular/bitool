@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+
+ <div class="container">
+    <div class="left-pane">
+      <!-- Content for the left pane -->
+      <h1>Left Pane</h1>
+    <ul id="dragContainer">
+        <li class="draggable" draggable="true" id=":tCatalog">Catalog</li>
+        <li class="draggable" draggable="true" id=":tAddress">Address</li>
+        <li class="draggable" draggable="true" id=":tCustomer">Customer</li>
+        <li class="draggable" draggable="true" id=":tSalesOrderDetails">SalesOrderDetails</li>
+        <li class="draggable" draggable="true" id=":tSalesOrders">SalesOrders</li>
+    </ul>    </div>
+    <div class="middle-pane">
+      <!-- Content for the middle pane -->
+{% if items|empty? %}
+    <div id=":op"  class=rectangle ondrop="drop(event)" ondragover="allowDrop(event)" style="position: relative;top:100px;left:100px" >View
+</div>
+{% endif %}
+
+{% for rect in items %}
+    <div id="{{rect.name}}" hx-get="/getItem?item={{rect.name}}" hx-target="#replaceMe" hx-swap="innerHTML" ondrop="drop(event)" ondragover="allowDrop(event)" class="rectangle {% if (or (string/starts-with? rect.name ':join') (string/starts-with? rect.name  ':proj')i) %}filter{% endif %}" style="position: absolute;bottom: {{rect.y}}px;left: {{rect.x}}px;">{{rect.name}}</div>
+{% endfor %}
+
+	<form method=post id=addtable name=addtable action="/addtable">
+		<input type=hidden name=table1 id=table1 value="" >
+		<input type=hidden name=table2 id=table2 value="" >
+	</form>
+    </div>
+    <div class="right-pane" id=replaceMe>
+      <!-- Content for the right pane -->
+      <h1>Right Pane</h1>
+      <p>This is the content of the right pane.</p>
+    </div>
+  </div>
+
+<script type="text/javascript">
+     
+var dragged;
+
+  /* events fired on the draggable target */
+  document.addEventListener("drag", function( event ) {
+
+  }, false);
+
+  document.addEventListener("dragstart", function( event ) {
+      // store a ref. on the dragged elem
+      dragged = event.target;
+	event.dataTransfer.setData("Text", dragged.id);
+      // make it half transparent
+      event.target.style.opacity = .5;
+  }, false);
+
+  document.addEventListener("dragend", function( event ) {
+      // reset the transparency
+      event.target.style.opacity = "";
+  }, false);
+
+  /* events fired on the drop targets */
+  document.addEventListener("dragover", function( event ) {
+      // prevent default to allow drop
+      event.preventDefault();
+  }, false);
+
+  document.addEventListener("dragenter", function( event ) {
+      // highlight potential drop target when the draggable element enters it
+      if ( event.target.className == "dropzone" ) {
+          event.target.style.background = "purple";
+      }
+
+  }, false);
+
+  document.addEventListener("dragleave", function( event ) {
+      // reset background of potential drop target when the draggable element leaves it
+      if ( event.target.className == "dropzone" ) {
+          event.target.style.background = "";
+      }
+
+  }, false);
+
+  document.addEventListener("drop", function( event ) {
+      var id = event.dataTransfer.getData("Text");
+
+      // prevent default action (open as link for some elements)
+      event.preventDefault();
+      // move dragged elem to the selected drop target
+      if ( event.target.className == "rectangle" ) {
+		document.getElementById("table1").value = id;
+		document.getElementById("table2").value = event.target.id;
+//		alert(id + ' : ' + event.target.id);
+		document.getElementById("addtable").submit();
+      }
+    
+  }, false);
+
+
+
+ </script>
+
+
+{% endblock %}

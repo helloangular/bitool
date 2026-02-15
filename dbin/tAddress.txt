@@ -1,0 +1,1 @@
+{:tname "tAddress"  :tcols ["cust_id" ,"first_name" ,"city","zipcode"]}}

@@ -1,0 +1,2 @@
+{:tname :join-:tAddress, :j1Tables [":tCatalog"], :j2Tables [":tAddress"], :j1Columns ["cat_id" "item_id" "item_name" "price"], :j2Columns ["cust_id" "first_name" "city" "zipcode"]
+  :join-columns [ [ 1 2 ] [ 3 4 ] ] :join-type "inner" }

@@ -1,0 +1,407 @@
+(ns bitool.graph
+	(:require [ubergraph.core :as uber])
+	(:require [ubergraph.alg :as ualg])
+	(:require [datomic.client.api :as d])
+	(:require [clojure.string :as string])
+        (:require [clojure.pprint :as pp]))
+
+(defmacro while-let
+    "Repeatedly executes body while test expression is true, evaluating the body with binding-form bound to the value of test."
+    [bindings & body]
+    (let [form (first bindings) test (second bindings)]
+        `(loop [~form ~test]
+             (when ~form
+                 ~@body
+                 (recur ~test)))))
+
+(def client (d/client {:server-type :datomic-local
+                       :system "dev"}))
+
+(d/create-database client {:db-name "sqlb"})
+
+(def conn (d/connect client {:db-name "sqlb"}))
+
+(def calc-column-schema [{:db/ident :sqlb/id
+                    :db/valueType :db.type/uuid
+                    :db/cardinality :db.cardinality/one
+                    :db/doc ""}
+
+                   {:db/ident  :sqlb/name
+                    :db/valueType :db.type/string
+                    :db/cardinality :db.cardinality/one
+                    :db/doc ""}
+
+                   {:db/ident  :sqlb/table
+                    :db/valueType :db.type/string
+                    :db/cardinality :db.cardinality/one
+                    :db/doc ""}
+
+                   {:db/ident  :sqlb/column
+                    :db/valueType :db.type/string
+                    :db/cardinality :db.cardinality/one
+                    :db/doc ""}
+
+                   {:db/ident  :sqlb/description
+                    :db/valueType :db.type/string
+                    :db/cardinality :db.cardinality/one
+                    :db/doc ""}
+
+                   {:db/ident  :sqlb/sql
+                    :db/valueType :db.type/string
+                    :db/cardinality :db.cardinality/one
+                    :db/doc ""}
+
+                   {:db/ident  :sqlb/datadef
+                    :db/valueType :db.type/string
+                    :db/cardinality :db.cardinality/one
+                    :db/doc ""} ])
+
+;;(createSchema[:sqlb  [{:id :id :vt :uuid} {:id :name :vt :string :c :many}]] 
+
+
+(defn addPrefix[k prefix]
+      (keyword (subs (str prefix "/" (name k)) 1)))
+
+(defn lookupK[k]
+     (let [kmap {:id :ident :vt :valueType :c :cardinality}]
+          (k kmap)))
+    
+(defn lookupV[k table]
+     (let [kmap {:id table :vt :db.type :c :db.cardinality}]
+          (k kmap)))
+
+(defn schemaKT[k prefix] 
+   (addPrefix (lookupK k) prefix))   
+
+(defn schemaVT[k v db] 
+   (addPrefix (lookupV k) prefix))   
+
+(defn schemaT[schema db] 
+     (zipmap (map #(schemaKT % :db) (keys schema)) (map #(schemaVT % db) (vals schema))))
+
+(defn createSchema[table cols]
+      (map #(schemaT % table) cols))
+
+(defmacro saveSchema [conn table cols]
+  `(let [calcCol# [(createSchema ~table ~cols)]]
+        (d/transact ~conn {:tx-data calcCol#})))
+
+
+;;(defn saveFunction [{:id id :name name :table :table :column column :description description :sql sql :datadef datadef}]
+(defn saveFunction [{:keys [id name table column description sql datadef]}]
+    (let [calcCol  [{:sqlb/id id
+                    :sqlb/name name
+                    :sqlb/table table
+		    :sqlb/column column
+ 		    :sqlb/description description
+                    :sqlb/sql sql
+		    :sqlb/datadef datadef}]]
+         (d/transact conn {:tx-data calcCol})))
+
+(defn createMapFromList[table cols] 
+       (zipmap (map #(keyword (str (subs (str table) 1)  "/" (subs (str %) 1))) (keys cols)) (vals cols)))
+
+(defmacro saveTable [conn table colmap]
+  `(let [calcCol# [(createMapFromList ~table ~colmap)]]
+        (d/transact ~conn {:tx-data calcCol#})))
+
+(defn addNodes[g nodes] (uber/add-nodes* g nodes))
+
+(defn addEdge[g edge] (uber/add-edges g [(uber/src edge) (uber/dest edge)]))
+
+(defn addEdges[g edges] 
+   (reduce addEdge g edges))
+
+(defn reverseSiblingLati [g sibling parent] (case (uber/attr g sibling :lati)
+                                  		:nil  (- (uber/attr g parent :lati) 1)
+             					true  (+ (uber/attr g sibling :lati) 2) ))
+
+(defn getLevelFromSibling [g sibling] ( if sibling (case (uber/attr g sibling :level)
+                                  			:U  :U
+             						:L  :L 
+            						nil :L) 
+					   :S ))
+
+(defn getLevel [g sibling parent] (case (uber/attr g parent :level)
+                                  		:U  :U
+             					:L  :L 
+            					:S (getLevelFromSibling g sibling)))
+
+
+(defn getLati [g sibling parent] (let [plati (uber/attr g parent :lati)]
+					( if sibling ( if (uber/attr g sibling :lati) (+ plati 1) (- plati 1)) 
+					     plati)))
+
+
+(defn getLevelLatiFromParent [g parent] (let [level (uber/attr g parent :level) 
+					      lati (uber/attr g parent :lati)]
+					 [level lati]))
+
+
+(defn getSibling [g node] (if node (let [parent (first (uber/successors g node))
+				cnodes (uber/predecessors g parent)
+				sibling (first (remove #(= node %) cnodes))]
+			  sibling)))
+
+
+(defn getBtype[node] (case (str (second (str node)))
+                         "j" "join"
+                         "p" "projection"
+                         "t" "table"
+                         "f" "where"
+                         "o" "output" ))
+
+
+(defn getUL[g node] (if node (if (= (str node) ":op") [:S 0 0 "output"] (let [parent  (first (uber/successors g node))
+                          _ (println (str " node : " node))
+                          _ (println (str "parent " parent))
+                          sibling (getSibling g node)
+                          _ (println (str "sibling " sibling))
+                          _ (println (str "parent longi " (uber/attr g parent :longi) ))
+          		  longi (- (uber/attr g parent :longi) 1)
+			  level (getLevel g sibling parent)
+			  lati (getLati g sibling parent)
+ 			  btype (getBtype node)
+                          _ (println (str "BTYPE " btype))
+			  ]
+			  [level longi lati btype]))))
+
+           
+
+
+(defn setUL[g node] (if node (let [attrs (getUL g node)]
+;;                                (println (str "START setUL node " node))
+				(-> g
+			  	 (uber/add-attr node :level (first attrs))
+			   	(uber/add-attr node :longi (second attrs))
+			   	(uber/add-attr node :lati (nth attrs 2))
+			   	(uber/add-attr node :btype (nth attrs 3))
+;;				(#(do (println "END setUL node ") %))
+                                ))))
+
+
+
+
+
+(defn setAttr [g node] (if node (let [ pred (uber/predecessors g node)
+                                    leaf1 (first pred)
+                                    leaf2 (second pred)]
+;;                                (println (str "START setAttr node " node))
+;;                                  (println (str "leaf1 " leaf1))
+;;                                  (println (str "leaf2 " leaf2))
+				  (-> g
+;;				      (#(do (println "->g") %))
+                                      (setUL leaf1)
+;;				      (#(do (println "setUL leaf1") %))
+                                      (setUL leaf2)
+;;				      (#(do (println "setUL leaf2") %))
+                                      (setAttr leaf1)
+;;				      (#(do (println "setAttr leaf1") %))
+                                      (setAttr leaf2)
+;;				      (#(do (println "setAttr leaf2") %))
+;;				      (#(do (println "END setAttr leaf2") %))
+				      ))))
+
+
+(defn updateStartAttrs [g strt] (let [_ (uber/pprint g)
+                                      _ (println (uber/has-node? g strt))
+                                      _ (println (count (str strt)))
+                                     ]
+				    (-> g
+				    (uber/add-attr (if (uber/has-node? g strt) strt (str strt)) :longi 0)
+         			    (uber/add-attr (if (uber/has-node? g strt) strt (str strt)) :level :S)
+         			    (uber/add-attr (if (uber/has-node? g strt) strt (str strt)) :lati 0))))
+
+
+(defn updateAttrs [g start] (map #(setUL g %) (-> g
+                     (updateStartAttrs start)
+		     ualg/topsort
+		     reverse)))
+
+
+(defn updateNode [g node] (-> g
+			      (setUL node)))
+
+
+(defn  topsort [g start] (-> g
+			     ualg/topsort
+		       	     reverse))
+
+
+(defn updateGraphAttrs[g start] (reduce updateNode (updateStartAttrs g start) (topsort g start)))
+
+
+(defn getAttrs [g start] (let [updatedG (updateGraphAttrs g start)]
+				(map #(uber/node-with-attrs updatedG  %) (topsort g start))))
+
+
+(defn getAttrsByLevel[g start lvl] (filter #(= lvl (:level (second %))) (getAttrs g start)))
+
+ 
+(defn getLatiByLevel[g start lvl] (map #(:lati (second %)) (getAttrsByLevel g start lvl)))
+
+
+(defn getAttrByLevel[g start lvl attr] (map #(attr (second %)) (getAttrsByLevel g start lvl)))
+
+(defn nicep [seq] (doseq [x seq]
+                     (println (str "size : " (count seq)))
+                     (println (str "pseq : " x))))
+
+(defn getLatiHeightByLevel[g start lvl] (let [lati (getAttrByLevel g start lvl :lati)
+                                              _ (println (str "size : " (count lati)))
+				              min (if (empty? lati) 0 (reduce min lati))
+					      max (if (empty? lati) 0 (reduce max lati))]
+						(if (= min max) max (abs (- max min)) )
+                                        ))
+
+
+(defn getLongiHeightByLevel[g start lvl] (let [longi (getAttrByLevel g start lvl :longi)]
+				              (if (empty? longi) 0 (abs (reduce min longi)))))
+
+
+(defn getLatiHeight[g start] (+ (getLatiHeightByLevel g start :U) (getLatiHeightByLevel g start :L)))
+
+(defn getLongiHeight[g start] (+ 1 (max (getLongiHeightByLevel g start :U) (getLongiHeightByLevel g start :L))))
+
+;; (def latiEnd (+ 2 (getLatiHeightByLevel g3 :op :L)))
+
+;; (def longiEnd (getLongiHeight g3 :op)) 
+
+(defn createCoordinates[g start] (let [attrs (getAttrs g start)
+                                       latiEnd (+ 2 (getLatiHeightByLevel g start :L))
+				       longiEnd (getLongiHeight g start)
+				       _ (println "CREAT COORDINATES")
+				       _ (uber/pprint g)
+                                       _ (println (str "attrs : " (pr-str attrs)))
+				       coord {}]
+					(map #(assoc coord :name (first %) 
+							    :y (+ (:lati (second %)) latiEnd)
+							    :x (+ (:longi (second %)) longiEnd)
+                                                            :btype (:btype (second %))
+					 		   ) attrs)))
+ 
+
+(defn getTableFile [t direc] (let [_ (println "Table : " t)] (str "db" direc "/" (string/replace (str t) #":" "") ".txt")))
+
+(defn getTableDef [t direc] (read-string (slurp (getTableFile t direc))))
+
+(defn getTableColumns [t direc] (let [cols (:tcols (getTableDef t direc))]
+                                    (if (= direc "in") (map #(str (subs (str t) 2) "." %) cols) cols )))
+
+(defn saveTable [t] (do (println "inside saveTable")
+                        (println t)
+                        (println (class t))
+                        (spit (getTableFile (:tname t) "out") t)))
+
+(defn updateTableColumns [t cols] (saveTable (assoc (getTableDef t "out") :tcols (concat (getTableColumns t "out") cols))))
+
+(defn getNewTable [gnode]  (uber/digraph [gnode (keyword (str "join-" gnode))] [(keyword (str "join-" gnode)) (keyword (str "proj-" gnode))]))
+
+(defn saveJoin [t1 t2] (saveTable {:tname (keyword (str "join-" t2)) :j1Tables [t1] :j2Tables [t2] :j1Columns (getTableColumns t1 "in") :j2Columns (getTableColumns t2 "in") }))
+
+(defn saveProjection [t1 t2] (saveTable {:tname (keyword (str "proj-" t2)) :tcols (concat (getTableColumns t1 "in") (getTableColumns t2 "in")) }))
+
+(defn saveNewSubGraph [t1 t2 subj ] (do (saveJoin t1 t2)
+                                              (print (str "save t1 " t1))
+                                              (print (str "save t2 " t2))
+				              (saveTable (getTableDef t2 "in"))
+					      (saveProjection t1 t2) ))
+
+(defn addFirstTable [t1] (let [g (uber/digraph [t1 :op])]
+                           (do (println "Inside Do")
+                               (println t1)
+			       (println (getTableDef t1 "in"))
+			       (saveTable (getTableDef t1 "in"))
+                               (println "Updating op")
+                               (updateTableColumns :op (getTableColumns t1 "in"))) g))
+
+(defn getParent [g child] (first (uber/successors g child)))
+
+(defn updateColumns [g gnode cols] (loop [x gnode]
+					(when (and x (getParent g x))
+                                            (println (str "updating " (getParent g x)))
+                                            (updateTableColumns (getParent g x) cols)
+                                            (recur (getParent g x)))))
+
+(defn updateGraphWithNewTableColumns [g t2 proj] (let [cols (getTableColumns t2 "in")]
+                                                       (updateColumns g proj cols)
+						       g ))
+
+(defn getGraphFromDB [] (uber/digraph (read-string (slurp "graphdb.txt"))))  
+
+(defn listNodes [] (ualg/topsort (getGraphFromDB)))
+
+(defn fromClause [] (clojure.string/join ","  (map #(subs % 2 ) (filter #(clojure.string/starts-with? %  ":t" ) (listNodes)))))
+
+(defn selectClause [] (clojure.string/join ","  (:tcols (getTableDef :op "out"))))
+
+(defn string-starts-with-any?
+  [s prefixes]
+  (some #(clojure.string/starts-with? s %) prefixes))
+
+(defn filterClause [] (clojure.string/join " AND " (filter identity (map :where (map #(getTableDef % "out") (filter #(clojure.string/starts-with? %  ":filter" ) (listNodes)))))))
+
+(defn prepareJoin[params] (map #(str (first %) " = " (second %)) params))
+
+(defn joinClause [] (clojure.string/join " AND " (map #(clojure.string/join " AND " %) (map prepareJoin (map :jcondition (map #(getTableDef % "out") (filter #(clojure.string/starts-with? %  ":join" ) (listNodes))))))))
+ 
+
+(defn whereClause [] (filter #(string-starts-with-any? %  '(":join", ":filter")) (listNodes)))
+
+(defn getQuery [] (assoc {} :query (str "select " (selectClause) " from " (fromClause) " where " (clojure.string/join " AND " (list (joinClause) (filterClause))))))
+
+(defn addTable [graph t1 t2]
+	(let [ subg (getNewTable t2)
+                _ (saveNewSubGraph t1 t2 subg)
+		_ (println (str " t1 : " t1))
+		_ (println (str " t2 : " t2))
+		_ (uber/pprint subg )
+		_ (println "MAIN GRAPH")
+                _ (uber/pprint graph)
+             ] 
+		(-> graph
+			(addEdges (uber/edges subg))
+			(uber/add-edges [(nth (into [] (uber/nodes subg)) 2) (uber/dest (uber/find-edge graph {:src (str t1)}))])
+			(uber/remove-edges (uber/find-edge graph {:src (str t1)}))
+			(uber/add-edges [t1 (second (uber/nodes subg))])
+                        (updateGraphWithNewTableColumns t2 (keyword (str "proj-" t2))))))
+
+(defn saveGraph [g] (do (println (str "GRAPH " (pr-str g)))
+                        (class g)
+                        (spit "graphdb.txt" (binding [*print-dup* true] (pr-str g))) g))   
+
+
+(defn addSpecialNode [graph t nodeType] (let [fnode (keyword (str nodeType "-" t))
+                                              _ (println fnode) 
+					      _ (println (str "SAVING FILTER" fnode))
+                                              _ (saveTable {:tname fnode})
+                                              _ (uber/pprint graph) 
+                                              _ (println (keyword (subs t 1))) ]
+			      (-> graph
+			      	(uber/add-edges [fnode (uber/dest (uber/find-edge graph {:src (keyword  (subs t 1))}))])
+                              	(uber/remove-edges (uber/find-edge graph {:src (keyword  (subs t 1))}))
+			      	(uber/add-edges [ (keyword (subs t 1)) fnode])
+				(saveGraph))))
+
+
+ 
+
+;;([:proj-:t2 {:level :S, :longi -1, :lati 0}] [:join-:t2 {:level :S, :longi -2, :lati 0}] [:t1 {:level :L, :longi -3, :lati -1}] [:proj-:t3 
+;; {:level :L, :longi -3, :lati 1}] [:join-:t3 {:level :L, :longi -4, :lati 1}] [:t2 {:level :L, :longi -5, :lati 0}] [:t3 {:level :L, :longi -5, :lati 2}])
+;;
+;;                        
+;;			
+;;
+;;
+;;				(-5 2)	
+;;				      t3	(-4 1)		(-3 1)			
+;;						join-t3		proj-t3			      
+;;				      t2				 	join-t2		proj-t2 	op
+;;				   (-5 0) 					(-2 0)		(-1 0)
+;;				        			     t1
+;;								(-3 -1)
+;; [:t3 :join-t3] [:t2 :join-t3] [:join-t3 :proj-t3] [:proj-t3 :join-t2] [:t1 :join-t2] [:join-t2 :proj-t2] [:proj-t2 :op]
+;;
+;;
+;;
+

@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BI Tool – API Connection Config</title>
+
+  <!-- Smart UI styles -->
+<!--  <link rel="stylesheet"
+        type="text/css"
+        href="https://www.htmlelements.com/demos/source/styles/smart.default.css" />
+ -->
+
+  <!-- Smart UI styles (adjust path as needed) -->
+  <link rel="stylesheet"
+        type="text/css"
+        href="source/styles/smart.default.css" />
+
+  <!-- Smart UI bundle (adjust path as needed) -->
+  <script type="text/javascript"
+          src="source/modules/smart.elements.js"></script>
+
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      padding: 16px;
+      box-sizing: border-box;
+      background: #f5f5f7;
+    }
+
+    .app-shell {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px 20px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+      margin-top: 10px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px 24px;
+      margin-top: 12px;
+    }
+
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .form-field label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+    }
+
+    .fieldset {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-top: 12px;
+    }
+
+    .fieldset legend {
+      font-size: 12px;
+      padding: 0 6px;
+      color: #6b7280;
+    }
+
+    .fieldset .form-grid {
+      margin-top: 6px;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .section-header h2 {
+      font-size: 16px;
+      margin: 0;
+    }
+
+    .section-header small {
+      color: #6b7280;
+      font-size: 12px;
+    }
+
+    .button-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    /* Dynamic sections */
+    .hidden {
+      display: none !important;
+    }
+
+    smart-tabs {
+      width: 100%;
+      height: auto;
+    }
+
+    .tab-content {
+      margin-top: 12px;
+    }
+
+    textarea.json-input {
+      min-height: 80px;
+      resize: vertical;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    .helper-text {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <h1>API Connection Configuration</h1>
+
+    <smart-tabs selected-index="0" class="card">
+      <smart-tab-item label="API Connection" selected>
+        <div class="tab-content">
+          <div class="section-header">
+            <h2>Global API Settings</h2>
+            <small>These settings apply to the main API connection.</small>
+          </div>
+
+          <!-- Basic connection -->
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="connectionName">Connection name</label>
+              <smart-input id="connectionName" placeholder="e.g. GitHub REST"></smart-input>
+            </div>
+
+            <div class="form-field">
+              <label for="baseUrl">Base URL</label>
+              <smart-input id="baseUrl" placeholder="https://api.example.com"></smart-input>
+            </div>
+
+            <div class="form-field">
+              <label for="environment">Environment</label>
+              <smart-drop-down-list id="environment"></smart-drop-down-list>
+            </div>
+
+            <div class="form-field">
+              <label for="defaultMethod">Default HTTP method</label>
+              <smart-drop-down-list id="defaultMethod"></smart-drop-down-list>
+            </div>
+
+            <div class="form-field">
+              <label for="defaultTimeout">Timeout (seconds)</label>
+              <smart-numeric-text-box id="defaultTimeout" value="30" min="1" max="600"></smart-numeric-text-box>
+            </div>
+          </div>
+
+          <!-- Auth -->
+          <fieldset class="fieldset" style="margin-top: 18px;">
+            <legend>Authentication</legend>
+
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="authType">Auth type</label>
+                <smart-drop-down-list id="authType"></smart-drop-down-list>
+              </div>
+            </div>
+
+            <!-- Basic auth section -->
+            <div id="authBasicSection" class="form-grid hidden">
+              <div class="form-field">
+                <label for="basicUser">Username</label>
+                <smart-input id="basicUser"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="basicPassword">Password</label>
+                <smart-input id="basicPassword" password-toggle="true"></smart-input>
+              </div>
+            </div>
+
+            <!-- API key section -->
+            <div id="authApiKeySection" class="form-grid hidden">
+              <div class="form-field">
+                <label for="apiKeyLocation">API key location</label>
+                <smart-drop-down-list id="apiKeyLocation"></smart-drop-down-list>
+              </div>
+              <div class="form-field">
+                <label for="apiKeyName">Key name (header/query)</label>
+                <smart-input id="apiKeyName" placeholder="e.g. X-API-Key"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="apiKeyValue">Key value</label>
+                <smart-input id="apiKeyValue" password-toggle="true"></smart-input>
+              </div>
+            </div>
+
+            <!-- Bearer token section -->
+            <div id="authBearerSection" class="form-grid hidden">
+              <div class="form-field">
+                <label for="bearerToken">Bearer token</label>
+                <smart-input id="bearerToken" password-toggle="true"></smart-input>
+              </div>
+            </div>
+
+            <!-- OAuth2 client credentials section -->
+            <div id="authOAuthSection" class="form-grid hidden">
+              <div class="form-field">
+                <label for="oauthTokenUrl">Token URL</label>
+                <smart-input id="oauthTokenUrl"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="oauthClientId">Client ID</label>
+                <smart-input id="oauthClientId"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="oauthClientSecret">Client Secret</label>
+                <smart-input id="oauthClientSecret" password-toggle="true"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="oauthScopes">Scopes</label>
+                <smart-input id="oauthScopes" placeholder="space separated"></smart-input>
+              </div>
+            </div>
+          </fieldset>
+
+          <!-- Headers & query params -->
+          <fieldset class="fieldset">
+            <legend>Defaults (Headers & Query params)</legend>
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="defaultHeaders">Default headers (JSON object)</label>
+                <textarea id="defaultHeaders" class="json-input" placeholder='{"Accept": "application/json"}'></textarea>
+                <div class="helper-text">Optional – key/value pairs applied to every request.</div>
+              </div>
+              <div class="form-field">
+                <label for="defaultQueryParams">Default query params (JSON object)</label>
+                <textarea id="defaultQueryParams" class="json-input" placeholder='{"locale": "en-US"}'></textarea>
+              </div>
+            </div>
+          </fieldset>
+
+          <!-- Pagination -->
+          <fieldset class="fieldset">
+            <legend>Pagination</legend>
+
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="paginationType">Pagination type</label>
+                <smart-drop-down-list id="paginationType"></smart-drop-down-list>
+              </div>
+            </div>
+
+            <!-- Page number pagination -->
+            <div id="paginationPageSection" class="form-grid hidden">
+              <div class="form-field">
+                <label for="pageParam">Page param name</label>
+                <smart-input id="pageParam" placeholder="page"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="pageSizeParam">Page size param name</label>
+                <smart-input id="pageSizeParam" placeholder="per_page"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="defaultPageSize">Default page size</label>
+                <smart-numeric-text-box id="defaultPageSize" min="1" max="1000" value="50"></smart-numeric-text-box>
+              </div>
+              <div class="form-field">
+                <label for="startPage">Start page</label>
+                <smart-numeric-text-box id="startPage" min="1" value="1"></smart-numeric-text-box>
+              </div>
+            </div>
+
+            <!-- Offset/limit pagination -->
+            <div id="paginationOffsetSection" class="form-grid hidden">
+              <div class="form-field">
+                <label for="offsetParam">Offset param name</label>
+                <smart-input id="offsetParam" placeholder="offset"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="limitParam">Limit param name</label>
+                <smart-input id="limitParam" placeholder="limit"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="defaultLimit">Default limit</label>
+                <smart-numeric-text-box id="defaultLimit" min="1" max="1000" value="100"></smart-numeric-text-box>
+              </div>
+            </div>
+
+            <!-- Cursor pagination -->
+            <div id="paginationCursorSection" class="form-grid hidden">
+              <div class="form-field">
+                <label for="cursorLocation">Cursor location</label>
+                <smart-drop-down-list id="cursorLocation"></smart-drop-down-list>
+              </div>
+              <div class="form-field">
+                <label for="cursorParamName">Cursor param name</label>
+                <smart-input id="cursorParamName" placeholder="cursor"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="cursorResponsePath">Response field path for next cursor</label>
+                <smart-input id="cursorResponsePath" placeholder="meta.next_cursor"></smart-input>
+              </div>
+            </div>
+          </fieldset>
+
+          <!-- Rate limiting -->
+          <fieldset class="fieldset">
+            <legend>Rate limit & Retry</legend>
+
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="maxRequestsPerMinute">Max requests per minute</label>
+                <smart-numeric-text-box id="maxRequestsPerMinute" min="1" max="100000" value="600"></smart-numeric-text-box>
+              </div>
+              <div class="form-field">
+                <label for="maxConcurrentRequests">Max concurrent requests</label>
+                <smart-numeric-text-box id="maxConcurrentRequests" min="1" max="64" value="1"></smart-numeric-text-box>
+              </div>
+              <div class="form-field">
+                <label for="maxRetries">Max retries</label>
+                <smart-numeric-text-box id="maxRetries" min="0" max="10" value="3"></smart-numeric-text-box>
+              </div>
+              <div class="form-field">
+                <label for="backoffStrategy">Backoff strategy</label>
+                <smart-drop-down-list id="backoffStrategy"></smart-drop-down-list>
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="button-row">
+            <smart-button id="saveConnectionBtn" class="primary">Save connection</smart-button>
+          </div>
+        </div>
+      </smart-tab-item>
+
+      <smart-tab-item label="Endpoints">
+        <div class="tab-content">
+          <div class="section-header">
+            <h2>Endpoint Definition</h2>
+            <small>Per-endpoint overrides (path, method, pagination, etc.).</small>
+          </div>
+
+          <div class="card" style="padding: 12px 14px; margin: 0;">
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="endpointName">Endpoint name</label>
+                <smart-input id="endpointName" placeholder="List Pull Requests"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="endpointMethod">HTTP method</label>
+                <smart-drop-down-list id="endpointMethod"></smart-drop-down-list>
+              </div>
+              <div class="form-field">
+                <label for="endpointPath">Path template</label>
+                <smart-input id="endpointPath" placeholder="/repos/{owner}/{repo}/pulls"></smart-input>
+              </div>
+              <div class="form-field">
+                <label for="endpointDataPath">Response data path</label>
+                <smart-input id="endpointDataPath" placeholder="e.g. data.items or [] for root"></smart-input>
+              </div>
+            </div>
+
+            <fieldset class="fieldset">
+              <legend>Overrides</legend>
+
+              <div class="form-grid">
+                <div class="form-field">
+                  <label>Override global headers?</label>
+                  <smart-switch-button id="endpointOverrideHeaders"></smart-switch-button>
+                  <div class="helper-text">If ON, use the JSON below instead of global headers.</div>
+                </div>
+                <div class="form-field">
+                  <label>Override global query params?</label>
+                  <smart-switch-button id="endpointOverrideQuery"></smart-switch-button>
+                </div>
+                <div class="form-field">
+                  <label>Override global pagination?</label>
+                  <smart-switch-button id="endpointOverridePagination"></smart-switch-button>
+                </div>
+              </div>
+
+              <div class="form-grid" style="margin-top: 12px;">
+                <div class="form-field">
+                  <label for="endpointHeaders">Endpoint headers (JSON object)</label>
+                  <textarea id="endpointHeaders" class="json-input" placeholder='{"Accept": "application/vnd.github+json"}'></textarea>
+                </div>
+                <div class="form-field">
+                  <label for="endpointQueryParams">Endpoint query params (JSON object)</label>
+                  <textarea id="endpointQueryParams" class="json-input" placeholder='{"state": "open"}'></textarea>
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset class="fieldset">
+              <legend>Incremental sync (optional)</legend>
+
+              <div class="form-grid">
+                <div class="form-field">
+                  <label for="incrementalField">Incremental field (response)</label>
+                  <smart-input id="incrementalField" placeholder="updated_at"></smart-input>
+                </div>
+                <div class="form-field">
+                  <label for="incrementalType">Field type</label>
+                  <smart-drop-down-list id="incrementalType"></smart-drop-down-list>
+                </div>
+                <div class="form-field">
+                  <label for="incrementalParam">Request param name</label>
+                  <smart-input id="incrementalParam" placeholder="updated_since"></smart-input>
+                </div>
+                <div class="form-field">
+                  <label for="incrementalStartValue">Default start value</label>
+                  <smart-input id="incrementalStartValue" placeholder="2020-01-01T00:00:00Z"></smart-input>
+                </div>
+              </div>
+            </fieldset>
+
+            <div class="button-row">
+              <smart-button id="saveEndpointBtn" class="primary">Save endpoint</smart-button>
+            </div>
+          </div>
+        </div>
+      </smart-tab-item>
+    </smart-tabs>
+  </div>
+
+  <!-- Smart UI bundle (all components) -->
+  <script src="https://www.htmlelements.com/demos/source/smart.elements.js"></script>
+
+  <script>
+    window.Smart && window.addEventListener("load", function () {
+      // --- Initialize dropdowns ---
+
+      const environment = document.getElementById("environment");
+      environment.dataSource = [
+        { label: "Production", value: "prod" },
+        { label: "Sandbox", value: "sandbox" },
+        { label: "Other", value: "other" }
+      ];
+      environment.selectedIndex = 0;
+
+      const defaultMethod = document.getElementById("defaultMethod");
+      defaultMethod.dataSource = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+      defaultMethod.selectedIndex = 0;
+
+      const authType = document.getElementById("authType");
+      authType.dataSource = [
+        { label: "None", value: "none" },
+        { label: "Basic", value: "basic" },
+        { label: "API Key", value: "apikey" },
+        { label: "Bearer token", value: "bearer" },
+        { label: "OAuth2 Client Credentials", value: "oauth2" }
+      ];
+      authType.selectedIndex = 0;
+
+      const apiKeyLocation = document.getElementById("apiKeyLocation");
+      apiKeyLocation.dataSource = [
+        { label: "Header", value: "header" },
+        { label: "Query param", value: "query" }
+      ];
+      apiKeyLocation.selectedIndex = 0;
+
+      const paginationType = document.getElementById("paginationType");
+      paginationType.dataSource = [
+        { label: "None", value: "none" },
+        { label: "Page number", value: "page" },
+        { label: "Offset / Limit", value: "offset" },
+        { label: "Cursor / Token", value: "cursor" }
+      ];
+      paginationType.selectedIndex = 0;
+
+      const cursorLocation = document.getElementById("cursorLocation");
+      cursorLocation.dataSource = [
+        { label: "Query param", value: "query" },
+        { label: "Body", value: "body" }
+      ];
+      cursorLocation.selectedIndex = 0;
+
+      const backoffStrategy = document.getElementById("backoffStrategy");
+      backoffStrategy.dataSource = [
+        { label: "None", value: "none" },
+        { label: "Fixed", value: "fixed" },
+        { label: "Exponential", value: "exponential" }
+      ];
+      backoffStrategy.selectedIndex = 2; // Exponential
+
+      const endpointMethod = document.getElementById("endpointMethod");
+      endpointMethod.dataSource = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+      endpointMethod.selectedIndex = 0;
+
+      const incrementalType = document.getElementById("incrementalType");
+      incrementalType.dataSource = [
+        { label: "Datetime", value: "datetime" },
+        { label: "Numeric ID", value: "numeric" }
+      ];
+      incrementalType.selectedIndex = 0;
+
+      // --- Show/hide sections based on auth type ---
+      function updateAuthSections() {
+        const value = authType.selectedValues[0];
+
+        document.getElementById("authBasicSection").classList.toggle("hidden", value !== "basic");
+        document.getElementById("authApiKeySection").classList.toggle("hidden", value !== "apikey");
+        document.getElementById("authBearerSection").classList.toggle("hidden", value !== "bearer");
+        document.getElementById("authOAuthSection").classList.toggle("hidden", value !== "oauth2");
+      }
+      authType.addEventListener("change", updateAuthSections);
+      updateAuthSections();
+
+      // --- Show/hide pagination sections ---
+      function updatePaginationSections() {
+        const value = paginationType.selectedValues[0];
+
+        document.getElementById("paginationPageSection").classList.toggle("hidden", value !== "page");
+        document.getElementById("paginationOffsetSection").classList.toggle("hidden", value !== "offset");
+        document.getElementById("paginationCursorSection").classList.toggle("hidden", value !== "cursor");
+      }
+      paginationType.addEventListener("change", updatePaginationSections);
+      updatePaginationSections();
+
+      function safeJsonParse(text) {
+        if (!text || !text.trim()) return {};
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          console.warn("Invalid JSON in config field:", text, e);
+          return {};
+        }
+      }
+
+      // --- Collect connection config ---
+      document.getElementById("saveConnectionBtn")
+        .addEventListener("click", function () {
+          const connectionConfig = {
+            name: document.getElementById("connectionName").value,
+            baseUrl: document.getElementById("baseUrl").value,
+            environment: environment.selectedValues[0],
+            defaultMethod: defaultMethod.selectedValues[0],
+            timeoutSeconds: document.getElementById("defaultTimeout").value,
+            auth: {
+              type: authType.selectedValues[0],
+              basic: {
+                username: document.getElementById("basicUser").value,
+                password: document.getElementById("basicPassword").value
+              },
+              apiKey: {
+                location: apiKeyLocation.selectedValues[0],
+                name: document.getElementById("apiKeyName").value,
+                value: document.getElementById("apiKeyValue").value
+              },
+              bearer: {
+                token: document.getElementById("bearerToken").value
+              },
+              oauth2: {
+                tokenUrl: document.getElementById("oauthTokenUrl").value,
+                clientId: document.getElementById("oauthClientId").value,
+                clientSecret: document.getElementById("oauthClientSecret").value,
+                scopes: document.getElementById("oauthScopes").value
+              }
+            },
+            defaults: {
+              headers: safeJsonParse(document.getElementById("defaultHeaders").value),
+              queryParams: safeJsonParse(document.getElementById("defaultQueryParams").value)
+            },
+            pagination: {
+              type: paginationType.selectedValues[0],
+              page: {
+                pageParam: document.getElementById("pageParam").value,
+                pageSizeParam: document.getElementById("pageSizeParam").value,
+                defaultPageSize: document.getElementById("defaultPageSize").value,
+                startPage: document.getElementById("startPage").value
+              },
+              offset: {
+                offsetParam: document.getElementById("offsetParam").value,
+                limitParam: document.getElementById("limitParam").value,
+                defaultLimit: document.getElementById("defaultLimit").value
+              },
+              cursor: {
+                location: cursorLocation.selectedValues[0],
+                paramName: document.getElementById("cursorParamName").value,
+                responsePath: document.getElementById("cursorResponsePath").value
+              }
+            },
+            rateLimit: {
+              maxRequestsPerMinute: document.getElementById("maxRequestsPerMinute").value,
+              maxConcurrentRequests: document.getElementById("maxConcurrentRequests").value,
+              maxRetries: document.getElementById("maxRetries").value,
+              backoffStrategy: backoffStrategy.selectedValues[0]
+            }
+          };
+
+          console.log("Connection config to POST to backend:", connectionConfig);
+          alert("Connection config logged to console. Wire this up to your backend API.");
+        });
+
+      // --- Collect endpoint config ---
+      document.getElementById("saveEndpointBtn")
+        .addEventListener("click", function () {
+          const endpointConfig = {
+            name: document.getElementById("endpointName").value,
+            method: endpointMethod.selectedValues[0],
+            pathTemplate: document.getElementById("endpointPath").value,
+            responseDataPath: document.getElementById("endpointDataPath").value,
+            overrides: {
+              headers: document.getElementById("endpointOverrideHeaders").checked
+                ? safeJsonParse(document.getElementById("endpointHeaders").value)
+                : null,
+              queryParams: document.getElementById("endpointOverrideQuery").checked
+                ? safeJsonParse(document.getElementById("endpointQueryParams").value)
+                : null,
+              pagination: document.getElementById("endpointOverridePagination").checked
+            },
+            incremental: {
+              field: document.getElementById("incrementalField").value,
+              type: incrementalType.selectedValues[0],
+              paramName: document.getElementById("incrementalParam").value,
+              defaultStart: document.getElementById("incrementalStartValue").value
+            }
+          };
+
+          console.log("Endpoint config to POST to backend:", endpointConfig);
+          alert("Endpoint config logged to console. Wire this up to your backend API.");
+        });
+    });
+  </script>
+</body>
+</html>
+

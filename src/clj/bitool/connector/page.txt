@@ -1,0 +1,1249 @@
+(ns bitool.connector.pagination
+  "Complete configurable pagination system with async channels for all pagination types"
+  (:require [clojure.core.async :as async :refer [go go-loop chan >! <! >!! <!! close! mult tap]]
+            [clj-http.client :as http]
+            [cheshire.core :as json]
+            [clojure.string :as str]))
+
+;; =============================================================================
+;; PAGINATION STRATEGY PROTOCOL
+;; =============================================================================
+
+(defprotocol ConfigurablePaginationStrategy
+  "Protocol for configurable pagination strategies"
+  (initial-params [this config] "Get initial request parameters")
+  (next-params [this current-response current-params config] "Get next page parameters")
+  (has-more? [this response config] "Check if more pages available")
+  (extract-data [this response config] "Extract data from response")
+  (can-parallelize? [this] "Whether this strategy supports parallel fetching")
+  (get-total-info [this response config] "Get total pages/records info for parallel strategies"))
+
+;; =============================================================================
+;; OFFSET-BASED PAGINATION
+;; =============================================================================
+
+(defrecord ConfigurableOffsetPagination []
+  ConfigurablePaginationStrategy
+  
+  (initial-params [_ config]
+    (let [{:keys [limit-param offset-param page-size]} (:pagination config)]
+      {(keyword limit-param) page-size
+       (keyword offset-param) 0}))
+  
+  (next-params [_ current-response current-params config]
+    (let [{:keys [offset-param page-size]} (:pagination config)
+          current-offset (get current-params (keyword offset-param) 0)]
+      (assoc current-params (keyword offset-param) (+ current-offset page-size))))
+  
+  (has-more? [this response config]
+    (let [{:keys [page-size has-more-path total-path]} (:pagination config)
+          body (:body response)
+          data (extract-data this response config)]
+      (cond
+        ;; Check explicit has-more field
+        has-more-path
+        (get-in body has-more-path)
+        
+        ;; Check total vs current offset
+        total-path
+        (let [total (get-in body total-path)
+       		current-count (count data)]
+  		(and total (> total 0) (>= current-count page-size))) 
+        ;; Default: check if we got a full page
+        :else
+        (>= (count data) page-size))))
+  
+  (extract-data [_ response config]
+    (let [{:keys [data-path]} (:pagination config)
+          body (:body response)]
+      (if data-path
+        (get-in body data-path)
+        (if (vector? body) body []))))
+  
+  (can-parallelize? [_] true)
+  
+  (get-total-info [_ response config]
+    (let [{:keys [total-path total-pages-path]} (:pagination config)
+          body (:body response)]
+      {:total-records (when total-path (get-in body total-path))
+       :total-pages (when total-pages-path (get-in body total-pages-path))})))
+
+;; =============================================================================
+;; PAGE-BASED PAGINATION
+;; =============================================================================
+
+(defrecord ConfigurablePagePagination []
+  ConfigurablePaginationStrategy
+  
+  (initial-params [_ config]
+    (let [{:keys [page-param size-param page-size start-page]} (:pagination config)]
+      {(keyword page-param) (or start-page 1)
+       (keyword size-param) page-size}))
+  
+  (next-params [_ current-response current-params config]
+    (let [{:keys [page-param]} (:pagination config)]
+      (update current-params (keyword page-param) inc)))
+  
+  (has-more? [this response config]
+    (let [{:keys [has-more-path total-pages-path current-page-path page-size]} (:pagination config)
+          body (:body response)]
+      (cond
+        ;; Check explicit has-more field
+        has-more-path
+        (get-in body has-more-path)
+        
+        ;; Check current page vs total pages
+        (and total-pages-path current-page-path)
+        (let [total-pages (get-in body total-pages-path)
+              current-page (get-in body current-page-path)]
+          (< current-page total-pages))
+        
+        ;; Default: check page size
+        :else
+        (let [data (extract-data this response config)]
+          (>= (count data) page-size)))))
+  
+  (extract-data [_ response config]
+    (let [{:keys [data-path]} (:pagination config)
+          body (:body response)]
+      (if data-path
+        (get-in body data-path)
+        (if (vector? body) body []))))
+  
+  (can-parallelize? [_] true)
+  
+  (get-total-info [_ response config]
+    (let [{:keys [total-pages-path]} (:pagination config)
+          body (:body response)]
+      {:total-pages (when total-pages-path (get-in body total-pages-path))})))
+
+;; =============================================================================
+;; CURSOR-BASED PAGINATION
+;; =============================================================================
+
+(defrecord ConfigurableCursorPagination []
+  ConfigurablePaginationStrategy
+  
+  (initial-params [_ config]
+    (let [{:keys [cursor-param limit-param page-size initial-cursor]} (:pagination config)]
+      (cond-> {(keyword limit-param) page-size}
+        initial-cursor (assoc (keyword cursor-param) initial-cursor))))
+  
+  (next-params [_ current-response current-params config]
+    (let [{:keys [cursor-param next-cursor-path]} (:pagination config)
+          next-cursor (get-in (:body current-response) next-cursor-path)]
+      (if next-cursor
+        (assoc current-params (keyword cursor-param) next-cursor)
+        nil)))  ; No more pages
+  
+  (has-more? [_ response config]
+    (let [{:keys [next-cursor-path has-more-path]} (:pagination config)
+          body (:body response)]
+      (cond
+        has-more-path (get-in body has-more-path)
+        next-cursor-path (some? (get-in body next-cursor-path))
+        :else false)))
+  
+  (extract-data [_ response config]
+    (let [{:keys [data-path]} (:pagination config)
+          body (:body response)]
+      (if data-path
+        (get-in body data-path)
+        (if (vector? body) body []))))
+  
+  (can-parallelize? [_] false))
+
+(defn extract-link-url 
+  "Extract URL from Link header for specific rel"
+  [link-header rel-name]
+  (when link-header
+    (let [pattern (re-pattern (str "<([^>]+)>;\\s*rel=\"" rel-name "\""))]
+      (when-let [match (re-find pattern link-header)]
+        (second match)))))
+
+;; =============================================================================
+;; LINK HEADER PAGINATION
+;; =============================================================================
+
+(defrecord ConfigurableLinkHeaderPagination []
+  ConfigurablePaginationStrategy
+  
+  (initial-params [_ config]
+    (let [{:keys [limit-param page-size]} (:pagination config)]
+      {(keyword limit-param) page-size}))
+  
+  (next-params [_ current-response current-params config]
+    (let [{:keys [link-header-name next-rel-name]} (:pagination config)
+          link-header (get-in current-response [:headers (or link-header-name "link")])
+          rel-name (or next-rel-name "next")]
+      (when-let [next-url (extract-link-url link-header rel-name)]
+        {:url next-url})))
+  
+  (has-more? [_ response config]
+    (let [{:keys [link-header-name next-rel-name]} (:pagination config)
+          link-header (get-in response [:headers (or link-header-name "link")])
+          rel-name (or next-rel-name "next")]
+      (some? (extract-link-url link-header rel-name))))
+  
+  (extract-data [_ response config]
+    (let [{:keys [data-path]} (:pagination config)
+          body (:body response)]
+      (if data-path
+        (get-in body data-path)
+        (if (vector? body) body []))))
+  
+  (can-parallelize? [_] false))
+
+
+;; =============================================================================
+;; TOKEN-BASED PAGINATION
+;; =============================================================================
+
+(defrecord ConfigurableTokenPagination []
+  ConfigurablePaginationStrategy
+  
+  (initial-params [_ config]
+    (let [{:keys [limit-param page-size initial-token token-param]} (:pagination config)]
+      (cond-> {(keyword limit-param) page-size}
+        initial-token (assoc (keyword token-param) initial-token))))
+  
+  (next-params [_ current-response current-params config]
+    (let [{:keys [token-param next-token-path]} (:pagination config)
+          next-token (get-in (:body current-response) next-token-path)]
+      (if next-token
+        (assoc current-params (keyword token-param) next-token)
+        nil)))
+  
+  (has-more? [_ response config]
+    (let [{:keys [next-token-path has-more-path]} (:pagination config)
+          body (:body response)]
+      (cond
+        has-more-path (get-in body has-more-path)
+        next-token-path (some? (get-in body next-token-path))
+        :else false)))
+  
+  (extract-data [_ response config]
+    (let [{:keys [data-path]} (:pagination config)
+          body (:body response)]
+      (if data-path
+        (get-in body data-path)
+        (if (vector? body) body []))))
+  
+  (can-parallelize? [_] false))
+
+;; =============================================================================
+;; KEYSET PAGINATION
+;; =============================================================================
+
+(defrecord ConfigurableKeysetPagination []
+  ConfigurablePaginationStrategy
+  
+  (initial-params [_ config]
+    (let [{:keys [id-param limit-param page-size start-id]} (:pagination config)]
+      (cond-> {(keyword limit-param) page-size}
+        start-id (assoc (keyword id-param) start-id))))
+  
+  (next-params [this current-response current-params config]
+    (let [{:keys [id-param id-field]} (:pagination config)
+          data (extract-data this current-response config)
+          last-record (last data)]
+      (when-let [last-id (get last-record (keyword id-field))]
+        (assoc current-params (keyword id-param) last-id))))
+  
+  (has-more? [this response config]
+    (let [{:keys [page-size]} (:pagination config)
+          data (extract-data this response config)]
+      (>= (count data) page-size)))
+  
+  (extract-data [_ response config]
+    (let [{:keys [data-path]} (:pagination config)
+          body (:body response)]
+      (if data-path
+        (get-in body data-path)
+        (if (vector? body) body []))))
+  
+  (can-parallelize? [_] false))
+
+;; =============================================================================
+;; STRATEGY FACTORY
+;; =============================================================================
+
+(defn create-strategy
+  "Create strategy based on configuration"
+  [strategy-type]
+  (case strategy-type
+    :offset (->ConfigurableOffsetPagination)
+    :page (->ConfigurablePagePagination)
+    :cursor (->ConfigurableCursorPagination)
+    :link-header (->ConfigurableLinkHeaderPagination)
+    :token (->ConfigurableTokenPagination)
+    :keyset (->ConfigurableKeysetPagination)
+    (throw (ex-info "Unknown strategy type" {:strategy strategy-type}))))
+
+;; =============================================================================
+;; API CONFIGURATION TEMPLATES
+;; =============================================================================
+
+(def api-configs
+  {;; GitHub API Configuration
+   :github
+   {:base-url "https://api.github.com"
+    :strategy :link-header
+    :pagination {:limit-param "per_page"
+                :page-size 100
+                :link-header-name "link"
+                :next-rel-name "next"
+                :data-path nil  ; Response body is array directly
+                :headers {"User-Agent" "MyApp/1.0"}}}
+   
+   ;; Stripe API Configuration  
+   :stripe
+   {:base-url "https://api.stripe.com/v1"
+    :strategy :cursor
+    :pagination {:cursor-param "starting_after"
+                :limit-param "limit"
+                :page-size 100
+                :next-cursor-path [:data]  ; Get last item's ID from data array
+                :has-more-path [:has_more]
+                :data-path [:data]
+                :id-field "id"}}
+   
+   ;; Twitter API v2 Configuration
+   :twitter-v2
+   {:base-url "https://api.twitter.com/2"
+    :strategy :token
+    :pagination {:token-param "next_token"
+                :limit-param "max_results"
+                :page-size 100
+                :next-token-path [:meta :next_token]
+                :data-path [:data]}}
+   
+   ;; Facebook Graph API Configuration
+   :facebook
+   {:base-url "https://graph.facebook.com"
+    :strategy :cursor
+    :pagination {:cursor-param "after"
+                :limit-param "limit"
+                :page-size 25
+                :next-cursor-path [:paging :cursors :after]
+                :has-more-path [:paging :next]
+                :data-path [:data]}}
+   
+   ;; HubSpot API Configuration
+   :hubspot
+   {:base-url "https://api.hubapi.com"
+    :strategy :offset
+    :pagination {:limit-param "limit"
+                :offset-param "offset"
+                :page-size 100
+                :has-more-path [:hasMore]
+                :total-path [:total]
+                :data-path [:results]}}
+   
+   ;; Salesforce API Configuration
+   :salesforce
+   {:base-url "https://instance.salesforce.com/services/data/v55.0"
+    :strategy :cursor
+    :pagination {:cursor-param "q"  ; Uses SOQL query with OFFSET
+                :limit-param "limit"
+                :page-size 2000
+                :next-cursor-path [:nextRecordsUrl]
+                :data-path [:records]}}
+   
+   ;; Shopify API Configuration
+   :shopify
+   {:base-url "https://shop.myshopify.com/admin/api/2023-01"
+    :strategy :page
+    :pagination {:page-param "page_info"
+                :limit-param "limit"
+                :page-size 250
+                :next-cursor-path [:page_info :next_page_info]
+                :data-path nil}}  ; Usually the resource name like :products
+   
+   ;; Zendesk API Configuration
+   :zendesk
+   {:base-url "https://subdomain.zendesk.com/api/v2"
+    :strategy :cursor
+    :pagination {:cursor-param "start_time"
+                :limit-param "per_page"
+                :page-size 100
+                :next-cursor-path [:next_page]
+                :data-path nil}}  ; Resource-specific like :tickets
+   
+   ;; Mailchimp API Configuration
+   :mailchimp
+   {:base-url "https://us1.api.mailchimp.com/3.0"
+    :strategy :offset
+    :pagination {:limit-param "count"
+                :offset-param "offset"
+                :page-size 1000
+                :total-path [:total_items]
+                :data-path nil}}  ; Resource-specific
+   
+   ;; Slack API Configuration
+   :slack
+   {:base-url "https://slack.com/api"
+    :strategy :cursor
+    :pagination {:cursor-param "cursor"
+                :limit-param "limit"
+                :page-size 200
+                :next-cursor-path [:response_metadata :next_cursor]
+                :data-path nil}}  ; Resource-specific
+   
+   ;; Custom REST API with standard patterns
+   :rest-standard
+   {:base-url "https://api.example.com"
+    :strategy :page
+    :pagination {:page-param "page"
+                :size-param "size"
+                :page-size 100
+                :start-page 1
+                :total-pages-path [:pagination :total_pages]
+                :current-page-path [:pagination :current_page]
+                :has-more-path [:pagination :has_next]
+                :data-path [:data]}}})
+
+;; =============================================================================
+;; UTILITY FUNCTIONS
+;; =============================================================================
+
+(defn create-rate-limiter 
+  "Create a rate limiter using a channel"
+  [requests-per-second]
+  (let [rate-ch (chan)]
+    (go-loop []
+      (<! (async/timeout (/ 1000 requests-per-second)))
+      (>! rate-ch :permit)
+      (recur))
+    rate-ch))
+
+(defn create-semaphore 
+  "Create a semaphore using a channel"
+  [max-permits]
+  (let [sem-ch (chan max-permits)]
+    (go (dotimes [_ max-permits] (>! sem-ch :permit)))
+    sem-ch))
+
+;; =============================================================================
+;; CONFIGURATION BUILDER FUNCTIONS
+;; =============================================================================
+
+(defn build-api-config
+  "Build a complete API configuration"
+  [api-key & {:keys [custom-config endpoint-path auth-headers query-params]
+              :or {custom-config {} endpoint-path "" auth-headers {} query-params {}}}]
+  
+  (let [base-config (get api-configs api-key)
+        merged-config (merge-with merge base-config custom-config)]
+    (-> merged-config
+        (assoc :endpoint-path endpoint-path)
+        (update :headers merge auth-headers)
+        (assoc :query-params query-params))))
+
+(defn create-custom-api-config
+  "Create a completely custom API configuration"
+  [base-url strategy pagination-config & {:keys [headers query-params]
+                                          :or {headers {} query-params {}}}]
+  {:base-url base-url
+   :strategy strategy
+   :pagination pagination-config
+   :headers headers
+   :query-params query-params})
+
+;; =============================================================================
+;; HTTP CLIENT FUNCTIONS
+;; =============================================================================
+
+(defn fetch-page-with-config
+  "Fetch page with full configuration support"
+  [base-url params config]
+  (go
+    (try
+      (let [headers (merge (:headers config {}) 
+                          (get-in config [:pagination :headers] {}))
+            request-config {:query-params params
+                           :headers headers
+                           :as :json
+                           :throw-exceptions false}
+            response (http/get base-url request-config)]
+        (assoc response :success (< (:status response) 400)))
+      (catch Exception e
+        {:success false
+         :error (.getMessage e)
+         :body nil}))))
+
+(defn start-offset-parallel-fetchers!
+  "Parallel fetching for offset-based pagination"
+  [base-url strategy config fetch-ch max-pages rate-limiter semaphore]
+  
+  (let [page-size (get-in config [:pagination :page-size])
+        total-records (* max-pages page-size)
+        offsets (range 0 total-records page-size)]
+    
+    (go
+      (doseq [offset offsets]
+        (<! rate-limiter)  ; Rate limiting
+        (<! semaphore)     ; Concurrency limiting
+        
+        (go  ; Parallel fetch
+          (try
+            (let [params (assoc (initial-params strategy config)
+                               (keyword (get-in config [:pagination :offset-param])) offset)
+                  response (<! (fetch-page-with-config base-url params config))]
+              (>! fetch-ch (assoc response :offset offset :page (/ offset page-size))))
+            (finally
+              (>! semaphore :permit))))  ; Return permit
+      
+      (close! fetch-ch)))))
+
+;; =============================================================================
+;; SEQUENTIAL FETCHING (FOR CURSOR/TOKEN/KEYSET PAGINATION)
+;; =============================================================================
+
+(defn start-sequential-fetcher!
+  "Sequential fetching with full configuration support"
+  [base-url strategy config fetch-ch max-pages]
+  
+  (go-loop [params (merge (initial-params strategy config) (:query-params config))
+            page-count 0]
+    
+    (when (< page-count max-pages)
+      (let [response (<! (fetch-page-with-config base-url params config))]
+        (>! fetch-ch (assoc response :page page-count))
+        
+        (if (has-more? strategy response config)
+          (if-let [next-params (next-params strategy response params config)]
+            (recur (merge next-params (:query-params config)) (inc page-count))
+            (close! fetch-ch))
+          (close! fetch-ch))))))
+
+;; =============================================================================
+;; PARALLEL FETCHING (FOR OFFSET/PAGE PAGINATION)
+;; =============================================================================
+
+(defn start-page-parallel-fetchers!
+  "Parallel fetching for page-based pagination when total pages known"
+  [base-url strategy config fetch-ch max-pages rate-limiter semaphore]
+  
+  ;; First, try to get total pages from initial request
+  (go
+    (let [initial-response (<! (fetch-page-with-config base-url (initial-params strategy config) config))
+          total-pages (or (get-in initial-response [:body (get-in config [:pagination :total-pages-path])]) max-pages)
+          start-page (get-in config [:pagination :start-page] 1)]
+      
+      (>! fetch-ch initial-response)  ; Don't lose the first page
+      
+      ;; Fetch remaining pages in parallel
+      (doseq [page (range (inc start-page) (inc total-pages))]
+        (<! rate-limiter)
+        (<! semaphore)
+        
+        (go
+          (try
+            (let [params (assoc (initial-params strategy config)
+                               (keyword (get-in config [:pagination :page-param])) page)
+                  response (<! (fetch-page-with-config base-url params config))]
+              (>! fetch-ch (assoc response :page page)))
+            (finally
+              (>! semaphore :permit)))))
+      
+      (close! fetch-ch))))
+
+(defn start-parallel-fetchers!
+  "Start parallel fetchers for pagination strategies that support it"
+  [base-url strategy config fetch-ch max-pages concurrent-requests rate-limit]
+  
+  (let [rate-limiter (create-rate-limiter rate-limit)
+        semaphore (create-semaphore concurrent-requests)]
+    
+    (cond
+      ;; Offset-based parallel fetching
+      (instance? ConfigurableOffsetPagination strategy)
+      (start-offset-parallel-fetchers! base-url strategy config fetch-ch 
+                                     max-pages rate-limiter semaphore)
+      
+      ;; Page-based parallel fetching  
+      (instance? ConfigurablePagePagination strategy)
+      (start-page-parallel-fetchers! base-url strategy config fetch-ch 
+                                   max-pages rate-limiter semaphore)
+      
+      ;; Fallback to sequential
+      :else
+      (start-sequential-fetcher! base-url strategy config fetch-ch max-pages))))
+
+;; =============================================================================
+;; PROCESSING PIPELINE
+;; =============================================================================
+
+(defn start-configurable-processors!
+  "Processing with configuration awareness"
+  [fetch-ch process-ch config]
+  
+  (dotimes [_ 3]
+    (go-loop []
+      (when-let [fetch-result (<! fetch-ch)]
+        (if (:success fetch-result)
+          (let [strategy (create-strategy (:strategy config))
+                processed-data (extract-data strategy (:body fetch-result) config)
+                enriched-data (<! (process-data-with-config processed-data config))]
+            (>! process-ch {:page (:page fetch-result)
+                           :records enriched-data
+                           :timestamp (System/currentTimeMillis)
+                           :config-used (:strategy config)}))
+          (>! process-ch {:page (:page fetch-result)
+                         :error (:error fetch-result)}))
+        (recur))))
+  
+  (go
+    (async/thread (while (some? (<!! fetch-ch))))
+    (close! process-ch)))
+
+;; =============================================================================
+;; UNIVERSAL PAGINATION ENGINE
+;; =============================================================================
+
+(defn paginate-api
+  "Universal pagination function using configuration"
+  [config & {:keys [max-pages concurrent-requests buffer-size rate-limit]
+             :or {max-pages 1000 concurrent-requests 5 buffer-size 20 rate-limit 10}}]
+  
+  (let [strategy (create-strategy (:strategy config))
+        fetch-ch (chan buffer-size)
+        process-ch (chan buffer-size)
+        result-ch (chan buffer-size)
+        full-url (str (:base-url config) (:endpoint-path config ""))]
+    
+    ;; Choose fetching approach
+    (if (can-parallelize? strategy)
+      (start-parallel-fetchers! full-url strategy config fetch-ch 
+                               max-pages concurrent-requests rate-limit)
+      (start-sequential-fetcher! full-url strategy config fetch-ch max-pages))
+    
+    ;; Start processing pipeline
+    (start-configurable-processors! fetch-ch process-ch config)
+    (start-configurable-collector! process-ch result-ch config)
+    
+    result-ch))
+
+(defn start-configurable-collector!
+  "Collector with configuration-aware storage"
+  [process-ch result-ch config]
+  
+  (go-loop [all-results []]
+    (if-let [processed (<! process-ch)]
+      (if (:error processed)
+        (do
+          (println "Error on page" (:page processed) ":" (:error processed))
+          (recur all-results))
+        (let [updated-results (conj all-results processed)]
+          ;; Store with config-specific storage rules
+          (when-let [storage-fn (get-in config [:storage :store-fn])]
+            (<! (storage-fn (:records processed) config)))
+          
+          (>! result-ch processed)
+          (recur updated-results)))
+      (do
+        (>! result-ch {:complete true 
+                      :total-results (count all-results)
+                      :api-used (:strategy config)})
+        (close! result-ch)))))
+
+;; =============================================================================
+;; CONFIGURATION VALIDATION AND HELPERS
+;; =============================================================================
+
+(defn validate-pagination-config 
+  "Validate pagination configuration"
+  [config]
+  (let [strategy (:strategy config)
+        pagination (:pagination config)]
+    
+    (case strategy
+      :offset
+      (when-not (and (:limit-param pagination) (:offset-param pagination))
+        (throw (ex-info "Offset pagination requires limit-param and offset-param" 
+                       {:config config})))
+      
+      :page
+      (when-not (and (:page-param pagination) (:size-param pagination))
+        (throw (ex-info "Page pagination requires page-param and size-param" 
+                       {:config config})))
+      
+      :cursor
+      (when-not (and (:cursor-param pagination) (:next-cursor-path pagination))
+        (throw (ex-info "Cursor pagination requires cursor-param and next-cursor-path" 
+                       {:config config})))
+      
+      :token
+      (when-not (and (:token-param pagination) (:next-token-path pagination))
+        (throw (ex-info "Token pagination requires token-param and next-token-path" 
+                       {:config config})))
+      
+      ;; Add other validations
+      true)
+    
+    config))
+
+(defn print-config-summary 
+  "Print a summary of the pagination configuration"
+  [config]
+  (println "=== Pagination Configuration Summary ===")
+  (println "API:" (:base-url config))
+  (println "Strategy:" (:strategy config))
+  (println "Pagination params:" (:pagination config))
+  (when (:headers config)
+    (println "Headers:" (keys (:headers config))))
+  (when (:query-params config)
+    (println "Query params:" (keys (:query-params config))))
+  (println "========================================"))
+
+(defn merge-configs 
+  "Merge two configurations intelligently"
+  [base-config override-config]
+  (merge-with (fn [a b]
+                (if (map? a) (merge a b) b))
+              base-config override-config))
+
+;; =============================================================================
+;; TESTING UTILITIES
+;; =============================================================================
+
+(defn test-pagination-config 
+  "Test a pagination configuration with a single request"
+  [config]
+  (go
+    (try
+      (validate-pagination-config config)
+      (let [strategy (create-strategy (:strategy config))
+            params (merge (initial-params strategy config) (:query-params config))
+            full-url (str (:base-url config) (:endpoint-path config ""))
+            response (<! (fetch-page-with-config full-url params config))]
+        
+        (if (:success response)
+          (let [data (extract-data strategy (:body response) config)
+                has-more (has-more? strategy response config)]
+            {:success true
+             :records-count (count data)
+             :has-more has-more
+             :sample-data (take 2 data)})
+          {:success false
+           :error (:error response)}))
+      (catch Exception e
+        {:success false
+         :error (.getMessage e)}))))
+
+;; =============================================================================
+;; USAGE EXAMPLES
+;; =============================================================================
+
+(defn demo-github-repos 
+  "Fetch all repositories for a GitHub user"
+  [username token]
+  (let [config (build-api-config :github
+                                :endpoint-path (str "/users/" username "/repos")
+                                :auth-headers {"Authorization" (str "token " token)}
+                                :custom-config {:pagination {:page-size 50}})]
+    
+    (paginate-api config :max-pages 20 :concurrent-requests 3)))
+
+    
+(defn demo-stripe-customers 
+  "Fetch all Stripe customers"
+  [api-key]
+  (let [config (build-api-config :stripe
+                                :endpoint-path "/customers"
+                                :auth-headers {"Authorization" (str "Bearer " api-key)}
+                                :custom-config {:pagination {:page-size 100}})]
+    
+    (paginate-api config)))
+
+(defn demo-twitter-tweets 
+  "Fetch tweets using Twitter API v2"
+  [bearer-token query]
+  (let [config (build-api-config :twitter-v2
+                                :endpoint-path "/tweets/search/recent"
+                                :auth-headers {"Authorization" (str "Bearer " bearer-token)}
+                                :query-params {"query" query}
+                                :custom-config {:pagination {:page-size 50}})]
+    
+    (paginate-api config :max-pages 10)))
+
+(defn demo-custom-api-data 
+  "Fetch from a custom API with specific pagination"
+  []
+  (let [config (create-custom-api-config
+                "https://api.mycompany.com"
+                :offset
+                {:limit-param "count"
+                 :offset-param "start"
+                 :page-size 200
+                 :total-path [:meta :total]
+                 :has-more-path [:meta :has_more]
+                 :data-path [:results]}
+                :headers {"X-API-Key" "your-key"
+                         "Content-Type" "application/json"})]
+    
+    (paginate-api config :concurrent-requests 8)))
+
+(defn demo-facebook-page-posts 
+  "Fetch Facebook page posts"
+  [page-id access-token]
+  (let [config (build-api-config :facebook
+                                :endpoint-path (str "/" page-id "/posts")
+                                :query-params {"access_token" access-token
+                                              "fields" "id,message,created_time"})]
+    
+    (paginate-api config)))
+
+(defn demo-hubspot-contacts 
+  "Fetch HubSpot contacts"
+  [api-key]
+  (let [config (build-api-config :hubspot
+                                :endpoint-path "/crm/v3/objects/contacts"
+                                :auth-headers {"Authorization" (str "Bearer " api-key)}
+                                :custom-config {:pagination {:page-size 100}})]
+    
+    (paginate-api config :concurrent-requests 10)))
+
+;; =============================================================================
+;; ADVANCED FEATURES
+;; =============================================================================
+
+(defn paginate-multiple-endpoints
+  "Paginate across multiple related endpoints"
+  [base-config endpoints]
+  (let [result-channels (for [endpoint endpoints]
+                         (let [config (assoc base-config :endpoint-path endpoint)]
+                           {:endpoint endpoint
+                            :channel (paginate-api config)}))]
+    
+    ;; Merge results from all endpoints
+    (let [merged-ch (chan 100)]
+      (go
+        (doseq [{:keys [endpoint channel]} result-channels]
+          (go-loop []
+            (when-let [result (<! channel)]
+              (>! merged-ch (assoc result :source-endpoint endpoint))
+              (recur))))
+        
+        ;; Close merged channel when all are done
+        (go
+          (async/thread
+            (doseq [{:keys [channel]} result-channels]
+              (while (some? (<!! channel)))))
+          (close! merged-ch)))
+      
+      merged-ch)))
+
+(defn paginate-hierarchical
+  "Paginate through hierarchical data (parent -> children)"
+  [parent-config child-config-fn]
+  (let [result-ch (chan 100)]
+    
+    (go
+      ;; First, get all parent items
+      (let [parent-ch (paginate-api parent-config)]
+        (go-loop [all-children []]
+          (if-let [parent-result (<! parent-ch)]
+            (if (:complete parent-result)
+              ;; All parents processed, send final result
+              (>! result-ch {:complete true 
+                            :total-children (count all-children)
+                            :all-data all-children})
+              ;; Process children for each parent
+              (let [children-results 
+                    (for [parent-item (:records parent-result)]
+                      (let [child-config (child-config-fn parent-item)
+                            child-ch (paginate-api child-config)]
+                        (go-loop [children []]
+                          (if-let [child-result (<! child-ch)]
+                            (if (:complete child-result)
+                              children
+                              (recur (concat children (:records child-result))))
+                            children))))]
+                
+                ;; Wait for all children to complete
+                (let [all-child-results (<! (async/map vector children-results))]
+                  (>! result-ch {:parent-page (:page parent-result)
+                                :children (flatten all-child-results)})
+                  (recur (concat all-children (flatten all-child-results))))))
+            ;; Parent channel closed
+            (close! result-ch))))
+    
+    result-ch)))
+
+(defn paginate-with-conditions
+  "Paginate with conditions that can change strategy mid-stream"
+  [initial-config condition-fns]
+  (let [result-ch (chan 100)]
+    
+    (go-loop [current-config initial-config
+              page-count 0]
+      
+      ;; Check if any conditions trigger config changes
+      (let [updated-config (reduce (fn [cfg [condition update-fn]]
+                                   (if (condition page-count cfg)
+                                     (update-fn cfg)
+                                     cfg))
+                                 current-config condition-fns)]
+        
+        ;; Fetch page with current config
+        (let [strategy (create-strategy (:strategy updated-config))
+              params (initial-params strategy updated-config)
+              full-url (str (:base-url updated-config) (:endpoint-path updated-config))
+              response (<! (fetch-page-with-config full-url params updated-config))]
+          
+          (if (:success response)
+            (let [data (extract-data strategy (:body response) updated-config)]
+              (>! result-ch {:page page-count
+                            :records data
+                            :config-used (:strategy updated-config)})
+              
+              (if (has-more? strategy response updated-config)
+                (recur updated-config (inc page-count))
+                (do
+                  (>! result-ch {:complete true})
+                  (close! result-ch))))
+            (do
+              (>! result-ch {:error (:error response) :page page-count})
+              (close! result-ch))))))
+    
+    result-ch))
+
+;; =============================================================================
+;; ADAPTIVE RATE LIMITING
+;; =============================================================================
+
+(defn adaptive-rate-limiter 
+  "Rate limiter that adapts based on API responses"
+  [initial-rate]
+  (let [rate-ch (chan)
+        current-rate (atom initial-rate)]
+    
+    (go-loop []
+      (<! (async/timeout (/ 1000 @current-rate)))
+      (>! rate-ch :permit)
+      (recur))
+    
+    {:channel rate-ch
+     :adjust-rate (fn [factor] (swap! current-rate * factor))}))
+
+;; =============================================================================
+;; CONFIGURATION COMPOSITION
+;; =============================================================================
+
+(defn compose-configs
+  "Compose multiple configuration aspects"
+  [& config-fns]
+  (fn [base-config]
+    (reduce #(%2 %1) base-config config-fns)))
+
+(defn with-auth 
+  "Add authentication to configuration"
+  [auth-type credentials]
+  (fn [config]
+    (case auth-type      
+      :bearer-token
+      (assoc-in config [:headers "Authorization"] (str "Bearer " credentials))
+                                
+      :api-key                  
+      (assoc-in config [:headers "X-API-Key"] credentials)
+      
+      :basic-auth
+      (let [{:keys [username password]} credentials
+            bytes (.getBytes (str username ":" password) "UTF-8")
+            encoded (.encodeToString (java.util.Base64/getEncoder) bytes)]
+        (assoc-in config [:headers "Authorization"] (str "Basic " encoded)))
+                                
+      config)))
+
+(defn with-rate-limiting 
+  "Add rate limiting configuration"
+  [requests-per-second]
+  (fn [config]
+    (assoc config :rate-limit requests-per-second)))
+
+(defn with-retry-policy 
+  "Add retry policy configuration"
+  [max-retries backoff-ms]
+  (fn [config]
+    (assoc config :retry {:max-retries max-retries
+                         :backoff-ms backoff-ms})))
+
+(defn with-custom-processing 
+  "Add custom data processing"
+  [transform-fns filter-fn]
+  (fn [config]
+    (assoc config :processing {:transforms transform-fns
+                              :filter filter-fn})))
+
+;; =============================================================================
+;; CONFIGURATION REGISTRY
+;; =============================================================================
+
+(defonce config-registry (atom {}))
+
+(defn register-api-config
+  "Register a reusable API configuration"
+  [config-name config]
+  (swap! config-registry assoc config-name (validate-pagination-config config))
+  config-name)
+
+(defn get-registered-config
+  "Get a registered configuration with optional overrides"
+  [config-name & [overrides]]
+  (let [base-config (get @config-registry config-name)]
+    (if base-config
+      (if overrides
+        (merge-configs base-config overrides)
+        base-config)
+      (throw (ex-info "Configuration not found" {:config-name config-name})))))
+
+(defn list-registered-configs
+  "List all registered configurations"
+  []
+  (keys @config-registry))
+
+;; =============================================================================
+;; COMPREHENSIVE DEMO FUNCTIONS
+;; =============================================================================
+
+(defn demo-multi-pagination 
+  "Demonstrate pagination with different API types"
+  []
+  
+  ;; Example 1: GitHub (auto-detected link header pagination)
+  (go
+    (let [github-config (build-api-config :github
+                                         :endpoint-path "/users/octocat/repos"
+                                         :auth-headers {"User-Agent" "Demo/1.0"})
+          result-ch (paginate-api github-config :max-pages 5)]
+      (println "GitHub strategy:" (:strategy github-config))
+      (go-loop [repo-count 0]
+        (when-let [result (<! result-ch)]
+          (if (:complete result)
+            (println "GitHub: Total repos processed:" repo-count)
+            (recur (+ repo-count (count (:records result)))))))))
+  
+  ;; Example 2: Custom strategy selection
+  (let [custom-strategy (create-custom-api-config 
+                        "https://api.custom.com/data"
+                        :cursor
+                        {:cursor-param "next"
+                         :limit-param "size"
+                         :next-cursor-path [:pagination :next_cursor]
+                         :data-path [:items]})
+        result-ch (paginate-api custom-strategy {})]
+    (go-loop []
+      (when-let [result (<! result-ch)]
+        (if-not (:complete result)
+          (do
+            (println "Page" (:page result) ":" (count (:records result)) "records")
+            (recur))
+          (println "Custom API pagination complete"))))))
+
+(defn demo-ecommerce-sync
+  "Comprehensive e-commerce data synchronization"
+  [platform-configs]
+  (let [sync-results (atom {})]
+    
+    ;; Sync products from multiple platforms
+    (doseq [[platform config] platform-configs]
+      (go
+        (let [products-config (assoc config :endpoint-path "/products")
+              result-ch (paginate-api products-config)]
+          
+          (go-loop [product-count 0]
+            (when-let [result (<! result-ch)]
+              (if (:complete result)
+                (do
+                  (swap! sync-results assoc platform {:products product-count :status :complete})
+                  (println platform "sync complete:" product-count "products"))
+                (recur (+ product-count (count (:records result))))))))))
+    
+    sync-results))
+
+(defn demo-social-media-aggregation
+  "Aggregate mentions across social platforms"
+  [brand-name platforms]
+  (let [mention-ch (chan 1000)]
+    
+    (doseq [[platform config] platforms]
+      (go
+        (let [search-config (-> config
+                               (assoc :endpoint-path "/search")
+                               (assoc-in [:query-params "q"] brand-name))
+              result-ch (paginate-api search-config)]
+          
+          (go-loop []
+            (when-let [result (<! result-ch)]
+              (when-not (:complete result)
+                (doseq [mention (:records result)]
+                  (>! mention-ch (assoc mention :platform platform))))
+              (recur))))))
+    
+    mention-ch))
+
+(defn transform-record 
+  "Transform a single record"
+  [record]
+  (go
+    ;; Simulate transformation logic
+    (<! (async/timeout 1))
+    (-> record
+        (assoc :transformed-at (System/currentTimeMillis))
+        (update :name clojure.string/upper-case))))
+
+(defn load-batch 
+  "Load batch to destination"
+  [batch destination-config]
+  (go
+    ;; Simulate database insert
+    (<! (async/timeout 10))
+    (println "Loaded batch of" (count batch) "records to" (:destination destination-config))))
+
+(defn demo-etl-pipeline
+  "Complete ETL pipeline with configurable sources"
+  [source-configs destination-config]
+  (let [extract-ch (chan 1000)
+        transform-ch (chan 1000)
+        load-ch (chan 1000)]
+    
+    ;; Extract from multiple sources
+    (doseq [[source-name config] source-configs]
+      (go
+        (let [result-ch (paginate-api config)]
+          (go-loop []
+            (when-let [result (<! result-ch)]
+              (when-not (:complete result)
+                (doseq [record (:records result)]
+                  (>! extract-ch (assoc record :source source-name))))
+              (recur))))))
+    
+    ;; Transform data
+    (go-loop []
+      (when-let [raw-record (<! extract-ch)]
+        (let [transformed (<! (transform-record raw-record))]
+          (>! transform-ch transformed))
+        (recur)))
+    
+    ;; Load to destination
+    (go-loop [batch []]
+      (if-let [record (<! transform-ch)]
+        (let [new-batch (conj batch record)]
+          (if (>= (count new-batch) 1000)  ; Batch size
+            (do
+              (<! (load-batch new-batch destination-config))
+              (recur []))
+            (recur new-batch)))
+        ;; Load final batch
+        (when (seq batch)
+          (<! (load-batch batch destination-config)))))
+    
+    {:status :running
+     :channels {:extract extract-ch
+               :transform transform-ch
+               :load load-ch}}))
+
+;; =============================================================================
+;; PERFORMANCE TESTING
+;; =============================================================================
+
+(defn benchmark-pagination-strategies 
+  "Compare performance of different strategies"
+  []
+  (let [strategies {:offset (create-custom-api-config 
+                            "https://api.test.com/data" 
+                            :offset 
+                            {:limit-param "limit" :offset-param "offset" :page-size 100})
+                   :page (create-custom-api-config 
+                         "https://api.test.com/data" 
+                         :page 
+                         {:page-param "page" :size-param "size" :page-size 100})
+                   :cursor (create-custom-api-config 
+                           "https://api.test.com/data" 
+                           :cursor 
+                           {:cursor-param "cursor" :limit-param "limit" :page-size 100
+                            :next-cursor-path [:next_cursor]})}]
+    
+    (doseq [[name config] strategies]
+      (let [start-time (System/currentTimeMillis)
+            result-ch (paginate-api config :max-pages 50)]
+        
+        (go-loop [total-records 0]
+          (when-let [result (<! result-ch)]
+            (if (:complete result)
+              (let [end-time (System/currentTimeMillis)
+                    duration (- end-time start-time)]
+                (println name "strategy: " total-records "records in" duration "ms"))
+              (recur (+ total-records (count (:records result)))))))))))
+
+;; =============================================================================
+;; PRODUCTION READY SETUP
+;; =============================================================================
+
+(defn setup-production-configs 
+  "Setup production configurations"
+  []
+  
+  ;; Register common configurations
+  (register-api-config :prod-github
+                      (build-api-config :github
+                                       :auth-headers {"Authorization" (System/getenv "GITHUB_TOKEN")}
+                                       :custom-config {:pagination {:page-size 100}}))
+  
+  (register-api-config :prod-stripe
+                      (build-api-config :stripe
+                                       :auth-headers {"Authorization" (str "Bearer " (System/getenv "STRIPE_KEY"))}
+                                       :custom-config {:pagination {:page-size 100}}))
+  
+  (register-api-config :prod-hubspot
+                      (build-api-config :hubspot
+                                       :auth-headers {"Authorization" (str "Bearer " (System/getenv "HUBSPOT_TOKEN"))}))
+  
+  (println "Registered configs:" (list-registered-configs)))
+
+(defn run-production-sync 
+  "Run production data synchronization"
+  []
+  
+  ;; Use registered configurations
+  (let [github-repos (paginate-api (get-registered-config :prod-github
+                                                         {:endpoint-path "/orgs/myorg/repos"}))
+        stripe-customers (paginate-api (get-registered-config :prod-stripe
+                                                             {:endpoint-path "/customers"}))
+        hubspot-contacts (paginate-api (get-registered-config :prod-hubspot
+                                                             {:endpoint-path "/crm/v3/objects/contacts"}))]
+    
+    ;; Process all data streams
+    (go
+      (let [all-channels [github-repos stripe-customers hubspot-contacts]
+            results (async/map vector all-channels)]
+        (println "All production syncs completed!")))))
+
+;; =============================================================================
+;; MAIN EXECUTION AND EXAMPLES
+;; =============================================================================
+
+(defn -main 
+  "Main execution function with examples"
+  [& args]
+  (println "🚀 Configurable Pagination System with Async Channels")
+  (println "=====================================================")
+  
+  ;; Setup production configurations
+  (setup-production-configs)
+  
+  ;; Demo different pagination strategies
+  (println "\n📊 Running pagination demos...")
+  (demo-multi-pagination)
+  
+  ;; Benchmark performance
+  (println "\n⚡ Running performance benchmarks...")
+  (benchmark-pagination-strategies)
+  
+  (println "\n✅ Configurable pagination system ready!")
+  (println "Use the functions above to paginate any API with async channels."))
+
+;; Uncomment to run examples
+;; (-main)

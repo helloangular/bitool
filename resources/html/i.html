@@ -1,0 +1,10 @@
+<script src="https://unpkg.com/htmx.org@1.5.0/dist/htmx.js"></script>
+<form id="addfilter" hx-post="/saveFilter" hx-trigger="click from:#submitbutton" hx-swap=none  >
+ <input type=text name=tableName value="{{tname}}" />
+<label for="story">Filter Condition</label>
+
+<textarea id="where" name="where" rows="5" cols="33">
+{{where}}
+</textarea>
+<button id=submitbutton >Submit</button>
+</form>

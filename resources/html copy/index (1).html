@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Custom Web Component with HTMLElements</title>
+  <link rel="stylesheet" href="./app.css" />
+  <link rel="stylesheet" href="./source/styles/smart.default.css" />
+  <style>
+    .rename-form {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .button-container {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      padding: 16px;
+      background-color: #f5f5f5;
+      width: 100%;
+      box-sizing: border-box;
+      border-top: 1px solid #ddd;
+    }
+
+    label {
+      margin-bottom: 5px;
+    }
+
+    .panel-btns {
+      margin: 0px 10px;
+      height: 48px;
+      display: flex;
+      column-gap: 5px;
+      justify-content: center;
+      align-items: center;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .panel-btns>div>button {
+      border: none;
+      font-size: larger;
+      font-weight: bold;
+      width: 30px;
+      height: 30px;
+      padding: 0px;
+    }
+
+    /* Tooltip container */
+    .tooltip {
+      position: relative;
+      display: inline-block;
+      /* If you want dots under the hoverable text */
+    }
+
+    /* Tooltip text */
+    .tooltip .tooltiptext {
+      visibility: hidden;
+      width: 120px;
+      top: 100%;
+      left: 50%;
+      margin-left: -60px; /* widht / 2 */
+      background-color: black;
+      color: #fff;
+      text-align: center;
+      padding: 5px 0;
+      border-radius: 6px;
+
+      /* Position the tooltip text - see examples below! */
+      position: absolute;
+      z-index: 1;
+    }
+
+    /* Show the tooltip text when you mouse over the tooltip container */
+    .tooltip:hover .tooltiptext {
+      visibility: visible;
+    }
+  </style>
+</head>
+
+<body style="display: flex;margin:0;height:100vh;">
+  <!-- <div id=newgraph>
+    <form action="/newgraph" method="post" class="graph-form">
+      <label for="nameInput">Name:</label>
+      <input type="text" name="graphname" />
+
+      <button type="submit">
+        Submit
+      </button>
+    </form>
+  </div> -->
+
+  <smart-menu id="menu">
+    <smart-menu-item>Windows-1251</smart-menu-item>
+  </smart-menu>
+
+  <div class="panel-btns">
+    <div class="tooltip">
+      <button data-label="filter" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('filter')">&#128481;</button>
+      <span class="tooltiptext">Filter</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="function" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('function')">&#955;</button>
+      <span class="tooltiptext">Function</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="projection" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('projection')">&#960;</button>
+      <span class="tooltiptext">Projection</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="join" data-conn_id="123" data-schema="schema" onclick="addRectangle('join')">&#x2795;</button>
+      <span class="tooltiptext">Join</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="aggregation" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('aggregation')">&#x1F4E6;</button>
+      <span class="tooltiptext">Aggregation</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="union" data-conn_id="123" data-schema="schema" onclick="addRectangle('union')">&#8746;</button>
+      <span class="tooltiptext">Union</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="sorter" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('sorter')">&#x25B2;</button>
+      <span class="tooltiptext">Sorter</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="mapping" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('mapping')">&#x1F4CD;</button>
+      <span class="tooltiptext">Mapping</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="target" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('target')">&#x1F3AF;</button>
+      <span class="tooltiptext">Target</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="api-connection" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('api-connection')">&Alpha;</button>
+      <span class="tooltiptext">API</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="conditionals" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('conditionals')">&#128295;</button>
+      <span class="tooltiptext">Conditionals</span>
+    </div>
+    <div class="tooltip">
+      <button onclick="toggleScheduler(this)">&#128198;</button>
+      <span class="tooltiptext">Schedular</span>
+    </div>
+    <div class="tooltip">
+      <button onclick="preview()">&#128065;</button>
+      <span class="tooltiptext">Preview</span>
+    </div>
+    <div class="tooltip">
+      <button onclick="undo()">&#8634;</button>
+      <span class="tooltiptext">Undo</span>
+    </div>
+    <div class="tooltip">
+      <button onclick="redo()">&#8635;</button>
+      <span class="tooltiptext">Redo</span>
+    </div>
+    <div class="tooltip">
+      <button onclick="toggleLogic()" style="width: fit-content;padding: 0 5px;">Logic</button>
+    </div>
+  </div>
+
+  <smart-window id="dialog" label="Graph Form" modal>
+    <form action="/newgraph" method="post" style="display: flex; flex-direction: column; gap: 15px;" class="graph-form">
+      <label for="graphname">Graph Name:</label>
+      <input type="text" id="graphname" name="graphname" required>
+      <div style="text-align: right;">
+        <button type="submit">Submit</button>
+        <button type="button" id="closeDialog">Cancel</button>
+      </div>
+    </form>
+  </smart-window>
+
+  <tree-component
+    style="display: flex; justify-content: center; align-items: center;  height: 87vh; width: 100%; position: fixed; bottom: 0; left: 0;"></tree-component>
+
+  <column-list-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </column-list-component>
+
+  <smart-window class="association-dialog" label="Select Text Association Target">
+  </smart-window>
+
+  <smart-window class="column-edit-dialog" label="Edit Column" style="width:80%;height:80%;left:10%;top:10%;">
+  </smart-window>
+
+  <smart-window class="insert-values-dialog" label="Insert Values" style="width:30%;height:64%;left:40%;top:10%;">
+  </smart-window>
+
+  <association-editor-component
+    style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </association-editor-component>
+
+  <join-editor-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </join-editor-component>
+
+  <union-editor-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </union-editor-component>
+
+  <aggregation-editor-component
+    style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </aggregation-editor-component>
+
+  <filter-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </filter-component>
+
+  <function-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </function-component>
+
+  <projection-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </projection-component>
+
+  <calculated-column-component
+    style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </calculated-column-component>
+
+  <sorter-editor style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </sorter-editor>
+
+  <transform-editor style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </transform-editor>
+
+  <mapping-editor style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </mapping-editor>
+
+  <lambda-function-builder style="height: 90%;width: 80%;position: absolute;top: 50%;left: 50%;transform: translate(-50%, -50%);background-color: white;">
+  </lambda-function-builder>
+
+  <control-flow-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </control-flow-component>
+
+  <api-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </api-component>
+
+  <smart-window id="renameDialog" label="Change Name" style="width:400px;height:400px;position:fixed;left:40%;top:20%">
+    <div class="rename-form">
+      <div>
+        <label>Business Name:</label>
+        <smart-input id="businessNameInput" class="outlined" style="width:100%"></smart-input>
+      </div>
+      <div>
+        <label>Technical Name:</label>
+        <smart-input id="technicalNameInput" class="outlined" style="width:100%"></smart-input>
+      </div>
+    </div>
+    <div class="button-container">
+      <smart-button id="renameButton">Rename</smart-button>
+      <smart-button id="cancelButton">Cancel</smart-button>
+    </div>
+  </smart-window>
+
+  <rename-dialog></rename-dialog>
+
+  <scheduler-wizard style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);"></scheduler-wizard>
+
+  <smart-grid style="position:fixed;width:70%;height:30%;bottom:0;right:0;display:none;">
+  </smart-grid>
+
+  <svg style="position:absolute;width:100%;">
+    <line id="line" x1="0" y1="0" x2="0" y2="0" stroke="lightgray" stroke-width="2" style="visibility: hidden;"></line>
+  </svg>
+
+  <script>
+    const menu = document.getElementById('menu');
+    const dialog = document.getElementById('dialog');
+    const closeDialog = document.getElementById('closeDialog');
+
+    // Open the dialog when the menu item is clicked
+    menu.addEventListener('click', (event) => {
+      dialog.opened = true;
+    });
+
+    // Close the dialog when "Cancel" is clicked
+    closeDialog.addEventListener('click', () => {
+      dialog.opened = false;
+    });
+  </script>
+
+  <script type="module" src="customWebComponent.js"></script>
+  <script type="module" src="treeComponent.js"></script>
+  <script type="module" src="columnListComponent.js"></script>
+  <script type="module" src="rectangleComponent.js"></script>
+  <script type="module" src="associationEditorComponent.js"></script>
+  <script type="module" src="aggregationEditorComponent.js"></script>
+  <script type="module" src="addTextAssociationDialog.js"></script>
+  <script type="module" src="filterComponent.js"></script>
+  <script type="module" src="projectionComponent.js"></script>
+  <script type="module" src="renameDialog.js"></script>
+  <script type="module" src="expressionComponent.js"></script>
+  <script type="module" src="functionComponent.js"></script>
+  <script type="module" src="calculatedColumnComponent.js"></script>
+  <script type="module" src="joinEditorComponent.js"></script>
+  <script type="module" src="unionEditorComponent.js"></script>
+  <script type="module" src="sorterEditorComponent.js"></script>
+  <script type="module" src="mappingEditorComponent.js"></script>
+  <script type="module" src="transformEditorComponent.js"></script>
+  <script type="module" src="auto-complete-textarea.js"></script>
+  <script type="module" src="conditional forms/mainComponent.js"></script>
+  <script type="module" src="apiComponent.js"></script>
+  <script type="module" src="scheduler-wizard.js"></script>
+  <script type="module" src="functionBuilder.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const graphForms = document.querySelectorAll('.graph-form');
+
+      graphForms.forEach(form => {
+        form.addEventListener('submit', async function (e) {
+          e.preventDefault();
+
+          const formData = new FormData(form);
+          const graphName = formData.get('graphname');
+
+          try {
+            const response = await fetch("/newgraph", {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                graphname: graphName
+              })
+            });
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            form.reset();
+
+            window.data.panelItems = [data];
+            localStorage.setItem('jqdata', JSON.stringify(window.data));
+
+            const dialog = document.getElementById('dialog');
+            if (dialog && dialog.contains(form)) {
+              dialog.opened = false;
+            }
+          } catch (error) {
+            console.error('Error:', error);
+          }
+        });
+      });
+    });
+
+    function addRectangle(name) {
+      const item = {
+        alias: name,
+        id: null,
+        parent: 0,
+        x: 10,
+        y: 10,
+        conn_id: '123',
+        panelItems: window.data.panelItems,
+      };
+      const tree = document.querySelector('tree-component');
+      tree.sendRectangleData(item)
+    }
+
+    const panelBtns = document.querySelectorAll('.panel-btns>div>button');
+    addDragListeners(panelBtns);
+    function addDragListeners(groups) {
+      Array.from(groups).forEach((element) => {
+        element.setAttribute("draggable", "true");
+        element.addEventListener("dragstart", handleDragStart.bind(this));
+      });
+    }
+
+    function handleDragStart(event) {
+      const draggedItem = event.target;
+      event.dataTransfer.setData(
+        "application/json",
+        JSON.stringify({
+          label: draggedItem.getAttribute("data-label"),
+          conn_id: draggedItem.getAttribute("data-conn_id"),
+          schema: draggedItem.getAttribute("data-schema"),
+        })
+      );
+    }
+
+    function toggleScheduler(e) {
+      const scheduler = document.querySelector('scheduler-wizard');
+      if (scheduler.getAttribute("visibility") && scheduler.getAttribute("visibility") == "open") {
+        scheduler.setAttribute("visibility", "close");
+      } else {
+        scheduler.setAttribute("visibility", "open");
+      }
+    }
+
+    function toggleLogic(e) {
+      const lambda = document.querySelector('lambda-function-builder');
+      if (lambda.getAttribute("visibility") && lambda.getAttribute("visibility") == "open") {
+        lambda.setAttribute("visibility", "close");
+      } else {
+        lambda.setAttribute("visibility", "open");
+      }
+    }
+
+    function undo() {
+      fetch("/undo")
+        .then((response) => response.json())
+        .then((data) => {
+          window.data.panelItems = data;
+        })
+        .catch((error) => console.error(error));
+    }
+
+    function redo() {
+      fetch("/redo")
+        .then((response) => response.json())
+        .then((data) => {
+          window.data.panelItems = data;
+        })
+        .catch((error) => console.error(error));
+    }
+
+    function preview() {
+      const grid = document.querySelector("smart-grid");
+      if (grid.style.display && grid.style.display == "block") {
+        grid.style.display = "none";
+        return
+      }
+      grid.style.display = "block";
+      grid.editing.enabled = true;
+      grid.behavior = {
+        columnResizeMode: 'growAndShrink'
+      }
+      grid.filtering = {
+        enabled: true
+      }
+      fetch("/getPreview")
+        .then((response) => response.json())
+        .then((data) => {
+          // const rectangle = window.data.rectangles.find(data => data.id == window.data.selectedRectangle);
+          if (data.items && data.items.length > 0) {
+            grid.dataSource = new Smart.DataAdapter({
+              dataSource: data.items,
+              dataFields: Object.entries(data.items[0]).map(([key, value]) => `${key}: ${typeof value}`),
+            });
+            grid.columns = Object.entries(data.items[0]).map((key) => { return { label: key[0].replace("_", " "), dataField: key[0], width: 130 } });
+          }
+        })
+        .catch((error) => console.error(error))
+    }
+  </script>
+
+  <script>
+    window.data = JSON.parse(localStorage.getItem('jqdata')) || {
+      rectangles: [],
+      associations: [],
+      selectedRectangle: "",
+      selectedAssociation: "",
+      treeItems: [
+        {
+          label: "RDBMS",
+          items: [
+            {
+              label: "Oracle",
+            },
+            {
+              label: "SQL Server",
+            },
+          ],
+        },
+        {
+          label: "NoSQL",
+          items: [
+            {
+              label: "MongoDB",
+            },
+            {
+              label: "Cassandra",
+            },
+          ]
+        },
+        {
+          label: "Kafka",
+        },
+        {
+          label: "Hadoop",
+        }
+      ],
+      connections: [],
+      panelItems: [],
+    };
+  </script>
+</body>
+
+</html>

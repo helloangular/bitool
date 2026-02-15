@@ -1,0 +1,145 @@
+const template = document.createElement("template");
+template.innerHTML = `
+<style>
+  .rectangle-container {
+    padding: 10px;
+    border: 3px solid #004466;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+</style>
+
+<div class="rectangle-container">
+  <div id="alias-info"></div>
+</div>
+`;
+
+class RectangleComponent extends HTMLElement {
+  constructor() {
+    super();
+
+    this.shadow = this.attachShadow({ mode: "open" });
+    this.shadow.append(template.content.cloneNode(true));
+
+    this.shadow.addEventListener("click", () => {
+      this.handleClick();
+    });
+
+    this.updateAlias(this.getAttribute("alias") || "");
+    this.container = this.shadow.querySelector(".rectangle-container");
+  }
+
+  static get observedAttributes() {
+    return ["alias", "style"];
+  }
+
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (name === "alias") {
+      this.updateAlias(newValue);
+    }
+    if (name === "style") {
+      this.container.setAttribute("style", newValue);
+    }
+  }
+
+
+  renderJson(json) {
+  // Simulate receiving JSON from the backend
+  const backendData = {
+    "alias": "Projection",
+    "parent_object": "Table_view",
+    "business_name": "Table 1 BUSINESS name",
+    "technical_name": "Table 1 TECHNICAL name",
+    "items": [
+      {
+        "business_name": "ITEM ID",
+        "technical_name": "Item",
+        "semantic_type": "String",
+        "data_type": "long",
+        "key": "yes",
+        "column_type": "column"
+      },
+      {
+        "business_name": "Product ID",
+        "technical_name": "Product",
+        "semantic_type": "String",
+        "data_type": "long",
+        "key": "no",
+        "column_type": "column"
+      },
+      {
+        "business_name": "Unit",
+        "technical_name": "Unit",
+        "semantic_type": "String",
+        "data_type": "string",
+        "key": "no",
+        "column_type": "column"
+      },
+      {
+        "business_name": "Quantity",
+        "technical_name": "Quantity",
+        "semantic_type": "Number",
+        "data_type": "float",
+        "key": "no",
+        "column_type": "column"
+      }
+    ]
+  };
+
+  // Ensure window.data exists and contains rectangles
+  if (window.data && Array.isArray(window.data.rectangles)) {
+    // Find the rectangle with alias "Projection"
+    const rectangleIndex = window.data.rectangles.findIndex(
+      (rect) => rect.alias === json.alias
+    );
+
+    if (rectangleIndex !== -1) {
+      // Update the rectangle with the backend data
+      window.data.rectangles[rectangleIndex] = { ...json };
+      console.log("Updated rectangle:", window.data.rectangles[rectangleIndex]);
+    } else {
+      console.error("Rectangle with alias 'Projection' not found. Adding new rectangle.");
+      // Add the backend data as a new rectangle
+      window.data.rectangles.push(json);
+    }
+  } else {
+    console.error("window.data.rectangles is not defined or is not an array.");
+  }
+}
+
+  handleClick() {
+    window.data.selectedRectangle = this.getAttribute("alias") || "";
+
+      const response = await fetch("/getItem2", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          window.data.selectedRectangle
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("Json " , data);
+
+      //window.data.connections.push(data);
+
+
+    this.renderJson(data);
+    const columnListComponent = document.querySelector("column-list-component");
+    if (columnListComponent) {
+      columnListComponent.setAttribute("visibility", "open");
+    }
+  }
+
+  updateAlias(alias) {
+    this.shadow.querySelector("#alias-info").textContent = alias;
+  }
+}
+
+customElements.define("rectangle-component", RectangleComponent);

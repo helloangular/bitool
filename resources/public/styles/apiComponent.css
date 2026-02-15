@@ -1,0 +1,374 @@
+.card {
+  background: #ffffff;
+  font-family: Inter, Roboto, "Segoe UI", Arial, sans-serif;
+}
+
+.row {
+  display: flex;
+  gap: 16px;
+  align-items: center
+}
+
+.api-input {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.api-input input[type="text"] {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #e3e6ea;
+  background: #fff;
+  font-size: 14px;
+}
+
+.btn {
+  background: #111827;
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.08);
+}
+
+.endpoint-table-container {
+  background: linear-gradient(180deg, #fbfdff, #ffffff);
+  border: 1px solid #e3e6ea;
+}
+
+h3 {
+  margin: 4px 0 12px 0;
+  font-size: 14px
+}
+
+label.small {
+  font-size: 13px;
+  color: #7b7f85
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+thead th {
+  font-size: 12px;
+  text-align: left;
+  color: #7b7f85;
+  padding: 8px 6px;
+  border-bottom: 1px solid #e3e6ea
+}
+
+tbody td {
+  padding: 10px 6px;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.04);
+  vertical-align: middle
+}
+
+.method {
+  display: inline-block;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 12px;
+  background: #f3f4f6;
+  border: 1px solid #e3e6ea
+}
+
+.endpoint {
+  font-family: monospace;
+  color: #0f172a;
+  font-size: 13px
+}
+
+.select-all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e3e6ea;
+}
+
+.bottom-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px
+}
+
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px
+}
+
+.secondary-btn {
+  background: transparent;
+  border: 1px solid #e3e6ea;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer
+}
+
+/* small screens */
+@media (max-width:760px) {
+  .card {
+    width: 100%
+  }
+
+  .content {
+    flex-direction: column
+  }
+
+  .right {
+    width: 100%;
+    height: auto
+  }
+}
+
+
+.side-panel {
+  height: 100vh;
+  background: #f9f9f9;
+  border-left: 1px solid #ccc;
+  overflow-y: auto;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+  background: #fff;
+}
+
+.panel-header button {
+  margin-left: 8px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.panel-header button.save {
+  background: #4caf50;
+  color: white;
+}
+
+.panel-header button.close {
+  background: #f44336;
+  color: white;
+}
+
+.panel-header button.save:disabled {
+  background: #ccc;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.panel-item {
+  padding: 12px;
+  border-bottom: 1px solid #ddd;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  font-size: 16px;
+  margin-bottom: 4px;
+  color: #333;
+}
+
+input,
+select {
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.panel-item button.submit {
+  align-self: flex-start;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 4px;
+  background: #2196f3;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.panel-content {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  padding: 10px;
+  gap: 10px;
+  height: 400px;
+}
+
+.tree-column {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.details-column {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px;
+  color: #777;
+  font-size: 14px;
+  white-space: pre;
+}
+
+smart-tree {
+  width: 100%;
+  height: 100%;
+}
+
+.auth-fields {
+  display: none;
+  /* hidden by default */
+  margin-top: 10px;
+}
+
+.auth-fields.active {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wrapper {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 35%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 1100px;
+    height: 500px;
+    margin: 30px auto;
+    padding: 25px;
+    background: #fff;
+    border: 2px solid #000;
+    border-radius: 10px;
+    z-index: 1;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25px;
+}
+
+.header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.extract-close-btn {
+    background: #fff;
+    border: 2px solid #000;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: 0.15s;
+}
+
+.extract-close-btn:hover {
+    background: #000;
+    color: #fff;
+}
+
+.controls {
+    display: flex;
+    gap: 40px;
+    align-items: flex-end;
+    margin-bottom: 35px;
+}
+
+.field label {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    display: block;
+}
+
+.select-wrapper {
+    position: relative;
+}
+
+.wrapper select {
+    width: 120px;
+    padding: 8px;
+    background: #fff;
+    border: 2px solid #000;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.extract-btn {
+    padding: 10px 20px;
+    border: 2px solid #000;
+    background: #fff;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.extract-btn:hover {
+    background: #000;
+    color: #fff;
+}
+
+.table-section table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 2px solid #000;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table-section thead {
+    background: #e5e5e5;
+}
+
+.table-section th {
+    padding: 12px;
+    font-size: 15px;
+    text-align: left;
+}
+
+.table-section td {
+    padding: 14px;
+    border-bottom: 1px solid #ccc;
+}
+
+.table-section tbody tr:nth-child(even) {
+    background: #f3f3f3;
+}
+
+.table-section tbody tr:last-child td {
+    border-bottom: none;
+}

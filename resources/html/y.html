@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>GraphQL Query Builder (Smart UI)</title>
+
+  <!-- Smart UI styles (adjust path as needed) -->
+  <link rel="stylesheet"
+        type="text/css"
+        href="node_modules/smart-webcomponents/source/styles/smart.default.css" />
+
+  <!-- Smart UI bundle (adjust path as needed) -->
+  <script type="text/javascript"
+          src="node_modules/smart-webcomponents/source/smart.elements.js"></script>
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #ddd;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.1rem;
+    }
+
+    #app {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 320px 340px 1.2fr;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      box-sizing: border-box;
+    }
+
+    .panel {
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: #fff;
+    }
+
+    .panel-title {
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      font-size: 0.95rem;
+    }
+
+    .section-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin: 0.4rem 0 0.2rem;
+    }
+
+    .small {
+      font-size: 0.8rem;
+      color: #666;
+    }
+
+    .row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin: 0.25rem 0;
+      flex-wrap: wrap;
+    }
+
+    textarea {
+      width: 100%;
+      resize: vertical;
+      min-height: 80px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.8rem;
+      padding: 0.4rem;
+      box-sizing: border-box;
+    }
+
+    #argForm {
+      flex: 1;
+      overflow: auto;
+      padding-right: 0.25rem;
+    }
+
+    #fieldTree {
+      flex: 1;
+      min-height: 0;
+    }
+
+    #selectedFields {
+      max-height: 120px;
+      overflow: auto;
+      padding: 0.25rem 0;
+      border-top: 1px dashed #ddd;
+      margin-top: 0.25rem;
+    }
+
+    #selectedFields ul {
+      list-style: none;
+      padding-left: 1rem;
+      margin: 0;
+    }
+
+    #selectedFields li {
+      font-size: 0.8rem;
+    }
+
+    smart-button {
+      margin-top: 0.5rem;
+      align-self: flex-start;
+    }
+
+    #outputTabs {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #outputTabs smart-tabs {
+      flex: 1;
+      min-height: 0;
+    }
+
+    smart-tab-item {
+      padding: 0.5rem;
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>GraphQL Query Builder</h1>
+  <div class="small">Built with Smart UI Web Components</div>
+</header>
+
+<div id="app">
+  <!-- LEFT PANEL: Query selection + arguments -->
+  <div class="panel">
+    <div class="panel-title">1. Choose root query</div>
+
+    <label class="section-label" for="querySelect">Query</label>
+    <smart-drop-down-list id="querySelect"
+                           selection-mode="one"
+                           placeholder="Select query...">
+    </smart-drop-down-list>
+
+    <div class="row small">
+      <span>Return type:</span>
+      <span id="returnTypeLabel"><em>—</em></span>
+    </div>
+
+    <hr />
+
+    <div class="panel-title" style="margin-top: 0.25rem;">2. Configure arguments</div>
+    <div id="argForm" class="small">
+      <p>No query selected.</p>
+    </div>
+
+    <smart-button id="generateButton" class="primary">
+      Generate query
+    </smart-button>
+  </div>
+
+  <!-- MIDDLE PANEL: Response type tree + selected fields -->
+  <div class="panel">
+    <div class="panel-title">3. Select response fields</div>
+    <span class="small">Expand and tick the fields you want in the result.</span>
+
+    <smart-tree id="fieldTree"
+                selection-mode="checkBox">
+    </smart-tree>
+
+    <div id="selectedFields">
+      <div class="section-label">Selected field paths</div>
+      <ul id="selectedList"></ul>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL: Generated output -->
+  <div class="panel">
+    <div class="panel-title">4. Generated output</div>
+
+    <div id="outputTabs">
+      <smart-tabs id="tabs" selected-index="0">
+        <smart-tab-item label="Query">
+          <textarea id="queryText" readonly></textarea>
+        </smart-tab-item>
+        <smart-tab-item label="Variables">
+          <textarea id="variablesText" readonly></textarea>
+        </smart-tab-item>
+        <smart-tab-item label="Response shape">
+          <textarea id="responseShapeText" readonly></textarea>
+        </smart-tab-item>
+      </smart-tabs>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  // --- SAMPLE schema metadata (replace with real data from your gschema functions) ---
+
+  const schemaMeta = {
+    queries: [
+      {
+        name: "search",
+        description: "Search issues, PRs, repositories and more.",
+        args: [
+          { name: "query", type: "String!", kind: "SCALAR" },
+          { name: "type", type: "SearchType!", kind: "ENUM", enumValues: ["ISSUE", "REPOSITORY", "USER", "DISCUSSION"] },
+          { name: "first", type: "Int", kind: "SCALAR", defaultValue: 10 }
+        ],
+        returnType: "SearchResult!",
+        // Minimal field tree for demo; you should generate this from schema.
+        fieldTree: [
+          {
+            label: "search",
+            value: "search",
+            items: [
+              {
+                label: "issueCount",
+                value: "issueCount"
+              },
+              {
+                label: "pageInfo",
+                value: "pageInfo",
+                items: [
+                  { label: "hasNextPage", value: "pageInfo.hasNextPage" },
+                  { label: "endCursor", value: "pageInfo.endCursor" }
+                ]
+              },
+              {
+                label: "nodes",
+                value: "nodes",
+                items: [
+                  {
+                    label: "... on Issue",
+                    value: "nodes.Issue",
+                    items: [
+                      { label: "title", value: "nodes.Issue.title" },
+                      { label: "number", value: "nodes.Issue.number" },
+                      { label: "state", value: "nodes.Issue.state" }
+                    ]
+                  },
+                  {
+                    label: "... on PullRequest",
+                    value: "nodes.PullRequest",
+                    items: [
+                      { label: "title", value: "nodes.PullRequest.title" },
+                      { label: "merged", value: "nodes.PullRequest.merged" }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+
+      {
+        name: "repository",
+        description: "Look up a repository by owner and name.",
+        args: [
+          { name: "owner", type: "String!", kind: "SCALAR" },
+          { name: "name", type: "String!", kind: "SCALAR" }
+        ],
+        returnType: "Repository!",
+        fieldTree: [
+          {
+            label: "repository",
+            value: "repository",
+            items: [
+              { label: "id", value: "repository.id" },
+              { label: "name", value: "repository.name" },
+              { label: "url", value: "repository.url" },
+              {
+                label: "owner",
+                value: "repository.owner",
+                items: [
+                  { label: "login", value: "repository.owner.login" },
+                  { label: "__typename", value: "repository.owner.__typename" }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+
+  // --- Utility: find query meta by name ---
+  function getQueryMeta(name) {
+    return schemaMeta.queries.find(q => q.name === name) || null;
+  }
+
+  // --- Step 1: init query drop-down with Smart.DropDownList ---
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const querySelect = document.getElementById('querySelect');
+    const returnTypeLabel = document.getElementById('returnTypeLabel');
+    const argForm = document.getElementById('argForm');
+    const fieldTree = document.getElementById('fieldTree');
+    const selectedList = document.getElementById('selectedList');
+    const generateButton = document.getElementById('generateButton');
+    const queryText = document.getElementById('queryText');
+    const variablesText = document.getElementById('variablesText');
+    const responseShapeText = document.getElementById('responseShapeText');
+
+    // Smart UI sets `dataSource` for dropdownlist as an array of items. :contentReference[oaicite:1]{index=1}
+    querySelect.dataSource = schemaMeta.queries.map(q => ({
+      label: q.name,
+      value: q.name
+    }));
+
+    querySelect.addEventListener('change', () => {
+      const selected = querySelect.selectedValues && querySelect.selectedValues[0];
+      if (!selected) { return; }
+
+      const meta = getQueryMeta(selected);
+      if (!meta) { return; }
+
+      returnTypeLabel.textContent = meta.returnType;
+
+      // Step 2: render argument inputs
+      renderArgForm(meta, argForm);
+
+      // Step 3/4: bind field tree for this query
+      fieldTree.dataSource = meta.fieldTree;
+      fieldTree.expandAll();
+
+      updateSelectedFieldList(fieldTree, selectedList);
+      clearOutputs(queryText, variablesText, responseShapeText);
+    });
+
+    // Step 4: update selected field path list on tree change
+    fieldTree.addEventListener('change', () => {
+      updateSelectedFieldList(fieldTree, selectedList);
+    });
+
+    // Step 6–8: Generate query & outputs
+    generateButton.addEventListener('click', () => {
+      const selected = querySelect.selectedValues && querySelect.selectedValues[0];
+      if (!selected) {
+        alert('Please select a root query first.');
+        return;
+      }
+      const meta = getQueryMeta(selected);
+      if (!meta) { return; }
+
+      const args = readArgForm(meta, argForm);
+      const paths = getCheckedFieldPaths(fieldTree);
+      const query = buildGraphQLQuery(meta, args, paths);
+      const vars = buildVariablesObject(meta, args);
+      const responseShape = buildResponseShape(meta, paths);
+
+      queryText.value = query;
+      variablesText.value = JSON.stringify(vars, null, 2);
+      responseShapeText.value = JSON.stringify(responseShape, null, 2);
+    });
+  });
+
+  // --- Render argument inputs dynamically (Step 2) ---
+
+  function renderArgForm(meta, container) {
+    container.innerHTML = '';
+
+    if (!meta.args || meta.args.length === 0) {
+      container.innerHTML = '<p>No arguments for this query.</p>';
+      return;
+    }
+
+    const infoP = document.createElement('p');
+    infoP.className = 'small';
+    infoP.textContent = 'Fill in required arguments ( * ) and optional ones if needed.';
+    container.appendChild(infoP);
+
+    meta.args.forEach(arg => {
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      const label = document.createElement('label');
+      label.className = 'section-label';
+      const isRequired = arg.type.endsWith('!');
+      label.textContent = arg.name + (isRequired ? ' *' : '');
+      row.appendChild(label);
+
+      // Decide which Smart component to use
+      let inputEl;
+
+      if (arg.kind === 'ENUM') {
+        inputEl = document.createElement('smart-drop-down-list');
+        inputEl.selectionMode = 'one';
+        inputEl.placeholder = arg.type;
+        inputEl.dataSource = arg.enumValues.map(v => ({ label: v, value: v }));
+      } else if (arg.type.startsWith('Int')) {
+        inputEl = document.createElement('smart-numeric-text-box');
+        inputEl.placeholder = arg.type;
+        if (arg.defaultValue != null) {
+          inputEl.value = arg.defaultValue;
+        }
+      } else {
+        inputEl = document.createElement('smart-text-box');
+        inputEl.placeholder = arg.type;
+      }
+
+      inputEl.id = `arg-${meta.name}-${arg.name}`;
+      inputEl.setAttribute('data-arg-name', arg.name);
+      inputEl.setAttribute('data-arg-type', arg.type);
+      inputEl.style.flex = '1';
+
+      row.appendChild(inputEl);
+
+      if (arg.defaultValue != null) {
+        const dv = document.createElement('span');
+        dv.className = 'small';
+        dv.textContent = `(default: ${arg.defaultValue})`;
+        row.appendChild(dv);
+      }
+
+      container.appendChild(row);
+    });
+  }
+
+  // Read argument form back into plain JS object
+  function readArgForm(meta, container) {
+    const args = {};
+    meta.args.forEach(arg => {
+      const el = container.querySelector(`#arg-${meta.name}-${arg.name}`);
+      if (!el) return;
+
+      let value = null;
+      if (arg.kind === 'ENUM') {
+        value = el.selectedValues && el.selectedValues[0] || null;
+      } else if (arg.type.startsWith('Int')) {
+        value = el.value === '' ? null : Number(el.value);
+      } else {
+        value = el.value || null;
+      }
+
+      if (value !== null && value !== '') {
+        args[arg.name] = value;
+      }
+    });
+    return args;
+  }
+
+  // --- Step 4/5 helpers: selected field list + paths ---
+
+  function getCheckedFieldPaths(tree) {
+    const values = [];
+    const items = tree.getSelectedValues ? tree.getSelectedValues() : [];
+
+    // In checkBox mode, items includes checked + partially checked; you may want stricter logic.
+    items.forEach(v => {
+      if (typeof v === 'string') {
+        values.push(v);
+      } else if (v && v.value) {
+        values.push(v.value);
+      }
+    });
+
+    // Filter to leaf-like paths (heuristic: contains a dot or not having children)
+    return values;
+  }
+
+  function updateSelectedFieldList(tree, ul) {
+    const paths = getCheckedFieldPaths(tree);
+    ul.innerHTML = '';
+    paths.forEach(p => {
+      const li = document.createElement('li');
+      li.textContent = p;
+      ul.appendChild(li);
+    });
+  }
+
+  function clearOutputs(q, v, r) {
+    q.value = '';
+    v.value = '';
+    r.value = '';
+  }
+
+  // --- Step 6: Build GraphQL query string from meta + args + paths ---
+
+  function buildGraphQLQuery(meta, args, paths) {
+    if (!paths.length) {
+      return `# No fields selected.\n# Tick some fields in the tree.`;
+    }
+
+    // Build variables definition
+    const varDefs = meta.args
+      .filter(a => shouldExposeAsVariable(a))
+      .map(a => `$${a.name}: ${a.type}`)
+      .join(', ');
+
+    const varDefPart = varDefs ? `(${varDefs})` : '';
+
+    // Build argument expression: use variables when we exposed them, otherwise literals.
+    const argExpressions = meta.args
+      .map(arg => {
+        const value = args[arg.name];
+        if (value == null) return null;
+
+        if (shouldExposeAsVariable(arg)) {
+          return `${arg.name}: $${arg.name}`;
+        } else {
+          return `${arg.name}: ${literalForArg(arg, value)}`;
+        }
+      })
+      .filter(Boolean)
+      .join(', ');
+
+    const argPart = argExpressions ? `(${argExpressions})` : '';
+
+    // Build selection set from paths
+    const selection = buildSelectionSetFromPaths(paths, meta.name);
+
+    return [
+      `query ${capitalize(meta.name)}${varDefPart} {`,
+      `  ${meta.name}${argPart} {`,
+      selection,
+      `  }`,
+      `}`
+    ].join('\n');
+  }
+
+  function shouldExposeAsVariable(arg) {
+    // Heuristic: expose non-nullable and "query-like" arguments (String!, ID!, Int!)
+    return arg.type.endsWith('!');
+  }
+
+  function literalForArg(arg, value) {
+    if (arg.kind === 'ENUM') {
+      return value; // GraphQL enum literal
+    }
+    if (arg.type.startsWith('Int')) {
+      return value;
+    }
+    // default: quote
+    const escaped = String(value).replace(/"/g, '\\"');
+    return `"${escaped}"`;
+  }
+
+  function buildSelectionSetFromPaths(paths, rootName) {
+    // paths like "search.pageInfo.endCursor" or "search.nodes.Issue.title"
+    // strip the leading "search." / "repository." etc.
+    const cleaned = paths.map(p => p.replace(new RegExp(`^${rootName}\\.?`), ''));
+
+    // Build nested object tree
+    const tree = {};
+    cleaned.forEach(p => {
+      const parts = p.split('.');
+      let node = tree;
+      parts.forEach((part, idx) => {
+        if (!node[part]) {
+          node[part] = {};
+        }
+        if (idx === parts.length - 1) {
+          // leaf marker
+          node[part].__leaf = true;
+        }
+        node = node[part];
+      });
+    });
+
+    // Convert object tree -> GraphQL selection set (string)
+    const indent = '    ';
+
+    function render(node, level) {
+      const spaces = indent.repeat(level);
+      return Object.keys(node)
+        .filter(k => k !== '__leaf')
+        .map(key => {
+          const child = node[key];
+          const hasChildren = Object.keys(child).some(k => k !== '__leaf');
+          if (!hasChildren) {
+            return `${spaces}${key}`;
+          }
+          return `${spaces}${key} {\n${render(child, level + 1)}\n${spaces}}`;
+        })
+        .join('\n');
+    }
+
+    return render(tree, 2);
+  }
+
+  function capitalize(s) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  // --- Step 7: Build variables object ---
+
+  function buildVariablesObject(meta, args) {
+    const vars = {};
+    meta.args.forEach(arg => {
+      if (!shouldExposeAsVariable(arg)) return;
+      const v = args[arg.name];
+      if (v != null) {
+        vars[arg.name] = v;
+      }
+    });
+    return vars;
+  }
+
+  // --- Step 8: Build rough response-shape skeleton from paths ---
+
+  function buildResponseShape(meta, paths) {
+    const root = {};
+
+    paths.forEach(p => {
+      const full = p.startsWith(meta.name + '.') ? p : `${meta.name}.${p}`;
+      const parts = full.split('.');
+      let node = root;
+      parts.forEach((part, idx) => {
+        const isLeaf = idx === parts.length - 1;
+        if (!node[part]) {
+          node[part] = isLeaf ? '<value>' : {};
+        } else if (!isLeaf && typeof node[part] !== 'object') {
+          node[part] = {};
+        }
+        node = node[part];
+      });
+    });
+
+    return root;
+  }
+</script>
+</body>
+</html>
+

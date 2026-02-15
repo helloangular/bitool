@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connection Form</title>
+</head>
+<body>
+    <form action="/save/save-conn" method="POST"> 
+<!--    <form action="http://localhost:8081/save-conn" method="POST">  -->
+
+        <label for="conn_name">Connection Name:</label>
+        <input type="text" id="conn_name" name="conn_name" value="my_connection" required>
+        <br><br>
+
+        <label for="conn_type">Connection Type:</label>
+        <input type="text" id="conn_type" name="conn_type" value="database" required>
+        <br><br>
+
+        <label for="user">User:</label>
+        <input type="text" id="user" name="user" value="username" required>
+        <br><br>
+
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" value="password123" required>
+        <br><br>
+
+        <label for="role">Role:</label>
+        <input type="text" id="role" name="role" value="admin">
+        <br><br>
+
+        <label for="save_password">Save Password:</label>
+        <input type="checkbox" id="save_password" name="save_password" value="true" checked>
+        <br><br>
+
+        <label for="driver">Driver:</label>
+        <input type="text" id="driver" name="driver" value="org.postgresql.Driver">
+        <br><br>
+
+        <label for="host">Host:</label>
+        <input type="text" id="host" name="host" value="localhost">
+        <br><br>
+
+        <label for="port">Port:</label>
+        <input type="number" id="port" name="port" value="5432">
+        <br><br>
+
+        <label for="sid">SID:</label>
+        <input type="text" id="sid" name="sid" value="my_sid">
+        <br><br>
+
+        <label for="service">Service:</label>
+        <input type="text" id="service" name="service" value="my_service">
+        <br><br>
+
+        <label for="custom_jdbc">Custom JDBC:</label>
+        <input type="checkbox" id="custom_jdbc" name="custom_jdbc" value="true" checked>
+        <br><br>
+
+        <label for="jdbc_url">JDBC URL:</label>
+        <input type="text" id="jdbc_url" name="jdbc_url" value="jdbc:postgresql://localhost:5432/mydb">
+        <br><br>
+
+        <button type="submit">Submit</button>
+    </form>
+</body>
+</html>
+

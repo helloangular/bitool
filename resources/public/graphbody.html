@@ -1,0 +1,11 @@
+      <!-- Content for the middle pane -->
+{% if items|empty? %}
+    <div id=":op"  class=rectangle ondrop="drop(event)" ondragover="allowDrop(event)" style="position: relative;top:100px;left:100px" >View
+</div>
+{% endif %}
+
+{% for rect in items %}
+    <div id="{{rect.tid}}" hx-get="/getItem?item={{rect.tid}}" hx-target="#replaceMe" hx-swap="innerHTML" ondrop="drop(event)" ondragover="allowDrop(event)" class="rectangle {{rect.btype}}" style="position: absolute;bottom: {{rect.y}}px;left: {{rect.x}}px;">{% ifequal "table"  rect.btype %}{{rect.name}}{% else %}{{rect.btype}} {% endifequal %}</div>
+{% endfor %}
+
+

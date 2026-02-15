@@ -1,0 +1,131 @@
+{:clojure.main/message
+ "Execution error (ExceptionInfo) at clojure.tools.reader.impl.errors/throw-ex (errors.clj:34).\nUnexpected EOF while reading item 3 of list.\n",
+ :clojure.main/triage
+ {:clojure.error/class clojure.lang.ExceptionInfo,
+  :clojure.error/line 34,
+  :clojure.error/cause "Unexpected EOF while reading item 3 of list.",
+  :clojure.error/symbol clojure.tools.reader.impl.errors/throw-ex,
+  :clojure.error/source "errors.clj",
+  :clojure.error/phase :execution},
+ :clojure.main/trace
+ {:via
+  [{:type clojure.lang.Compiler$CompilerException,
+    :message
+    "Syntax error macroexpanding at (/private/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/form-init903691347711513545.clj:1:124).",
+    :data
+    {:clojure.error/phase :execution,
+     :clojure.error/line 1,
+     :clojure.error/column 124,
+     :clojure.error/source
+     "/private/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/form-init903691347711513545.clj"},
+    :at [clojure.lang.Compiler load "Compiler.java" 8177]}
+   {:type java.lang.RuntimeException,
+    :message "could not start [#'bitool.core/http-server] due to",
+    :at [mount.core$up$fn__455 invoke "core.cljc" 80]}
+   {:type clojure.lang.ExceptionInfo,
+    :message "Unexpected EOF while reading item 3 of list.",
+    :data {:type :reader-exception, :ex-kind :eof},
+    :at
+    [clojure.tools.reader.impl.errors$throw_ex
+     invokeStatic
+     "errors.clj"
+     34]}],
+  :trace
+  [[clojure.tools.reader.impl.errors$throw_ex
+    invokeStatic
+    "errors.clj"
+    34]
+   [clojure.tools.reader.impl.errors$throw_ex doInvoke "errors.clj" 24]
+   [clojure.lang.RestFn invoke "RestFn.java" 445]
+   [clojure.tools.reader.impl.errors$eof_error
+    invokeStatic
+    "errors.clj"
+    46]
+   [clojure.tools.reader.impl.errors$eof_error
+    doInvoke
+    "errors.clj"
+    42]
+   [clojure.lang.RestFn invoke "RestFn.java" 519]
+   [clojure.tools.reader.impl.errors$throw_eof_delimited
+    invokeStatic
+    "errors.clj"
+    57]
+   [clojure.tools.reader.impl.errors$throw_eof_delimited
+    invoke
+    "errors.clj"
+    54]
+   [clojure.tools.reader$read_delimited invokeStatic "reader.clj" 202]
+   [clojure.tools.reader$read_delimited invoke "reader.clj" 191]
+   [clojure.tools.reader$read_list invokeStatic "reader.clj" 209]
+   [clojure.tools.reader$read_list invoke "reader.clj" 205]
+   [clojure.tools.reader$read_STAR_ invokeStatic "reader.clj" 935]
+   [clojure.tools.reader$read_STAR_ invoke "reader.clj" 917]
+   [clojure.tools.reader$read invokeStatic "reader.clj" 988]
+   [clojure.tools.reader$read invoke "reader.clj" 961]
+   [clojure.tools.namespace.parse$read_ns_decl
+    invokeStatic
+    "parse.cljc"
+    55]
+   [clojure.tools.namespace.parse$read_ns_decl invoke "parse.cljc" 39]
+   [clojure.tools.namespace.parse$read_ns_decl
+    invokeStatic
+    "parse.cljc"
+    50]
+   [clojure.tools.namespace.parse$read_ns_decl invoke "parse.cljc" 39]
+   [ns_tracker.core$read_file invokeStatic "core.clj" 40]
+   [ns_tracker.core$read_file invoke "core.clj" 38]
+   [ns_tracker.core$newer_namespace_decls invokeStatic "core.clj" 48]
+   [ns_tracker.core$newer_namespace_decls invoke "core.clj" 42]
+   [ns_tracker.core$ns_tracker invokeStatic "core.clj" 101]
+   [ns_tracker.core$ns_tracker invoke "core.clj" 91]
+   [ns_tracker.core$ns_tracker invokeStatic "core.clj" 96]
+   [ns_tracker.core$ns_tracker invoke "core.clj" 91]
+   [ring.middleware.reload$reloader invokeStatic "reload.clj" 8]
+   [ring.middleware.reload$reloader invoke "reload.clj" 7]
+   [ring.middleware.reload$wrap_reload invokeStatic "reload.clj" 34]
+   [ring.middleware.reload$wrap_reload invoke "reload.clj" 21]
+   [bitool.middleware$wrap_base invokeStatic "middleware.clj" 260]
+   [bitool.middleware$wrap_base invoke "middleware.clj" 256]
+   [bitool.handler$app invokeStatic "handler.clj" 40]
+   [bitool.handler$app invoke "handler.clj" 39]
+   [bitool.core$eval39935$fn__39936 invoke "core.clj" 29]
+   [mount.core$record_BANG_ invokeStatic "core.cljc" 74]
+   [mount.core$record_BANG_ invoke "core.cljc" 73]
+   [mount.core$up$fn__455 invoke "core.cljc" 81]
+   [mount.core$up invokeStatic "core.cljc" 80]
+   [mount.core$up invoke "core.cljc" 78]
+   [mount.core$bring invokeStatic "core.cljc" 247]
+   [mount.core$bring invoke "core.cljc" 239]
+   [mount.core$start invokeStatic "core.cljc" 289]
+   [mount.core$start doInvoke "core.cljc" 281]
+   [clojure.lang.RestFn invoke "RestFn.java" 400]
+   [mount.core$start_with_args invokeStatic "core.cljc" 389]
+   [mount.core$start_with_args doInvoke "core.cljc" 385]
+   [clojure.lang.RestFn invoke "RestFn.java" 413]
+   [bitool.core$start_app invokeStatic "core.clj" 51]
+   [bitool.core$start_app invoke "core.clj" 50]
+   [bitool.core$_main invokeStatic "core.clj" 59]
+   [bitool.core$_main doInvoke "core.clj" 58]
+   [clojure.lang.RestFn invoke "RestFn.java" 424]
+   [clojure.lang.Var invoke "Var.java" 390]
+   [user$eval50762 invokeStatic "form-init903691347711513545.clj" 1]
+   [user$eval50762 invoke "form-init903691347711513545.clj" 1]
+   [clojure.lang.Compiler eval "Compiler.java" 7700]
+   [clojure.lang.Compiler eval "Compiler.java" 7690]
+   [clojure.lang.Compiler load "Compiler.java" 8165]
+   [clojure.lang.Compiler loadFile "Compiler.java" 8103]
+   [clojure.main$load_script invokeStatic "main.clj" 476]
+   [clojure.main$init_opt invokeStatic "main.clj" 478]
+   [clojure.main$init_opt invoke "main.clj" 478]
+   [clojure.main$initialize invokeStatic "main.clj" 509]
+   [clojure.main$null_opt invokeStatic "main.clj" 543]
+   [clojure.main$null_opt invoke "main.clj" 540]
+   [clojure.main$main invokeStatic "main.clj" 665]
+   [clojure.main$main doInvoke "main.clj" 617]
+   [clojure.lang.RestFn applyTo "RestFn.java" 140]
+   [clojure.lang.Var applyTo "Var.java" 707]
+   [clojure.main main "main.java" 40]],
+  :cause "Unexpected EOF while reading item 3 of list.",
+  :data {:type :reader-exception, :ex-kind :eof},
+  :phase :execution}}
+

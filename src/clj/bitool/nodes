@@ -1,0 +1,12 @@
+db (1).clj:(defn get-tables [conn-id db-name schema-name]
+db (1).clj:       (map first (get-metadata conn-id db-name :tables schema-name)))
+db (1).clj:(defn get-columns [conn-id db-name schema-name table-name]
+db (1).clj:      (map vec (get-metadata conn-id db-name :columns schema-name table-name)))
+db (1).clj:      ;; (map #(join-column %) (get-metadata conn-id db-name :columns schema-name table-name)))
+db.clj:(defn get-tables [conn-id db-name schema-name]
+db.clj:              _ (prn-v schema-name)
+db.clj:       	    (map first (get-metadata conn-id db-name :tables schema-name))))
+db.clj:(defn get-columns [conn-id db-name schema-name table-name]
+db.clj:      (get-metadata conn-id db-name :columns schema-name table-name))
+db.clj:      ;; (map vec (get-metadata conn-id db-name :columns schema-name table-name)))
+db.clj:      ;; (map #(join-column %) (get-metadata conn-id db-name :columns schema-name table-name)))

@@ -1,0 +1,145 @@
+<html>
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Welcome to bitool</title>
+
+
+</script>
+
+  <style>
+    /* Define the styles for the layout */
+    .container {
+      display: flex;
+      height: 100vh; /* Make the container take up the full viewport height */
+    }
+    
+    .left-pane {
+      flex: 10%; /* Make the left pane occupy 20% of the available space */
+      padding: 20px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    
+    .middle-pane {
+      flex: 55%; /* Make the middle pane occupy 60% of the available space */
+      padding: 20px;
+      overflow-x: scroll;
+        overflow-y: hidden;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+
+    }
+    
+    .right-pane {
+      flex: 35%; /* Make the right pane occupy 20% of the available space */
+      padding: 5px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+
+.rectangle{
+    width:80px;
+    height:40px;
+    background:blue;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#myInput {
+  background-image: url('/css/searchicon.png');
+  background-position: 10px 12px;
+  background-repeat: no-repeat;
+  width: 100%;
+  font-size: 16px;
+  padding: 12px 20px 12px 40px;
+  border: 1px solid #ddd;
+  margin-bottom: 12px;
+}
+
+#myUL {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+#myUL li a {
+  border: 1px solid #ddd;
+  margin-top: -1px; /* Prevent double borders */
+  background-color: #f6f6f6;
+  padding: 12px;
+  text-decoration: none;
+  font-size: 18px;
+  color: black;
+  display: block
+}
+
+#myUL li a:hover:not(.header) {
+  background-color: #eee;
+}
+
+.floater {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    background-color: #FFF;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    z-index: 9999;
+}
+
+.icon {
+    margin: 10px 0;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.icon:hover {
+    transform: scale(1.1);
+}
+
+.icon img {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+}
+
+
+  </style>
+
+<script>
+function myFunction() {
+    var input, filter, ul, li, a, i, txtValue;
+    input = document.getElementById("myInput");
+    filter = input.value.toUpperCase();
+    ul = document.getElementById("myUL");
+    li = ul.getElementsByTagName("li");
+    for (i = 0; i < li.length; i++) {
+        a = li[i].getElementsByTagName("a")[0];
+        txtValue = a.textContent || a.innerText;
+        if (txtValue.toUpperCase().indexOf(filter) > -1) {
+            li[i].style.display = "";
+        } else {
+            li[i].style.display = "none";
+        }
+    }
+}
+</script>
+
+<script src="https://unpkg.com/htmx.org@1.9.6" integrity="sha384-FhXw7b6AlE/jyjlZH5iHa/tTe9EpJ1Y55RjcgPbjeWMskSxZt1v9qkxLJWNJaGni" crossorigin="anonymous"></script>
+
+  </head>
+  <body>
+              {% block content %}
+              {% endblock %}
+
+    
+    {% block page-scripts %}
+    {% endblock %}
+  </body>
+</html>

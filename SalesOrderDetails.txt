@@ -1,0 +1,1 @@
+{:tname "tSalesOrderDetails" :tdistinct "" :tcols ["order_id" ,"order_line","item_name" ,"item_price"]}}

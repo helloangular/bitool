@@ -1,0 +1,297 @@
+(ns bitool.api.jsontf 
+  (:require [clojure.string :as str]))
+
+;; ---------- Path parsing ----------
+
+(defn parse-path
+  "Turn \"$.orders[].items[].sku\" -> [\"$\" \"orders\" \"[]\" \"items\" \"[]\" \"sku\"]."
+  [path]
+  (let [p (str/replace path #"^\$\.?" "")]
+    (->> (str/split p #"\.")
+         (mapcat (fn [seg]
+                   (if (str/ends-with? seg "[]")
+                     [(subs seg 0 (- (count seg) 2)) "[]"]
+                     [seg])))
+         (remove #(= "" %))
+         (into ["$"]))))
+
+(defn- lcp2 [a b]
+  (vec (map first (take-while (fn [[x y]] (= x y))
+                              (map vector a b)))))
+
+(defn- longest-common-prefix [paths]
+  (reduce lcp2 paths))
+
+(defn- last-array-idx [segs]
+  (->> (map-indexed vector segs)
+       (keep (fn [[i s]] (when (= s "[]") i)))
+       last))
+
+(defn- pick-spine
+  "LCP across all paths, cut at last [] so we fan out there."
+  [seg-vecs]
+  (let [lcp (longest-common-prefix seg-vecs)
+        i   (last-array-idx lcp)]
+    (if i (subvec lcp 0 (inc i)) lcp)))
+
+(defn- prop-get [m k]
+  (when (map? m) (or (get m (keyword k)) (get m k))))
+
+;; ---------- Spine traversal (transducer-friendly) ----------
+
+(defn- walk-spine
+  "Traverse the spine over data, returning seq of context maps (or values)."
+  [data spine]
+  (reduce
+    (fn [vals seg]
+      (if (= seg "[]")
+        (sequence (comp
+                    (mapcat (fn [v]
+                              (cond
+                                (sequential? v) v
+                                (nil? v)        []
+                                :else           []))))
+                  vals)
+        (sequence (comp
+                    (map #(if (= seg "$") % (prop-get % seg)))
+                    (remove nil?))
+                  vals)))
+    [data]
+    spine))
+
+;; ---------- Tail evaluation (always keeps a seq of values) ----------
+
+(defn- eval-tail
+  "From a context and remaining segments, return *all* extracted values as a seq."
+  [ctx segs]
+  (reduce
+    (fn [vals seg]
+      (if (= seg "[]")
+        (sequence (comp (mapcat (fn [v]
+                                  (cond
+                                    (sequential? v) v
+                                    (nil? v)        []
+                                    :else           []))))
+                  vals)
+        (sequence (comp (map #(prop-get % seg))
+                        (remove nil?))
+                  vals)))
+    [ctx]
+    segs))
+
+;; ---------- Public API ----------
+(*
+(defn rows-from-json
+  "data: parsed JSON (maps/vectors with keyword keys recommended)
+   path->col: {\"$.orders[].id\" :order_id, ...}
+   opts:
+     {:row-mode     :per-context | :explode-by
+      :explode-key  <one of the mapping keys, e.g., \"$.orders[].items[].sku\">
+      :join-arrays? true|false  (default true)
+      :join-delim   \",\"        (default \",\")}
+
+   Returns vector of row maps ready for DB insert."
+  ([data path->col] (rows-from-json data path->col {}))
+  ([data path->col {:keys [row-mode explode-key join-arrays? join-delim]
+                    :or   {row-mode :per-context join-arrays? true join-delim ","}}]
+   (let [parsed   (mapv (fn [[p c]] [(parse-path p) c p]) path->col)
+         segs     (mapv first parsed)           ;; vector of segment vectors
+         cols     (mapv second parsed)          ;; target column keywords
+         keys-in  (mapv #(nth % 2) parsed)      ;; original mapping keys
+         spine    (pick-spine segs)
+         tails    (mapv #(vec (drop (count spine) %)) segs)
+         contexts (walk-spine data spine)
+
+         ;; Helper to materialize a row for :per-context
+         build-row
+         (fn [ctx]
+           (reduce (fn [row [tail col]]
+                     (let [vals (eval-tail ctx tail)]
+                       (assoc row col
+                              (if join-arrays?
+                                (->> vals (map #(if (nil? %) "" (str %))) (str/join join-delim))
+                                (first vals)))))
+                   {}
+                   (map vector tails cols)))]
+
+     (case row-mode
+       ;; One row per spine context
+       :per-context
+       (into [] (map build-row) contexts)
+
+       ;; One row per *tail array item* — driven by :explode-key
+       :explode-by
+;; --- inside rows-from-json, replace ONLY the :explode-by branch with this ---
+:explode-by
+(let [idx (or (.indexOf keys-in explode-key)
+              (throw (ex-info "explode-key must be one of the mapping keys"
+                              {:explode-key explode-key
+                               :available   (vec keys-in)})))
+      explode-tail (nth tails idx)]
+  (into []
+        (mapcat
+          (fn [ctx]
+            (let [driver (vec (eval-tail ctx explode-tail))
+                  n      (count driver)]
+              (map (fn [i]
+                     ;; Build one row per driver index i
+                     (reduce
+                       (fn [row [tail col]]
+                         (let [vals (vec (eval-tail ctx tail))
+                               cnt  (count vals)
+                               v    (cond
+                                      ;; aligned 1:1 with driver
+                                      (= cnt n)        (get vals i)
+                                      ;; broadcast singletons
+                                      (= cnt 1)        (first vals)
+                                      ;; nothing found
+                                      (zero? cnt)      nil
+                                      ;; mismatch (e.g., different length):
+                                      ;; follow join/first policy for stability
+                                      :else            (if join-arrays?
+                                                         (->> vals
+                                                              (map #(if (nil? %) "" (str %)))
+                                                              (str/join join-delim))
+                                                         (first vals)))]
+                           (assoc row col v)))
+                       {}
+                       (map vector tails cols))))
+                   (range n))))
+        contexts))
+
+       ;; default fallback
+       (into [] (map build-row) contexts)))))
+
+)
+
+(defn rows-from-json
+  "data: parsed JSON
+   path->col: {json-path -> column}
+   opts:
+     {:row-mode     :per-context | :explode-by
+      :explode-key  <one of the mapping keys, e.g. \"$.orders[].items[].sku\">
+      :join-arrays? true|false (default true)
+      :join-delim   \",\"       (default \",\")}"
+  ([data path->col] (rows-from-json data path->col {}))
+  ([data path->col {:keys [row-mode explode-key join-arrays? join-delim]
+                    :or   {row-mode :per-context join-arrays? true join-delim ","}}]
+   (let [;; --- helpers you already have somewhere ---
+         parse-path (fn [path]
+                      (let [p (clojure.string/replace path #"^\$\.?" "")]
+                        (->> (clojure.string/split p #"\.")
+                             (mapcat (fn [seg]
+                                       (if (clojure.string/ends-with? seg "[]")
+                                         [(subs seg 0 (- (count seg) 2)) "[]"]
+                                         [seg])))
+                             (remove #(= "" %))
+                             (into ["$"]))))
+         prop-get   (fn [m k] (when (map? m) (or (get m (keyword k)) (get m k))))
+         lcp2       (fn [a b] (vec (map first (take-while (fn [[x y]] (= x y))
+                                                          (map vector a b)))))
+         longest-common-prefix (fn [paths] (reduce lcp2 paths))
+         last-array-idx (fn [segs]
+                          (->> (map-indexed vector segs)
+                               (keep (fn [[i s]] (when (= s "[]") i)))
+                               last))
+         pick-spine (fn [seg-vecs]
+                      (let [lcp (longest-common-prefix seg-vecs)
+                            i   (last-array-idx lcp)]
+                        (if i (subvec lcp 0 (inc i)) lcp)))
+         walk-spine (fn [data spine]
+                      (reduce
+                        (fn [vals seg]
+                          (if (= seg "[]")
+                            (sequence
+                              (comp (mapcat (fn [v]
+                                              (cond
+                                                (sequential? v) v
+                                                (nil? v)        []
+                                                :else           []))))
+                              vals)
+                            (sequence
+                              (comp (map #(if (= seg "$") % (prop-get % seg)))
+                                    (remove nil?))
+                              vals)))
+                        [data] spine))
+         eval-tail  (fn [ctx segs]
+                      (reduce
+                        (fn [vals seg]
+                          (if (= seg "[]")
+                            (sequence
+                              (comp (mapcat (fn [v]
+                                              (cond
+                                                (sequential? v) v
+                                                (nil? v)        []
+                                                :else           []))))
+                              vals)
+                            (sequence
+                              (comp (map #(prop-get % seg))
+                                    (remove nil?))
+                              vals)))
+                        [ctx] segs))
+
+         ;; ---- parse inputs + compute spine/tails ----
+         parsed   (mapv (fn [[p c]] [(parse-path p) c p]) path->col)
+         segs     (mapv first parsed)
+         cols     (mapv second parsed)
+         keys-in  (mapv #(nth % 2) parsed)
+         spine    (pick-spine segs)
+         tails    (mapv #(vec (drop (count spine) %)) segs)
+         contexts (walk-spine data spine)
+
+         join-or-first (fn [vals]
+                         (if join-arrays?
+                           (->> vals
+                                (map #(if (nil? %) "" (str %)))
+                                (clojure.string/join join-delim))
+                           (first vals)))]
+
+     (case row-mode
+       ;; ---------- one row per spine context ----------
+       :per-context
+       (into []
+             (map (fn [ctx]
+                    (reduce (fn [row [tail col]]
+                              (let [vals (eval-tail ctx tail)]
+                                (assoc row col (join-or-first vals))))
+                            {}
+                            (map vector tails cols))))
+             contexts)
+
+       ;; ---------- explode by a tail path (driver) ----------
+       :explode-by
+       (let [idx (.indexOf keys-in (or explode-key ::not-found))]
+         (when (neg? idx)
+           (throw (ex-info "explode-key must be one of the mapping keys"
+                           {:explode-key explode-key
+                            :available   (vec keys-in)})))
+         (let [driver-tail (nth tails idx)]
+           (into []
+                 (mapcat
+                   (fn [ctx]
+                     (let [driver (vec (eval-tail ctx driver-tail))
+                           n      (count driver)]
+                       (map (fn [i]
+                              ;; Build one row per driver index i
+                              (reduce (fn [row [tail col]]
+                                        (let [vals (vec (eval-tail ctx tail))
+                                              cnt  (count vals)
+                                              v    (cond
+                                                     ;; aligned with driver
+                                                     (= cnt n)   (get vals i)
+                                                     ;; broadcast singletons
+                                                     (= cnt 1)   (first vals)
+                                                     ;; nothing
+                                                     (zero? cnt) nil
+                                                     ;; mismatch: join/first as fallback
+                                                     :else       (join-or-first vals))]
+                                          (assoc row col v)))
+                                      {}
+                                      (map vector tails cols))))
+                            (range n))))
+                 contexts)))
+
+       ;; ---------- unknown mode ----------
+       (throw (ex-info "Unknown :row-mode" {:row-mode row-mode}))))))
+
+

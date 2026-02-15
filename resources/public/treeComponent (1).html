@@ -1,0 +1,194 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+
+<style>
+  .container {
+    display: flex;
+    flex-direction: row;
+    height: 100%;
+    column-gap: 0px;
+    width: 100%;
+  }
+
+  .tree {
+    width: 30%;
+    height: 100%;
+    min-width: 100px; /* prevent collapsing */
+    max-width: 70%; /* optional limit */
+    /* resize: horizontal; */
+    background: #f0f0f0;
+  }
+
+  #dropable-area {
+    position: relative;
+    flex-grow: 1;
+    background-color: #f5f5f5;
+    border: 2px dashed #ccc;
+    overflow: auto;
+  }
+
+  #dropable-area::before {
+    content: 'Drop tables or views here';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #666;
+  }
+
+  .resizer {
+    width: 5px;
+    height: 100%;
+    background: transparent;
+    cursor: col-resize;
+    margin-left: -5px;
+    z-index: 1;
+  }
+
+  .resizer:hover {
+    background: #888;
+  }
+
+  #viewport {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    user-select: none;
+  }
+
+  #dropable-area.has-items::before {
+    display: none;
+  }
+
+  .column-list-open {
+    margin-right: 30%;
+  }
+
+  .smart-drop-down .smart-drop-down-container .smart-visibility-hidden {
+    width: 100% !important;
+  }
+
+  svg.connector-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+
+  .popup {
+    position: absolute;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    min-width: 160px;
+    border-radius: 8px;
+    background: white;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    z-index: 1000;
+  }
+
+  .popup.show {
+    display: flex;
+  }
+
+  .popup button {
+    font-size: 14px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid #e6e9ee;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .popup button:hover {
+    background: #f8fafc;
+  }
+</style>
+
+<div class="container">
+  <!-- TREE -->
+  <smart-tree class="tree">
+  </smart-tree>
+  <div class="resizer"></div>
+  <div id="dropable-area">
+    <div id="viewport"></div>
+  </div>
+</div>
+<!-- DIALOG -->
+<smart-window class="dialog" label="Create Database Connection">
+  <form id="profileForm">
+    <div class="smart-form-row">
+      <label> Connection Name: </label>
+      <input class="underlined" name="connection_name"></input>
+    </div>
+    <div class="smart-form-row">
+      <label> Connection Type: </label>
+      <smart-drop-down-list name=dbtype>
+        <smart-list-item selected value="postgresql">Oracle (JDBC)</smart-list-item>
+        <smart-list-item value="value2">Item2</smart-list-item>
+        <smart-list-item value="value3">Item3</smart-list-item>
+      </smart-drop-down-list>
+    </div>
+    <div class="smart-form-row">
+      <label> Usename: </label>
+      <input class="underlined" name="username"></input>
+    </div>
+    <div class="smart-form-row">
+      <label> Password: </label>
+      <input class="underlined" name="password"></input>
+    </div>
+
+    <div class="smart-form-row" style="margin: 15px auto;">
+      <label>Oracle (JDBC) settings:</label>
+    </div>
+    <div class="smart-form-row">
+      <input type="checkbox" class="underlined" name="enterUrl"></input>
+      <label> Enter Custom JDBC URL</label>
+    </div>
+    <div class="smart-form-row">
+      <label>Driver: </label>
+      <smart-drop-down-list>
+        <smart-list-item selected value="value1">thin</smart-list-item>
+        <smart-list-item value="value2">OCI</smart-list-item>
+        <smart-list-item value="value3">Native API</smart-list-item>
+      </smart-drop-down-list>
+    </div>
+    <div class="smart-form-row">
+      <label> host: </label>
+      <input class="underlined" name="host"></input>
+    </div>
+    <div class="smart-form-row">
+      <label> port: </label>
+      <input class="underlined" name="port"></input>
+    </div>
+    <div class="smart-form-row">
+      <label> dbname: </label>
+      <input class="underlined" name="dbname"></input>
+    </div>
+    <div class="smart-form-row">
+      <label> SID: </label>
+      <input class="underlined" name="sid"></input>
+    </div>
+    <div class="smart-form-row">
+      <label> Service Name: </label>
+      <input class="underlined" name="serviceName"></input>
+    </div>
+    <div class="smart-form-row submit">
+      <smart-button class="success" form-control-name="submit" type="submit">Ok</smart-button>
+    </div>
+  </form>
+</smart-window>
+
+<!-- popup -->
+<div id="optionsPopup" class="popup">
+  <button data-action="join">Join</button>
+  <button data-action="union">Union</button>
+  <button data-action="replace">Replace</button>
+  <button data-action="cancel">Cancel</button>
+</div>
