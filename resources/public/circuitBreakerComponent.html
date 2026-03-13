@@ -1,0 +1,45 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<style>
+  .panel { display:flex; flex-direction:column; height:100%; box-shadow:0 4px 8px rgba(0,0,0,.2); }
+  .header { display:flex; justify-content:space-between; align-items:center; padding:10px; }
+  .body { padding:10px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:none; flex:1; }
+  .row { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:#555; }
+  textarea { width:100%; padding:8px; border:1px solid #e0e0e0; border-radius:4px; font-size:13px; font-family:monospace; box-sizing:border-box; }
+  .state-badge { display:inline-block; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:bold; background:#e8f5e9; color:#388e3c; border:1px solid #a5d6a7; }
+  .info { background:#fff8e1; border:1px solid #ffe082; border-radius:4px; padding:8px; font-size:11px; color:#555; }
+</style>
+
+<div class="panel">
+  <div class="header">
+    <strong>Circuit Breaker</strong>
+    <div style="display:flex;gap:6px;">
+      <button id="saveBtn" style="font-size:11px;">Save</button>
+      <button id="closeBtn" style="font-size:20px;background:none;border:none;cursor:pointer;">&#9747;</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="row">
+      <label>Node Name</label>
+      <smart-input id="nodeName" class="outlined" style="width:100%"></smart-input>
+    </div>
+    <div class="row">
+      <label>Design-time State</label>
+      <div><span class="state-badge">CLOSED</span></div>
+    </div>
+    <div class="row">
+      <label>Failure Threshold (failures before opening)</label>
+      <smart-input id="failureThreshold" class="outlined" style="width:100%" placeholder="5"></smart-input>
+    </div>
+    <div class="row">
+      <label>Reset Timeout (seconds before half-open)</label>
+      <smart-input id="resetTimeout" class="outlined" style="width:100%" placeholder="30"></smart-input>
+    </div>
+    <div class="row">
+      <label>Fallback Response (JSON)</label>
+      <textarea id="fallbackResponse" rows="4" placeholder='{"error": "service unavailable"}'></textarea>
+    </div>
+    <div class="info">Pass-through when CLOSED. Returns fallback when OPEN. Place before Dx or API nodes to protect against downstream failures.</div>
+  </div>
+</div>

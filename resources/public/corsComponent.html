@@ -1,0 +1,58 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<style>
+  .panel { display:flex; flex-direction:column; height:100%; box-shadow:0 4px 8px rgba(0,0,0,.2); }
+  .header { display:flex; justify-content:space-between; align-items:center; padding:10px; }
+  .body { padding:10px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:none; flex:1; }
+  .row { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:#555; }
+  textarea { width:100%; padding:8px; border:1px solid #e0e0e0; border-radius:4px; font-size:13px; box-sizing:border-box; }
+  .checkbox-row { display:flex; align-items:center; gap:8px; }
+  .methods { display:flex; flex-wrap:wrap; gap:8px; }
+  .methods label { font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer; }
+  .info { background:#fff8e1; border:1px solid #ffe082; border-radius:4px; padding:8px; font-size:11px; color:#555; }
+</style>
+
+<div class="panel">
+  <div class="header">
+    <strong>CORS</strong>
+    <div style="display:flex;gap:6px;">
+      <button id="saveBtn" style="font-size:11px;">Save</button>
+      <button id="closeBtn" style="font-size:20px;background:none;border:none;cursor:pointer;">&#9747;</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="row">
+      <label>Node Name</label>
+      <smart-input id="nodeName" class="outlined" style="width:100%"></smart-input>
+    </div>
+    <div class="row">
+      <label>Allowed Origins (one per line, * for all)</label>
+      <textarea id="allowedOrigins" rows="3" placeholder="https://app.example.com&#10;*"></textarea>
+    </div>
+    <div class="row">
+      <label>Allowed Methods</label>
+      <div class="methods" id="methodsGroup">
+        <label><input type="checkbox" value="GET" checked> GET</label>
+        <label><input type="checkbox" value="POST" checked> POST</label>
+        <label><input type="checkbox" value="PUT"> PUT</label>
+        <label><input type="checkbox" value="DELETE"> DELETE</label>
+        <label><input type="checkbox" value="PATCH"> PATCH</label>
+        <label><input type="checkbox" value="OPTIONS" checked> OPTIONS</label>
+      </div>
+    </div>
+    <div class="row">
+      <label>Allowed Headers (comma-separated)</label>
+      <textarea id="allowedHeaders" rows="2" placeholder="Content-Type, Authorization"></textarea>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="allowCredentials">
+      <label>Allow Credentials</label>
+    </div>
+    <div class="row">
+      <label>Max Age (seconds)</label>
+      <smart-input id="maxAge" class="outlined" style="width:100%" placeholder="86400"></smart-input>
+    </div>
+    <div class="info">Pass-through — does not modify columns. Handles preflight OPTIONS automatically.</div>
+  </div>
+</div>

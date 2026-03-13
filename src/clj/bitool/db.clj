@@ -125,7 +125,12 @@
     (-> (jdbc/execute-one! ds [query])
         :next_val))) 
 
-(defn getGraph[gid] (read-string (:graph/definition (jdbc/execute-one! ds ["select definition from graph where id = ? and version = (select max(version) from graph where id = ?)" gid gid])))) 
+(defn getGraph[gid] (read-string (:graph/definition (jdbc/execute-one! ds ["select definition from graph where id = ? and version = (select max(version) from graph where id = ?)" gid gid]))))
+
+(defn list-graph-ids
+  "Return all distinct graph IDs from the graph table."
+  []
+  (mapv :graph/id (jdbc/execute! ds ["select distinct id from graph"])))
 
 (defn version+[g] (update-in g [:a :v] inc))
 

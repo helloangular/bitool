@@ -1,0 +1,59 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<style>
+  .panel { display:flex; flex-direction:column; height:100%; box-shadow:0 4px 8px rgba(0,0,0,.2); }
+  .header { display:flex; justify-content:space-between; align-items:center; padding:10px; }
+  .body { padding:10px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:none; flex:1; }
+  .row { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:#555; }
+  select, textarea { width:100%; padding:8px; border:1px solid #e0e0e0; border-radius:4px; font-size:13px; box-sizing:border-box; }
+  textarea { font-family:monospace; }
+  .info { background:#f0f7ff; border:1px solid #b3d4f5; border-radius:4px; padding:8px; font-size:11px; color:#336; }
+  .cols-preview { font-size:11px; background:#f9f9f9; border:1px solid #e0e0e0; border-radius:4px; padding:6px; min-height:30px; }
+</style>
+
+<div class="panel">
+  <div class="header">
+    <strong>DB Execute</strong>
+    <div style="display:flex;gap:6px;">
+      <button id="saveBtn" style="font-size:11px;">Save</button>
+      <button id="closeBtn" style="font-size:20px;background:none;border:none;cursor:pointer;">&#9747;</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="row">
+      <label>Node Name</label>
+      <smart-input id="nodeName" class="outlined" style="width:100%"></smart-input>
+    </div>
+    <div class="row">
+      <label>Connection</label>
+      <select id="connectionId"></select>
+    </div>
+    <div class="row">
+      <label>Operation</label>
+      <select id="operation">
+        <option value="SELECT">SELECT</option>
+        <option value="INSERT">INSERT</option>
+        <option value="UPDATE">UPDATE</option>
+        <option value="DELETE">DELETE</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>SQL Template — use <code>{{column_name}}</code> for bind params</label>
+      <textarea id="sqlTemplate" rows="6" placeholder="SELECT id, name FROM users WHERE id = {{user_id}}"></textarea>
+    </div>
+    <div class="row" id="resultModeRow">
+      <label>Result Mode</label>
+      <select id="resultMode">
+        <option value="single">Single row</option>
+        <option value="multiple">Multiple rows</option>
+        <option value="count">Count only</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Detected Output Columns</label>
+      <div class="cols-preview" id="colsPreview">— parse SQL to preview —</div>
+    </div>
+    <div class="info">Use <code>{{col}}</code> syntax for upstream column values. DDL (CREATE/DROP/ALTER) is not permitted.</div>
+  </div>
+</div>

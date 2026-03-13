@@ -77,16 +77,59 @@ class IfElseIfElse extends HTMLElement {
         }
         dropdown.replaceWith(newElement);
     }
-    save(){
-        const jsonData = {
-            if: this.shadowRoot.querySelector('#if-condition').value,
-            then: this.ifThen.value,
-            elseif: this.shadowRoot.querySelector('#elseif-condition').value,
-            elseifThen: this.elseifThen.value,
-            else: this.else.value
+
+    collectData() {
+        return {
+            branches: [
+                {
+                    condition: this.shadowRoot.querySelector('#if-condition').value,
+                    group: this.ifThen.value
+                },
+                {
+                    condition: this.shadowRoot.querySelector('#elseif-condition').value,
+                    group: this.elseifThen.value
+                }
+            ],
+            default_branch: this.else.value
+        };
+    }
+
+    loadData(data) {
+        const branches = data.branches || [];
+        if (branches[0]) {
+            const ifCond = this.shadowRoot.querySelector('#if-condition');
+            const opts = [...(ifCond.options || [])].map(o => o.value);
+            if (ifCond.tagName === 'SELECT' && !opts.includes(branches[0].condition)) {
+                this.ifCheckbox.checked = true;
+                this.toggleElement(this.ifCheckbox, 'if-condition');
+                this.shadowRoot.querySelector('#if-condition').value = branches[0].condition;
+            } else {
+                ifCond.value = branches[0].condition;
+            }
+            this.ifThen.value = branches[0].group || "";
         }
-        console.log(jsonData);
-        storeData(jsonData);
+        if (branches[1]) {
+            const eifCond = this.shadowRoot.querySelector('#elseif-condition');
+            const opts = [...(eifCond.options || [])].map(o => o.value);
+            if (eifCond.tagName === 'SELECT' && !opts.includes(branches[1].condition)) {
+                this.elseifCheckbox.checked = true;
+                this.toggleElement(this.elseifCheckbox, 'elseif-condition');
+                this.shadowRoot.querySelector('#elseif-condition').value = branches[1].condition;
+            } else {
+                eifCond.value = branches[1].condition;
+            }
+            this.elseifThen.value = branches[1].group || "";
+        }
+        this.else.value = data.default_branch || "";
+    }
+
+    save(){
+        const d = this.collectData();
+        storeData({
+            cond_type: "if-elif-else",
+            branches: d.branches,
+            default_branch: d.default_branch
+        });
     }
 }
 

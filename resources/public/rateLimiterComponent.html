@@ -1,0 +1,53 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<style>
+  .panel { display:flex; flex-direction:column; height:100%; box-shadow:0 4px 8px rgba(0,0,0,.2); }
+  .header { display:flex; justify-content:space-between; align-items:center; padding:10px; }
+  .body { padding:10px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:none; flex:1; }
+  .row { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:#555; }
+  select { width:100%; padding:8px; border:1px solid #e0e0e0; border-radius:4px; font-size:13px; box-sizing:border-box; }
+  .info { background:#fff8e1; border:1px solid #ffe082; border-radius:4px; padding:8px; font-size:11px; color:#555; }
+</style>
+
+<div class="panel">
+  <div class="header">
+    <strong>Rate Limiter</strong>
+    <div style="display:flex;gap:6px;">
+      <button id="saveBtn" style="font-size:11px;">Save</button>
+      <button id="closeBtn" style="font-size:20px;background:none;border:none;cursor:pointer;">&#9747;</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="row">
+      <label>Node Name</label>
+      <smart-input id="nodeName" class="outlined" style="width:100%"></smart-input>
+    </div>
+    <div class="row">
+      <label>Max Requests</label>
+      <smart-input id="maxRequests" class="outlined" style="width:100%" placeholder="100"></smart-input>
+    </div>
+    <div class="row">
+      <label>Window (seconds)</label>
+      <smart-input id="windowSeconds" class="outlined" style="width:100%" placeholder="60"></smart-input>
+    </div>
+    <div class="row">
+      <label>Burst (allowed above max)</label>
+      <smart-input id="burst" class="outlined" style="width:100%" placeholder="0"></smart-input>
+    </div>
+    <div class="row">
+      <label>Key Type</label>
+      <select id="keyType">
+        <option value="ip">IP Address</option>
+        <option value="api-key">API Key</option>
+        <option value="user-id">User ID</option>
+        <option value="custom">Custom Header</option>
+      </select>
+    </div>
+    <div class="row" id="customHeaderRow" style="display:none;">
+      <label>Custom Header Name</label>
+      <smart-input id="customHeader" class="outlined" style="width:100%" placeholder="X-Client-Id"></smart-input>
+    </div>
+    <div class="info">Pass-through — columns are unchanged. Returns 429 when limit is exceeded.</div>
+  </div>
+</div>

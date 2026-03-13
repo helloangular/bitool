@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Response Builder E2E UI Test</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; font-weight: bold; }
+    .section { margin-top: 16px; font-weight: bold; border-bottom: 1px solid #ccc; }
+    #results { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>Response Builder E2E UI Test</h2>
+  <div id="results"></div>
+
+  <script type="module">
+    let passed = 0;
+    let failed = 0;
+    const log = document.getElementById("results");
+
+    function section(name) {
+      const el = document.createElement("div");
+      el.className = "section";
+      el.textContent = `\n--- ${name} ---`;
+      log.appendChild(el);
+    }
+
+    function assert(condition, msg) {
+      const el = document.createElement("div");
+      if (condition) {
+        passed++;
+        el.className = "pass";
+        el.textContent = `  PASS: ${msg}`;
+      } else {
+        failed++;
+        el.className = "fail";
+        el.textContent = `  FAIL: ${msg}`;
+      }
+      log.appendChild(el);
+    }
+
+    function assertEqual(actual, expected, msg) {
+      assert(actual === expected, `${msg} — expected "${expected}", got "${actual}"`);
+    }
+
+    async function waitFor(fn, timeoutMs = 4000) {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        const val = fn();
+        if (val) return val;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error("Timed out waiting for condition");
+    }
+
+    function summary() {
+      const el = document.createElement("div");
+      el.className = failed > 0 ? "fail" : "pass";
+      el.textContent = `\n========== ${passed} passed, ${failed} failed ==========`;
+      log.appendChild(el);
+      window.__TEST_FAILED__ = failed > 0;
+    }
+
+    section("Setup");
+
+    window.data = {
+      selectedRectangle: "rb-1",
+      rectangles: [
+        {
+          id: "rb-1",
+          btype: "Rb",
+          status_code: "200",
+          response_type: "json",
+          headers: "",
+          template: [],
+          items: [
+            { business_name: "id", technical_name: "id", data_type: "integer" },
+            { business_name: "email", technical_name: "email", data_type: "varchar" }
+          ]
+        }
+      ]
+    };
+
+    const originalFetch = window.fetch.bind(window);
+    let savePayload = null;
+
+    window.fetch = async (input, init = {}) => {
+      const raw = typeof input === "string" ? input : input.url;
+      const url = new URL(raw, window.location.href);
+
+      if (raw.endsWith("responseBuilderComponent.html")) {
+        return originalFetch("../../resources/public/responseBuilderComponent.html");
+      }
+
+      if (url.pathname === "/saveResponseBuilder") {
+        savePayload = init.body ? JSON.parse(init.body) : null;
+        const responseBody = {
+          id: savePayload.id,
+          btype: "Rb",
+          status_code: savePayload.status_code,
+          response_type: savePayload.response_type,
+          headers: savePayload.headers,
+          template: savePayload.template,
+          items: window.data.rectangles[0].items
+        };
+        return new Response(JSON.stringify(responseBody), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      return originalFetch(input, init);
+    };
+
+    assert(true, "Mock data and fetch stubs initialized");
+
+    section("Component Render");
+
+    await import("../../resources/public/responseBuilderComponent.js");
+    const comp = document.createElement("response-builder-component");
+    document.body.appendChild(comp);
+
+    await waitFor(() => comp.shadowRoot && comp.shadowRoot.querySelector("#statusCode"));
+    comp.setAttribute("visibility", "open");
+
+    const varsCard = await waitFor(() => comp.shadowRoot.querySelector("#availableVarsCard"));
+    const varsList = comp.shadowRoot.querySelector("#availableVarsList");
+    const sourceOptions = comp.shadowRoot.querySelector("#sourceColumnOptions");
+
+    assert(varsCard.style.display !== "none", "Variables card is visible");
+    assert(varsList.textContent.includes("id"), "Variables list includes `id`");
+    assert(varsList.textContent.includes("email"), "Variables list includes `email`");
+    assertEqual(sourceOptions.querySelectorAll("option").length, 2, "Source column datalist populated");
+
+    section("User Flow");
+
+    comp.shadowRoot.querySelector("#addFieldBtn").click();
+    const outputInput = await waitFor(() => comp.shadowRoot.querySelector(".rb-output_key"));
+    const sourceInput = comp.shadowRoot.querySelector(".rb-source_column");
+    assertEqual(sourceInput.getAttribute("list"), "sourceColumnOptions", "Source field uses autocomplete datalist");
+
+    outputInput.value = "userId";
+    outputInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    sourceInput.value = "id";
+    sourceInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    comp.shadowRoot.querySelector("#saveButton").click();
+    await waitFor(() => savePayload !== null);
+
+    assertEqual(savePayload.id, "rb-1", "Save payload includes node id");
+    assertEqual(savePayload.template.length, 1, "Save payload has one mapping row");
+    assertEqual(savePayload.template[0].output_key, "userId", "Save payload includes output_key");
+    assertEqual(savePayload.template[0].source_column, "id", "Save payload includes selected source column");
+
+    summary();
+  </script>
+</body>
+</html>

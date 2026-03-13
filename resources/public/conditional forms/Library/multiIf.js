@@ -77,15 +77,12 @@ class MultiIf extends HTMLElement {
     }
 
     addIf(list) {
-        // Clone the IF and THEN sections
         const ifSection = this.shadowRoot.querySelectorAll('.section')[0].cloneNode(true);
         const thenSection = this.shadowRoot.querySelectorAll('.section')[1].cloneNode(true);
-        // Remove checkbox and its label from the cloned IF section
         const checkbox = ifSection.querySelector("input[name='checkbox']");
         if (checkbox) checkbox.remove();
         const label = ifSection.querySelector("label[for='checkbox-label']");
         if (label) label.remove();
-        // Create container and append
         const container = document.createElement("div");
         container.append(ifSection, thenSection);
         container.appendChild(deleteBtn(container));
@@ -99,24 +96,63 @@ class MultiIf extends HTMLElement {
         container.querySelector('input[name="then"]').value = "";
     }
 
-    save(object) {
-        const jsonData = {
-            conditions: [],
-            default: object.default.value
-        }
-        // Add the first "if" and "then" values from the main fields
-        jsonData.conditions.push({
-            if: object.shadowRoot.querySelector("#condition").value,
-            then: object.shadowRoot.querySelector('input[name="then"]').value
+    collectData() {
+        const branches = [];
+        // First branch from main fields
+        branches.push({
+            condition: this.shadowRoot.querySelector("#condition").value,
+            group: this.shadowRoot.querySelector('input[name="then"]').value
         });
-        for (const content of object.list.childNodes) {
-            jsonData.conditions.push({
-                if: content.querySelector("#condition").value,
-                then: content.querySelector("input[name='then']").value
-            })
+        // Additional branches from list
+        for (const content of this.list.childNodes) {
+            branches.push({
+                condition: content.querySelector("#condition")?.value || "",
+                group: content.querySelector("input[name='then']")?.value || ""
+            });
         }
-        console.log(jsonData);
-        storeData(jsonData);
+        return {
+            branches,
+            default_branch: this.default.value
+        };
+    }
+
+    loadData(data) {
+        const branches = data.branches || [];
+        // Clear existing list items
+        while (this.list.firstChild) this.list.removeChild(this.list.firstChild);
+
+        if (branches.length > 0) {
+            const cond = this.shadowRoot.querySelector('#condition');
+            const opts = [...(cond.options || [])].map(o => o.value);
+            if (cond.tagName === 'SELECT' && !opts.includes(branches[0].condition)) {
+                this.ifCheckbox.checked = true;
+                this.toggleElement(this.ifCheckbox);
+                this.shadowRoot.querySelector('#condition').value = branches[0].condition;
+            } else {
+                cond.value = branches[0].condition;
+            }
+            this.ifThen.value = branches[0].group || "";
+        }
+        // Add remaining branches
+        for (let i = 1; i < branches.length; i++) {
+            this.addIf(this.list);
+            const items = this.list.children;
+            const last = items[0]; // addIf inserts at the beginning
+            const condEl = last.querySelector('#condition');
+            if (condEl) condEl.value = branches[i].condition || "";
+            const thenEl = last.querySelector("input[name='then']");
+            if (thenEl) thenEl.value = branches[i].group || "";
+        }
+        this.default.value = data.default_branch || "";
+    }
+
+    save(object) {
+        const d = this.collectData();
+        storeData({
+            cond_type: "multi-if",
+            branches: d.branches,
+            default_branch: d.default_branch
+        });
     }
 }
 

@@ -1,0 +1,72 @@
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<link rel="stylesheet" href="./styles/apiComponent.css" />
+<div class="side-panel">
+  <div class="panel-header">
+    <button class="save" id="saveButton" disabled>Save</button>
+    <button class="close" id="closeButton">Close</button>
+  </div>
+  <div class="panel-item">
+    <h3 style="margin:0 0 10px 0;">Response Builder</h3>
+
+    <div class="form-group">
+      <label>Status Code</label>
+      <select id="statusCode" style="width:100%;padding:6px;border:1px solid #ccc;border-radius:4px;">
+        <option value="200">200 OK</option>
+        <option value="201">201 Created</option>
+        <option value="204">204 No Content</option>
+        <option value="400">400 Bad Request</option>
+        <option value="401">401 Unauthorized</option>
+        <option value="403">403 Forbidden</option>
+        <option value="404">404 Not Found</option>
+        <option value="422">422 Unprocessable Entity</option>
+        <option value="500">500 Internal Server Error</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Response Type</label>
+      <select id="responseType" style="width:100%;padding:6px;border:1px solid #ccc;border-radius:4px;">
+        <option value="json">JSON</option>
+        <option value="xml">XML</option>
+        <option value="csv">CSV</option>
+        <option value="text">Plain Text</option>
+      </select>
+    </div>
+
+    <div id="availableVarsCard" class="card" style="display:none;margin-top:12px;padding:10px;border:1px solid #e0e0e0;border-radius:6px;background:#f9fcff;">
+      <h4 style="margin:0 0 8px 0;">Available Params / Variables</h4>
+      <small style="color:#666;display:block;margin-bottom:6px;">These upstream fields can be used as source columns.</small>
+      <div id="availableVarsList" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>
+
+    <datalist id="sourceColumnOptions"></datalist>
+
+    <!-- Field Mappings -->
+    <div class="card" style="margin-top:12px;padding:10px;border:1px solid #e0e0e0;border-radius:6px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h4 style="margin:0;">Response Fields</h4>
+        <button id="addFieldBtn" style="padding:4px 8px;font-size:12px;cursor:pointer;">+ Add Field</button>
+      </div>
+      <small style="color:#888;display:block;margin-bottom:8px;">Map upstream columns to response JSON keys</small>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:1px solid #ddd;">
+            <th style="text-align:left;padding:4px;">Output Key</th>
+            <th style="text-align:left;padding:4px;">Source Column</th>
+            <th style="width:30px;"></th>
+          </tr>
+        </thead>
+        <tbody id="fieldMappingsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Extra Headers -->
+    <div class="card" style="margin-top:12px;padding:10px;border:1px solid #e0e0e0;border-radius:6px;">
+      <h4 style="margin:0 0 8px 0;">Extra Headers</h4>
+      <small style="color:#888;display:block;margin-bottom:6px;">JSON object, e.g. {"X-Request-Id": "{{id}}"}</small>
+      <textarea id="headers" placeholder='{"X-Custom-Header": "value"}'
+        style="width:100%;padding:6px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-family:monospace;height:80px;font-size:12px;"></textarea>
+    </div>
+
+  </div>
+</div>

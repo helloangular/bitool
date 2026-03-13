@@ -4,7 +4,8 @@ import "./Library/multiIf.js";
 import "./Library/case.js";
 import "./Library/condition.js";
 import "./Library/patternMatch.js";
-import EventHandler from "../../library/eventHandler.js";
+import EventHandler from "../library/eventHandler.js";
+import { request } from "../library/utils.js";
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -19,13 +20,17 @@ template.innerHTML = `
           <smart-button content="Save" id="saveButton" style="margin-right:10px;font-size:10px;"></smart-button>
       </div>
       <select id="conditionals" name="conditionals">
-        <option value="if-else-component">IF ELSE</option>
+        <option value="if-else">IF ELSE</option>
         <option value="if-elif-else">IF ELIF ELSE</option>
         <option value="multi-if">MULTI IF</option>
         <option value="case">CASE</option>
         <option value="cond">CONDITION</option>
         <option value="pattern-match">PATTERN MATCH</option>
       </select>
+      <details id="columns-section" style="margin:8px 10px;">
+        <summary style="cursor:pointer;font-size:12px;color:#555;">Available Columns</summary>
+        <div id="columns-list" style="max-height:120px;overflow-y:auto;font-size:11px;padding:4px 8px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;margin-top:4px;"></div>
+      </details>
       <div id="content"></div>
     </div>
 `;
@@ -51,11 +56,12 @@ class ControlFlowComponent extends HTMLElement {
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
-    // if (name === "conditions" && oldValue !== newValue) {
-    // this.renderUI({ condition: newValue, container: this.content });
-    // } else
     if (name === "visibility") {
-      this.renderUI({ condition: 'if-else', container: this.content });
+      if (newValue === "open") {
+        this.loadFromRect();
+      } else {
+        this.renderUI({ condition: "if-else", container: this.content });
+      }
       this.updateVisibility();
     }
   }
@@ -66,13 +72,8 @@ class ControlFlowComponent extends HTMLElement {
     this.saveButton = this.shadowRoot.querySelector("#saveButton");
     this.label = this.shadowRoot.querySelector("#label");
     this.select = this.shadowRoot.querySelector("#conditionals");
-
-    // Set label text based on the condition
-    const condition = this.getAttribute("conditions");
-    if (condition) {
-      this.label.textContent =
-        condition.charAt(0).toUpperCase() + condition.slice(1);
-    }
+    this.columnsSection = this.shadowRoot.querySelector("#columns-section");
+    this.columnsList = this.shadowRoot.querySelector("#columns-list");
   }
 
   setUpEventListeners() {
@@ -81,8 +82,41 @@ class ControlFlowComponent extends HTMLElement {
     EventHandler.on(this.select, "change", () => this.panelChange());
   }
 
+  /** Load saved data from the selected rectangle (populated by getItem) */
+  loadFromRect() {
+    const rect = (window.data?.rectangles || []).find(
+      (r) => String(r.id) === String(window.data?.selectedRectangle)
+    );
+
+    const condType = rect?.cond_type || "if-else";
+    this.select.value = condType;
+    this.label.textContent = rect?.alias || rect?.business_name || "Conditional";
+
+    // Show available columns from parent node
+    const items = rect?.items || [];
+    if (items.length > 0) {
+      this.columnsList.innerHTML = items
+        .map((col) => `<div style="padding:1px 0;"><code>${col.business_name || col.technical_name}</code> <span style="color:#999;">(${col.data_type || ""})</span></div>`)
+        .join("");
+      this.columnsSection.style.display = "block";
+    } else {
+      this.columnsSection.style.display = "none";
+    }
+
+    this.renderUI({ condition: condType, container: this.content });
+
+    // If we have saved branches, populate the sub-component after it renders
+    if (rect && this.component && typeof this.component.loadData === "function") {
+      setTimeout(() => {
+        this.component.loadData({
+          branches: rect.branches || [],
+          default_branch: rect.default_branch || "",
+        });
+      }, 50);
+    }
+  }
+
   panelChange() {
-    // console.log(this.select.value);
     this.renderUI({ condition: this.select.value, container: this.content });
   }
 
@@ -107,19 +141,54 @@ class ControlFlowComponent extends HTMLElement {
 
     const componentTag = componentMap[condition];
     if (componentTag) {
-      for (const child of container.children) {
-        container.removeChild(child); // Clear previous components
+      // Clear previous components
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
       }
       this.component = document.createElement(componentTag);
-      container.appendChild(this.component); // Append to light DOM, so it appears in <slot>
+      container.appendChild(this.component);
     }
   }
 
-  save() {
-    if (this.component && typeof this.component.save === "function") {
+  async save() {
+    if (!this.component) {
+      console.warn("No component to save.");
+      return;
+    }
+
+    const id = window.data?.selectedRectangle;
+    if (!id) {
+      console.warn("No selected rectangle to save conditional.");
+      return;
+    }
+
+    // Collect data from sub-component
+    let branches = [];
+    let defaultBranch = "";
+
+    if (typeof this.component.collectData === "function") {
+      const d = this.component.collectData();
+      branches = d.branches || [];
+      defaultBranch = d.default_branch || "";
+    } else if (typeof this.component.save === "function") {
+      // Fallback: call legacy save (which calls storeData internally)
       this.component.save();
-    } else {
-      console.warn("No component to save or save method not defined.");
+      return;
+    }
+
+    try {
+      const data = await request("/saveConditional", {
+        method: "POST",
+        body: {
+          id,
+          cond_type: this.select.value,
+          branches,
+          default_branch: defaultBranch,
+        },
+      });
+      console.log("Conditional saved:", data);
+    } catch (err) {
+      console.error("Error saving conditional:", err);
     }
   }
 }

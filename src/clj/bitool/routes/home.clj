@@ -27,6 +27,9 @@
    [clojure.pprint :as pp]
    [clojure.walk :as walk]
    [taoensso.telemere :as tel]
+   [bitool.endpoint :as endpoint]
+   [bitool.api.openapi :as openapi]
+   [bitool.gil.api :as gil-api]
    ))
 
 (filters/add-filter! :second second)
@@ -87,10 +90,14 @@
 					(println (:table1 x))
 					(println (:table2 x))
 					(+ 1 1)))
-(defn get-conn[request] (g2/getDBTree (Integer. (:conn-id (:params request)))))
+(defn get-conn[request]
+  (let [conn-id-str (:conn-id (:params request))]
+    (if (or (nil? conn-id-str) (= "" conn-id-str))
+      (http-response/ok [])
+      (http-response/ok (g2/getDBTree (Integer. conn-id-str))))))
 
 (defn get-btype[alias]
-      (if (some #{"join" "union" "projection" "aggregation" "sorter" "filter" "function" "target" "output" "api-connection" "graphql-builder" "mapping" "conditionals" } [alias])
+      (if (some #{"join" "union" "projection" "aggregation" "sorter" "filter" "function" "target" "output" "api-connection" "graphql-builder" "mapping" "conditionals" "endpoint" "response-builder" "validator" "auth" "db-execute" "rate-limiter" "cors" "logger" "cache" "event-emitter" "circuit-breaker" "scheduler" "webhook"} [alias])
           alias
           "T"))
 
@@ -168,10 +175,9 @@
         item (:item params)
         gid (:gid (:session request))
         ftype (:label params)
-        _ (println (str "ITEM " item)) 
-        _ (println (str "ftype " ftype)) 
-        retmap (g2/addRightClickNode gid (Integer. item) (g2/btype-codes ftype))
-        _ (pp/pprint retmap) ]
+        _ (println (str "ITEM " item))
+        _ (println (str "ftype " ftype))
+        retmap (g2/addRightClickNode gid (Integer. item) (g2/btype-codes ftype))]
                               (assoc retmap :cp (getCoordinates (:cp retmap)))))
 
 (defn graph-page [request]
@@ -275,26 +281,51 @@
                 "Mp" g2/get-mapping-item
                 "Tg" g2/get-target-item
                 "Ap" g2/get-target-item
+                "Ep" g2/get-endpoint-item
+                "Rb" g2/get-response-builder-item
+                "Vd" g2/get-validator-item
+                "Au" g2/get-auth-item
+                "Dx" g2/get-dx-item
+                "Rl" g2/get-rl-item
+                "Cr" g2/get-cr-item
+                "Lg" g2/get-lg-item
+                "Cq" g2/get-cq-item
+                "Ev" g2/get-ev-item
+                "Ci" g2/get-ci-item
+                "Sc" g2/get-sc-item
+                "Wh" g2/get-wh-item
+                "C"  g2/get-conditional-item
+                "Fu" g2/get-logic-item
                 g2/get-item))
 
-(defn get-item [request] 
-  (let [ params (:params request)
-         id (Integer. (:id params))
-         gid (:gid (:session request))
-         _ (println (str "id: " id))
-         _ (println (str "gid: " gid))
-         g (db/getGraph gid) 
-         _ (pp/pprint g)
-         btype (g2/getBtype g id)
-         fx (get-fx-from-btype btype)
-         _ (println "ITEM------")
-         _ (println fx)
-         _ (println (class btype))
-         _ (println id)
-         _ (println (str "btype " btype))]
-         ;;_ (println (getItemData id btype)) 
-         ;;_ (println (getHtml btype)) ]
- (http-response/ok (apply fx [id g]))))
+(defn get-item [request]
+  (try
+    (let [ params (:params request)
+           id-str (:id params)
+           gid (:gid (:session request))
+           _ (when (or (nil? id-str) (= "null" id-str) (= "" id-str))
+               (throw (ex-info "Invalid item id" {:status 400})))
+           _ (when (or (nil? gid) (= "" (str gid)))
+               (throw (ex-info "No graph selected" {:status 400})))
+           id (Integer. id-str)
+           _ (println (str "id: " id))
+           _ (println (str "gid: " gid))
+           g (db/getGraph gid)
+           _ (pp/pprint g)
+           btype (g2/getBtype g id)
+           fx (get-fx-from-btype btype)
+           _ (println "ITEM------")
+           _ (println fx)
+           _ (println (class btype))
+           _ (println id)
+           _ (println (str "btype " btype))]
+     (http-response/ok (apply fx [id g])))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e)}))
+    (catch Exception e
+      (println "get-item error:" (.getMessage e))
+      (.printStackTrace e)
+      (http-response/internal-server-error {:error (str "Failed to get item: " (.getMessage e))}))))
 
  ;;(http-response/ok (apply fx [id (getItemData gid id btype) g]))))
  ;; (layout/render request (getHtml btype) (assoc (getItemData gid id btype) :gid gid) )))
@@ -451,8 +482,194 @@
                                                     ]
                                                         (http-response/ok (mapCoordinates cp))))
 
+(defn save-endpoint [request]
+  (let [params  (:params request)
+        id      (Integer. (:id params))
+        gid     (:gid (:session request))
+        g       (db/getGraph gid)
+        updated (g2/save-endpoint g id params)
+        cp      (db/insertGraph updated)
+        ep-cfg  (g2/getData cp id)
+        _       (endpoint/register-endpoint! gid id ep-cfg)
+        rp      (g2/get-endpoint-item id cp)]
+    (http-response/ok rp)))
 
-(defn add-function [request] 
+(defn save-response-builder [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-response-builder g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-response-builder-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+
+(defn save-validator [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-validator g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-validator-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+
+(defn save-sc [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-sc g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-sc-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+
+(defn save-wh [request]
+  (let [params  (:params request)
+        id      (Integer. (:id params))
+        g       (db/getGraph (:gid (:session request)))
+        updated (g2/save-wh g id params)
+        cp      (db/insertGraph updated)
+        rp      (g2/get-wh-item id cp)]
+    (http-response/ok rp)))
+
+(defn save-conditional [request]
+  (let [params  (:params request)
+        id      (Integer. (:id params))
+        g       (db/getGraph (:gid (:session request)))
+        updated (g2/save-conditional g id params)
+        cp      (db/insertGraph updated)
+        rp      (g2/get-conditional-item id cp)]
+    (http-response/ok rp)))
+
+(defn save-logic [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-logic g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-logic-item id cp)]
+      (http-response/ok rp))
+    (catch Exception e
+      (http-response/bad-request {:error (.getMessage e)}))))
+
+(defn save-auth [request]
+  (let [params  (:params request)
+        id      (Integer. (:id params))
+        g       (db/getGraph (:gid (:session request)))
+        updated (g2/save-auth g id params)
+        cp      (db/insertGraph updated)
+        rp      (g2/get-auth-item id cp)]
+    (http-response/ok rp)))
+
+(defn save-dx [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-dx g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-dx-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+
+(defn save-rl [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-rl g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-rl-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+
+(defn save-cr [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-cr g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-cr-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+
+(defn save-lg [request]
+  (let [params  (:params request)
+        id      (Integer. (:id params))
+        g       (db/getGraph (:gid (:session request)))
+        updated (g2/save-lg g id params)
+        cp      (db/insertGraph updated)
+        rp      (g2/get-lg-item id cp)]
+    (http-response/ok rp)))
+
+(defn save-cq [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-cq g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-cq-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+
+(defn save-ev [request]
+  (let [params  (:params request)
+        id      (Integer. (:id params))
+        g       (db/getGraph (:gid (:session request)))
+        updated (g2/save-ev g id params)
+        cp      (db/insertGraph updated)
+        rp      (g2/get-ev-item id cp)]
+    (http-response/ok rp)))
+
+(defn save-ci [request]
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-ci g id params)
+          cp      (db/insertGraph updated)
+          rp      (g2/get-ci-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+
+(defn test-endpoint [request]
+  (let [params (:params request)
+        gid    (:gid (:session request))
+        id     (Integer. (:id params))
+        g      (db/getGraph gid)
+        ep-cfg (g2/getData g id)]
+    (endpoint/register-endpoint! gid id ep-cfg)
+    (endpoint/execute-graph gid id
+      {:path  (:test_path_params params)
+       :query (:test_query_params params)
+       :body  (:test_body params)}
+      request)))
+
+(defn deploy-endpoints [request]
+  (try
+    (let [gid (:gid (:session request))]
+      (if (or (nil? gid) (= "" (str gid)))
+        (http-response/bad-request {:error "No graph selected. Please create or open a graph first."})
+        (http-response/ok (endpoint/deploy-graph-endpoints! gid))))
+    (catch Exception e
+      (http-response/internal-server-error {:error (str "Failed to deploy endpoints: " (.getMessage e))}))))
+
+(defn add-function [request]
   (let [item (:item (:params request)) ]
   (graph/addFunction item)
   (layout/render request (getHtml item) (getItemData item) )))
@@ -465,13 +682,91 @@
   (http-response/ok (mapCoordinates (addTable request))))
 
 (defn add-single [request]
-  (http-response/ok (mapCoordinates (addSingle request))))
+  (let [gid (:gid (:session request))]
+    (if (or (nil? gid) (= "" (str gid)))
+      (http-response/bad-request {:error "No graph selected. Please create or open a graph first."})
+      (try
+        (http-response/ok (mapCoordinates (addSingle request)))
+        (catch Exception e
+          (println "add-single error:" (.getMessage e))
+          (.printStackTrace e)
+          (http-response/internal-server-error {:error (str "Failed to add node: " (.getMessage e))}))))))
+
+(defn move-single [request]
+  (try
+    (let [params (:params request)
+          gid    (:gid (:session request))
+          rect   (:rect params)
+          id     (Integer. (:id rect))
+          x      (:x rect)
+          y      (:y rect)
+          g      (db/getGraph gid)
+          g2     (-> g
+                     (assoc-in [:n id :na :x] x)
+                     (assoc-in [:n id :na :y] y)
+                     (db/insertGraph))]
+      (http-response/ok (mapCoordinates g2)))
+    (catch Exception e
+      (println "move-single error:" (.getMessage e))
+      (http-response/internal-server-error {:error (str "Failed to move node: " (.getMessage e))}))))
 
 (defn connect-single [request]
   (http-response/ok (mapCoordinates (connectSingle request))))
 
 (defn delete-table [request]
   (http-response/ok (mapCoordinates (deleteTable request))))
+
+(defn remove-node [request]
+  (let [params (walk/keywordize-keys (:params request))
+        id     (Integer. (:id params))
+        gid    (:gid (:session request))
+        g      (db/getGraph gid)
+        btype  (:btype (g2/getData g id))
+        _      (when (some #{btype} ["Ep" "Wh"])
+                 (endpoint/unregister-endpoint! gid id))
+        cp     (db/insertGraph (g2/remove-node g id))]
+    (http-response/ok (mapCoordinates cp))))
+
+(defn- rebase-nodes
+  "Shift all node IDs in imported-g upward by offset, remapping edge targets too.
+   Node 1 (Output) in imported-g is dropped — it merges into the base graph's O node."
+  [nodes offset]
+  (into {}
+        (for [[id nd] (dissoc nodes 1)
+              :let [new-id (+ id offset)
+                    new-edges (into {} (for [[eid ev] (:e nd)
+                                             :let [new-eid (if (= eid 1) 1 (+ eid offset))]]
+                                         [new-eid ev]))]]
+          [new-id (assoc nd :e new-edges)])))
+
+(defn import-open-api [request]
+  (try
+    (let [params     (walk/keywordize-keys (:params request))
+          gid        (:gid (:session request))
+          spec-json  (or (:spec params) "{}")
+          graph-name (or (:graph_name params) "Imported API")
+          spec       (json/parse-string spec-json true)
+          imported-g (openapi/spec->graph spec graph-name)
+          base-g     (try (db/getGraph gid) (catch Exception _ nil))
+          ;; Use max existing ID (not count) to avoid collisions with sparse ID sets
+          offset     (if base-g (apply max (keys (:n base-g))) 0)
+          merged-g   (if base-g
+                       (update base-g :n merge (rebase-nodes (:n imported-g) offset))
+                       imported-g)
+          cp         (db/insertGraph merged-g)
+          new-gid    (get-in cp [:a :id])
+          new-ver    (get-in cp [:a :v])
+          session    (:session request)
+          ;; Register all Ep/Wh nodes that came in from the import
+          _          (doseq [[id nd] (:n cp)
+                             :let [btype (get-in nd [:na :btype])]
+                             :when (some #{btype} ["Ep" "Wh"])]
+                       (endpoint/register-endpoint! new-gid id (get-in nd [:na])))]
+      (->
+        (http-response/ok (mapCoordinates cp))
+        (assoc :session (assoc session :gid new-gid :ver new-ver))))
+    (catch Exception e
+      (http-response/bad-request {:error (.getMessage e)}))))
 
 (defn save-rect-join [request]
   (http-response/ok (mapCoordinates (saveRectJoin request))))
@@ -560,6 +855,7 @@
    ["/addFilter" {:post add-filter}]
    ["/saveFilter" {:post save-filter}]
    ["/addSingle" {:post add-single}]
+   ["/moveSingle" {:post move-single}]
    ["/connectSingle" {:post connect-single}]
    ["/saveApi" {:post save-api}]
    ["/saveJoin" {:post save-join}]
@@ -572,9 +868,33 @@
    ["/runTarget" {:post run-target}]
    ["/saveUnion" {:post save-join}]
    ["/saveSorter" {:post save-sorter}]
+   ["/saveEndpoint" {:post save-endpoint}]
+   ["/saveResponseBuilder" {:post save-response-builder}]
+   ["/saveValidator" {:post save-validator}]
+   ["/saveAuth" {:post save-auth}]
+   ["/saveDx" {:post save-dx}]
+   ["/saveRl" {:post save-rl}]
+   ["/saveCr" {:post save-cr}]
+   ["/saveLg" {:post save-lg}]
+   ["/saveCq" {:post save-cq}]
+   ["/saveEv" {:post save-ev}]
+   ["/saveCi" {:post save-ci}]
+   ["/saveSc" {:post save-sc}]
+   ["/saveWh" {:post save-wh}]
+   ["/saveConditional" {:post save-conditional}]
+   ["/saveLogic" {:post save-logic}]
+   ["/testEndpoint" {:post test-endpoint}]
+   ["/deployEndpoints" {:post deploy-endpoints}]
    ["/addFunction" {:get add-function}]
    ["/addGrid" {:get add-grid}]
    ["/addtable" {:post add-table }]
    ["/getConn" {:get get-conn }]
+   ["/getFunctionTypes" {:get (fn [_] (http-response/ok []))}]
    ["/deleteTable" {:post delete-table }]
+   ["/removeNode" {:post remove-node }]
+   ["/importOpenApi" {:post import-open-api}]
+   ["/gil/validate" {:post gil-api/validate-handler}]
+   ["/gil/compile" {:post gil-api/compile-handler}]
+   ["/gil/apply" {:post gil-api/apply-handler}]
+   ["/gil/from-nl" {:post gil-api/from-nl-handler}]
    ["/about" {:get about-page}]])

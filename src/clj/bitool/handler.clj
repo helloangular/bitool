@@ -3,6 +3,7 @@
     [bitool.middleware :as middleware]
     [bitool.layout :refer [error-page]]
     [bitool.routes.home :refer [home-routes]]
+    [bitool.endpoint :as endpoint]
     [reitit.ring :as ring]
     [ring.middleware.content-type :refer [wrap-content-type]]
     [ring.middleware.webjars :refer [wrap-webjars]]
@@ -10,7 +11,8 @@
     [mount.core :as mount]))
 
 (mount/defstate init-app
-  :start ((or (:init defaults) (fn [])))
+  :start (do
+           ((or (:init defaults) (fn []))))
   :stop  ((or (:stop defaults) (fn []))))
 
 (defn- async-aware-default-handler
@@ -26,6 +28,9 @@
     (ring/routes
       (ring/create-resource-handler
         {:path "/"})
+      (fn [request]
+        (when-let [resp (endpoint/dynamic-endpoint-handler request)]
+          resp))
       (wrap-content-type
         (wrap-webjars async-aware-default-handler))
       (ring/create-default-handler

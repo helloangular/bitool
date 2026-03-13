@@ -1,0 +1,47 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<style>
+  .panel { display:flex; flex-direction:column; height:100%; box-shadow:0 4px 8px rgba(0,0,0,.2); }
+  .header { display:flex; justify-content:space-between; align-items:center; padding:10px; }
+  .body { padding:10px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:none; flex:1; }
+  .row { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:#555; }
+  select { width:100%; padding:8px; border:1px solid #e0e0e0; border-radius:4px; font-size:13px; box-sizing:border-box; }
+  .info { background:#fff8e1; border:1px solid #ffe082; border-radius:4px; padding:8px; font-size:11px; color:#555; }
+  .cols-hint { font-size:11px; color:#888; display:flex; flex-wrap:wrap; gap:4px; }
+  .col-chip { background:#eef; border:1px solid #ccf; border-radius:3px; padding:1px 6px; cursor:pointer; }
+</style>
+
+<div class="panel">
+  <div class="header">
+    <strong>Cache</strong>
+    <div style="display:flex;gap:6px;">
+      <button id="saveBtn" style="font-size:11px;">Save</button>
+      <button id="closeBtn" style="font-size:20px;background:none;border:none;cursor:pointer;">&#9747;</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="row">
+      <label>Node Name</label>
+      <smart-input id="nodeName" class="outlined" style="width:100%"></smart-input>
+    </div>
+    <div class="row">
+      <label>Cache Key Template — use <code>{{column}}</code></label>
+      <smart-input id="cacheKey" class="outlined" style="width:100%" placeholder="user:{{user_id}}"></smart-input>
+      <div class="cols-hint" id="colsHint"></div>
+    </div>
+    <div class="row">
+      <label>TTL (seconds)</label>
+      <smart-input id="ttlSeconds" class="outlined" style="width:100%" placeholder="300"></smart-input>
+    </div>
+    <div class="row">
+      <label>Strategy</label>
+      <select id="strategy">
+        <option value="read-through">Read-Through</option>
+        <option value="write-through">Write-Through</option>
+        <option value="aside">Cache-Aside</option>
+      </select>
+    </div>
+    <div class="info">Pass-through — does not modify columns. On cache hit, skips downstream and returns cached result.</div>
+  </div>
+</div>

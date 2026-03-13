@@ -44,10 +44,8 @@ class Case extends HTMLElement {
     }
 
     addCase(list) {
-        // Clone the textarea and the do-this/group-name section
         const caseSection = this.shadowRoot.querySelectorAll('.section')[0].cloneNode(true);
         const doSection = this.shadowRoot.querySelectorAll('.section')[1].cloneNode(true);
-        // Create container and append
         const container = document.createElement("div");
         container.append(caseSection, doSection);
         container.appendChild(deleteBtn(container));
@@ -61,26 +59,55 @@ class Case extends HTMLElement {
         container.querySelector('input[name="group-name"]').value = "";
     }
 
-    save(object) {
-        const jsonData = {
-            cases: [],
-            default: object.default.value
-        };
-        // Add the first "case" and "do-this" values from the main fields
-        jsonData.cases.push({
-            case: object.shadowRoot.querySelector('textarea').value,
-            doThis: object.shadowRoot.querySelector('input[name="do-this"]').value,
-            groupName: object.shadowRoot.querySelector('input[name="group-name"]').value
+    collectData() {
+        const branches = [];
+        branches.push({
+            condition: this.shadowRoot.querySelector('textarea').value,
+            value: this.shadowRoot.querySelector('input[name="do-this"]').value,
+            group: this.shadowRoot.querySelector('input[name="group-name"]').value
         });
-        for (const content of object.list.childNodes) {
-            jsonData.cases.push({
-                case: content.querySelector('textarea').value,
-                doThis: content.querySelector('input[name="do-this"]').value,
-                groupName: content.querySelector('input[name="group-name"]').value
+        for (const content of this.list.childNodes) {
+            branches.push({
+                condition: content.querySelector('textarea')?.value || "",
+                value: content.querySelector('input[name="do-this"]')?.value || "",
+                group: content.querySelector('input[name="group-name"]')?.value || ""
             });
         }
-        console.log(jsonData);
-        storeData(jsonData);
+        return {
+            branches,
+            default_branch: this.default.value
+        };
+    }
+
+    loadData(data) {
+        const branches = data.branches || [];
+        while (this.list.firstChild) this.list.removeChild(this.list.firstChild);
+
+        if (branches.length > 0) {
+            this.shadowRoot.querySelector('textarea').value = branches[0].condition || "";
+            this.shadowRoot.querySelector('input[name="do-this"]').value = branches[0].value || "";
+            this.shadowRoot.querySelector('input[name="group-name"]').value = branches[0].group || "";
+        }
+        for (let i = 1; i < branches.length; i++) {
+            this.addCase(this.list);
+            const last = this.list.children[0];
+            const ta = last.querySelector('textarea');
+            if (ta) ta.value = branches[i].condition || "";
+            const doThis = last.querySelector('input[name="do-this"]');
+            if (doThis) doThis.value = branches[i].value || "";
+            const gn = last.querySelector('input[name="group-name"]');
+            if (gn) gn.value = branches[i].group || "";
+        }
+        this.default.value = data.default_branch || "";
+    }
+
+    save(object) {
+        const d = this.collectData();
+        storeData({
+            cond_type: "case",
+            branches: d.branches,
+            default_branch: d.default_branch
+        });
     }
 }
 

@@ -1,4 +1,5 @@
 import EventHandler from "../../library/eventHandler.js";
+import { request } from "../../library/utils.js";
 
 export function deleteBtn(container) {
     const btn = document.createElement("button");
@@ -9,21 +10,18 @@ export function deleteBtn(container) {
 }
 
 export async function storeData(jsondata) {
+    const id = window.data?.selectedRectangle;
+    if (!id) {
+        console.error("storeData: no selected rectangle id");
+        return;
+    }
     try {
-        const response = await fetch("/addtable", {
+        const data = await request("/saveConditional", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(jsondata),
+            body: { id, ...jsondata },
         });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        console.log("Response addtable : ", data);
-
+        console.log("saveConditional response:", data);
     } catch (error) {
-        console.error("Error:", error);
+        console.error("Error saving conditional:", error);
     }
 }

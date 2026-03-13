@@ -1,0 +1,62 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<style>
+  .panel { display:flex; flex-direction:column; height:100%; box-shadow:0 4px 8px rgba(0,0,0,.2); }
+  .header { display:flex; justify-content:space-between; align-items:center; padding:10px; }
+  .body { padding:10px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:none; flex:1; }
+  .row { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:#555; }
+  select { width:100%; padding:8px; border:1px solid #e0e0e0; border-radius:4px; font-size:13px; box-sizing:border-box; }
+  .info { background:#fff8e1; border:1px solid #ffe082; border-radius:4px; padding:8px; font-size:11px; color:#555; }
+  .fields-list { display:flex; flex-direction:column; gap:4px; max-height:150px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:4px; padding:6px; }
+  .fields-list label { display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; }
+</style>
+
+<div class="panel">
+  <div class="header">
+    <strong>Logger</strong>
+    <div style="display:flex;gap:6px;">
+      <button id="saveBtn" style="font-size:11px;">Save</button>
+      <button id="closeBtn" style="font-size:20px;background:none;border:none;cursor:pointer;">&#9747;</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="row">
+      <label>Node Name</label>
+      <smart-input id="nodeName" class="outlined" style="width:100%"></smart-input>
+    </div>
+    <div class="row">
+      <label>Log Level</label>
+      <select id="logLevel">
+        <option value="DEBUG">DEBUG</option>
+        <option value="INFO" selected>INFO</option>
+        <option value="WARN">WARN</option>
+        <option value="ERROR">ERROR</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Fields to Log (empty = all)</label>
+      <div class="fields-list" id="fieldsList"></div>
+    </div>
+    <div class="row">
+      <label>Destination</label>
+      <select id="destination">
+        <option value="console">Console</option>
+        <option value="file">File</option>
+        <option value="external">External URL</option>
+      </select>
+    </div>
+    <div class="row" id="externalUrlRow" style="display:none;">
+      <label>External URL</label>
+      <smart-input id="externalUrl" class="outlined" style="width:100%" placeholder="https://logs.example.com/ingest"></smart-input>
+    </div>
+    <div class="row">
+      <label>Format</label>
+      <select id="format">
+        <option value="json">JSON</option>
+        <option value="text">Text</option>
+      </select>
+    </div>
+    <div class="info">Pass-through — does not modify columns. Side-effect only.</div>
+  </div>
+</div>

@@ -506,9 +506,10 @@
 
 
 ;; ========================
-;; examples
+;; examples (wrapped in comment to avoid execution at load time)
 ;; ========================
 
+(comment
 (def github-url "https://api.github.com/graphql")
 
 (def token "REDACTED_GITHUB_TOKEN") ;; keep this out of source control
@@ -536,6 +537,7 @@
       :args (:args repo-root)
       :children (mapv #(select-keys % [:name :kind :nullable? :args :expandable?])
                       repo-children)}]}])
+) ;; end comment
 
 (defn root-plus-one-level
   [schema op-type root-field-name]
@@ -766,6 +768,7 @@
                         set)]
           (recur next (into seen next)))))))
 
+(comment
 (def schema (-> (fetch-introspection! github-url headers)
                 schema-from-introspection))
 
@@ -776,6 +779,7 @@
 
 ;;(take 30 all-reachable)
 ;; => preview names
+) ;; end comment
 
 
 ;; DORA objects

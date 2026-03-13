@@ -53,16 +53,32 @@ export function closeOpenedPanel() {
     "projection-component",
     "api-component",
     "control-flow-component",
-    "api-connection-component"
+    "api-connection-component",
+    "endpoint-component",
+    "response-builder-component",
+    "validator-component",
+    "auth-component",
+    "db-execute-component",
+    "rate-limiter-component",
+    "cors-component",
+    "logger-component",
+    "cache-component",
+    "event-emitter-component",
+    "circuit-breaker-component",
+    "scheduler-component",
+    "webhook-component",
+    "lambda-function-builder"
   ];
 
   for (const componentName of panels) {
-    if (document.querySelector(componentName).getAttribute("visibility") === "open")
-      document.querySelector(componentName).setAttribute("visibility", "close")
+    const el = document.querySelector(componentName);
+    if (el && el.getAttribute("visibility") === "open")
+      el.setAttribute("visibility", "close");
   }
 
-  if (document.querySelector("smart-grid").style.display && document.querySelector("smart-grid").style.display === "block") {
-    document.querySelector("smart-grid").style.display = "none";
+  const grid = document.querySelector("smart-grid");
+  if (grid && grid.style.display === "block") {
+    grid.style.display = "none";
   }
 }
 
@@ -86,6 +102,19 @@ export function getShortBtype(btype) {
     "target": "Tg",
     "api-connection": "Ap",
     "conditionals": "C",
+    "endpoint": "Ep",
+    "response-builder": "Rb",
+    "validator": "Vd",
+    "auth": "Au",
+    "db-execute": "Dx",
+    "rate-limiter": "Rl",
+    "cors": "Cr",
+    "logger": "Lg",
+    "cache": "Cq",
+    "event-emitter": "Ev",
+    "circuit-breaker": "Ci",
+    "scheduler": "Sc",
+    "webhook": "Wh",
     "grid": "G",
     "output": "O"
   }
@@ -108,6 +137,19 @@ export function getBtypeIcon(btype) {
     Mp: "&#x1F4CD;",
     Ap: "&Alpha;",
     C: "&#128295;",
+    Ep: "&#9881;",
+    Rb: "&#128221;",
+    Vd: "&#10003;",
+    Au: "&#128274;",
+    Dx: "&#128196;",
+    Rl: "&#9200;",
+    Cr: "&#127760;",
+    Lg: "&#128221;",
+    Cq: "&#9889;",
+    Ev: "&#128228;",
+    Ci: "&#9934;",
+    Sc: "&#128337;",
+    Wh: "&#127381;",
     P: "&#960;"
   };
   return ICON[btype]
@@ -141,13 +183,25 @@ export async function request(url, options = {}) {
 
   try {
     const response = await fetch(url, fetchOptions);
-
     const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
+
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (_) {
+      // Server returned non-JSON (e.g. HTML error page)
+      if (!response.ok) {
+        const errMsg = `Server error (${response.status})`;
+        if (response.status !== 404) alert(errMsg);
+        throw new Error(errMsg);
+      }
+      throw new Error("Invalid JSON response from server");
+    }
 
     if (!response.ok) {
-      alert(data?.message || `Request failed (${response.status})`);
-      throw new Error(data?.message || `HTTP ${response.status}`);
+      const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
+      if (response.status !== 404) alert(errMsg);
+      throw new Error(errMsg);
     }
 
     return data;

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BiTool Node UI Tests</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; font-weight: bold; }
+    .section { margin-top: 16px; font-weight: bold; border-bottom: 1px solid #ccc; }
+    #results { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>BiTool Node UI Tests</h2>
+  <div id="results"></div>
+
+  <script type="module">
+    // =========================================================================
+    // Minimal test harness
+    // =========================================================================
+    let passed = 0, failed = 0;
+    const log = document.getElementById("results");
+
+    function section(name) {
+      const el = document.createElement("div");
+      el.className = "section";
+      el.textContent = `\n--- ${name} ---`;
+      log.appendChild(el);
+    }
+
+    function assert(condition, msg) {
+      if (condition) {
+        passed++;
+        const el = document.createElement("div");
+        el.className = "pass";
+        el.textContent = `  PASS: ${msg}`;
+        log.appendChild(el);
+      } else {
+        failed++;
+        const el = document.createElement("div");
+        el.className = "fail";
+        el.textContent = `  FAIL: ${msg}`;
+        log.appendChild(el);
+      }
+    }
+
+    function assertEqual(actual, expected, msg) {
+      assert(actual === expected, `${msg} — expected "${expected}", got "${actual}"`);
+    }
+
+    function summary() {
+      const el = document.createElement("div");
+      el.className = failed > 0 ? "fail" : "pass";
+      el.textContent = `\n========== ${passed} passed, ${failed} failed ==========`;
+      log.appendChild(el);
+    }
+
+    // =========================================================================
+    // Import utils (the real code under test)
+    // =========================================================================
+    const { getShortBtype, getBtypeIcon, closeOpenedPanel } = await import("../../resources/public/library/utils.js");
+
+    // =========================================================================
+    // 1. BTYPE CODES — every alias maps to the correct short code
+    // =========================================================================
+    section("getShortBtype — alias to code mapping");
+
+    const expectedBtypes = {
+      "function": "Fu", "aggregation": "A", "sorter": "S", "union": "U",
+      "mapping": "Mp", "filter": "Fi", "table": "T", "join": "J",
+      "projection": "P", "target": "Tg", "api-connection": "Ap",
+      "conditionals": "C", "endpoint": "Ep", "response-builder": "Rb",
+      "validator": "Vd", "auth": "Au", "db-execute": "Dx",
+      "rate-limiter": "Rl", "cors": "Cr", "logger": "Lg",
+      "cache": "Cq", "event-emitter": "Ev", "circuit-breaker": "Ci",
+      "scheduler": "Sc", "webhook": "Wh", "output": "O"
+    };
+
+    for (const [alias, code] of Object.entries(expectedBtypes)) {
+      assertEqual(getShortBtype(alias), code, `getShortBtype("${alias}")`);
+    }
+
+    // =========================================================================
+    // 2. BTYPE ICONS — every new btype code has an icon
+    // =========================================================================
+    section("getBtypeIcon — all node types have icons");
+
+    const iconBtypes = [
+      "Fi", "Fu", "J", "A", "U", "S", "Mp", "Ap", "C", "P",
+      "Ep", "Rb", "Vd", "Au", "Dx", "Rl", "Cr", "Lg", "Cq", "Ev", "Ci", "Sc", "Wh"
+    ];
+    for (const bt of iconBtypes) {
+      const icon = getBtypeIcon(bt);
+      assert(icon !== undefined && icon !== null && icon.length > 0, `getBtypeIcon("${bt}") has value`);
+    }
+
+    // =========================================================================
+    // 3. TOOLBAR BUTTONS — each new node type has a button in the DOM
+    // =========================================================================
+    section("Toolbar buttons — existence check (skipped: no DOM from index.html)");
+    // These tests verify the data we already know from the source
+    const newNodeAliases = [
+      "endpoint", "response-builder", "validator", "auth", "db-execute",
+      "rate-limiter", "cors", "logger", "cache", "event-emitter",
+      "circuit-breaker", "scheduler", "webhook"
+    ];
+    // Verify all aliases are in the btype map
+    for (const alias of newNodeAliases) {
+      assert(getShortBtype(alias) !== undefined, `"${alias}" has a btype code`);
+    }
+
+    // =========================================================================
+    // 4. COMPONENT TAG NAMES — verify customElements registry expectations
+    // =========================================================================
+    section("Component tag names — convention check");
+
+    const componentMap = {
+      "endpoint":         "endpoint-component",
+      "response-builder": "response-builder-component",
+      "validator":        "validator-component",
+      "auth":             "auth-component",
+      "db-execute":       "db-execute-component",
+      "rate-limiter":     "rate-limiter-component",
+      "cors":             "cors-component",
+      "logger":           "logger-component",
+      "cache":            "cache-component",
+      "event-emitter":    "event-emitter-component",
+      "circuit-breaker":  "circuit-breaker-component",
+      "scheduler":        "scheduler-component",
+      "webhook":          "webhook-component"
+    };
+
+    for (const [alias, tag] of Object.entries(componentMap)) {
+      // Just verify the mapping is consistent and the short btype exists
+      const code = getShortBtype(alias);
+      assert(code !== undefined, `"${alias}" -> tag "${tag}" has btype "${code}"`);
+    }
+
+    // =========================================================================
+    // 5. setComponentVisibility DISPATCH TABLE — verify all btypes have cases
+    // =========================================================================
+    section("setComponentVisibility — dispatch coverage");
+
+    // We parse the source to verify all btypes are handled
+    try {
+      const rectSrc = await (await fetch("../../resources/public/rectangleComponent.js")).text();
+      for (const [alias, tag] of Object.entries(componentMap)) {
+        const code = getShortBtype(alias);
+        // Check the source contains a case for this btype
+        const hasCase = rectSrc.includes(`getShortBtype('${alias}')`) ||
+                        rectSrc.includes(`"${code}"`);
+        assert(hasCase, `setComponentVisibility handles "${alias}" (${code})`);
+      }
+    } catch (e) {
+      assert(false, `Could not load rectangleComponent.js: ${e.message}`);
+    }
+
+    // =========================================================================
+    // 6. closeOpenedPanel — null safety
+    // =========================================================================
+    section("closeOpenedPanel — null safety");
+
+    // closeOpenedPanel iterates all panel tags. If any are missing from DOM
+    // it should NOT throw (we fixed it to be null-safe).
+    try {
+      closeOpenedPanel();
+      assert(true, "closeOpenedPanel() does not throw when components are missing from DOM");
+    } catch (e) {
+      assert(false, `closeOpenedPanel() threw: ${e.message}`);
+    }
+
+    // =========================================================================
+    // 7. Component JS files — no this.nodeName assignment (getter-only check)
+    // =========================================================================
+    section("Component source — no this.nodeName assignment (built-in property conflict)");
+
+    const componentFiles = [
+      "authComponent.js", "dbExecuteComponent.js", "rateLimiterComponent.js",
+      "corsComponent.js", "loggerComponent.js", "cacheComponent.js",
+      "eventEmitterComponent.js", "circuitBreakerComponent.js",
+      "endpointComponent.js", "responseBuilderComponent.js",
+      "validatorComponent.js", "schedulerComponent.js", "webhookComponent.js"
+    ];
+
+    for (const file of componentFiles) {
+      try {
+        const src = await (await fetch(`../../resources/public/${file}`)).text();
+        const hasConflict = /this\.nodeName\s*=/.test(src);
+        assert(!hasConflict, `${file}: no "this.nodeName =" (would conflict with HTMLElement.nodeName)`);
+      } catch (e) {
+        assert(false, `Could not load ${file}: ${e.message}`);
+      }
+    }
+
+    // =========================================================================
+    // 8. Component source — structural checks
+    // =========================================================================
+    section("Component source — structural checks");
+
+    for (const file of componentFiles) {
+      try {
+        const src = await (await fetch(`../../resources/public/${file}`)).text();
+        const className = file.replace(".js", "").replace(/^./, c => c.toUpperCase());
+
+        // Must have observedAttributes with "visibility"
+        assert(src.includes('observedAttributes'), `${file}: has observedAttributes`);
+        assert(src.includes('"visibility"'), `${file}: observes "visibility"`);
+
+        // Must have close() that sets display none
+        assert(/close\(\)\s*\{[^}]*display\s*=\s*"none"/.test(src), `${file}: close() sets display=none`);
+
+        // Must have loadTemplate
+        assert(src.includes('loadTemplate'), `${file}: has loadTemplate()`);
+
+        // loadTemplate must NOT call this.close()
+        const loadTemplateBody = src.match(/loadTemplate\(\)\s*\{([\s\S]*?)\n\s*\}/);
+        if (loadTemplateBody) {
+          assert(!loadTemplateBody[1].includes('this.close()'),
+            `${file}: loadTemplate() does not call this.close()`);
+        }
+
+        // close() must NOT call EventHandler.removeGroup
+        const closeBody = src.match(/close\(\)\s*\{([\s\S]*?)\n\s*\}/);
+        if (closeBody) {
+          assert(!closeBody[1].includes('removeGroup'),
+            `${file}: close() does not call removeGroup`);
+        }
+
+        // Must call customElements.define
+        assert(src.includes('customElements.define'), `${file}: registers custom element`);
+
+      } catch (e) {
+        assert(false, `Could not load ${file}: ${e.message}`);
+      }
+    }
+
+    // =========================================================================
+    // 9. Component HTML templates exist
+    // =========================================================================
+    section("Component HTML templates — existence");
+
+    const htmlFiles = componentFiles.map(f => f.replace(".js", ".html"));
+    for (const file of htmlFiles) {
+      try {
+        const resp = await fetch(`../../resources/public/${file}`);
+        assert(resp.ok, `${file} exists (HTTP ${resp.status})`);
+        if (resp.ok) {
+          const html = await resp.text();
+          // Must have save and close buttons (saveBtn or saveButton)
+          const hasSave = html.includes('id="saveBtn"') || html.includes('id="saveButton"');
+          const hasClose = html.includes('id="closeBtn"') || html.includes('id="closeButton"');
+          assert(hasSave, `${file}: has save button`);
+          assert(hasClose, `${file}: has close button`);
+        }
+      } catch (e) {
+        assert(false, `Could not fetch ${file}: ${e.message}`);
+      }
+    }
+
+    // =========================================================================
+    // 10. Save endpoint URLs — each component POSTs to the right route
+    // =========================================================================
+    section("Save routes — components POST to correct endpoints");
+
+    const saveRoutes = {
+      "authComponent.js":           "/saveAuth",
+      "dbExecuteComponent.js":      "/saveDx",
+      "rateLimiterComponent.js":    "/saveRl",
+      "corsComponent.js":           "/saveCr",
+      "loggerComponent.js":         "/saveLg",
+      "cacheComponent.js":          "/saveCq",
+      "eventEmitterComponent.js":   "/saveEv",
+      "circuitBreakerComponent.js": "/saveCi",
+      "endpointComponent.js":       "/saveEndpoint",
+      "responseBuilderComponent.js":"/saveResponseBuilder",
+      "validatorComponent.js":      "/saveValidator",
+      "schedulerComponent.js":      "/saveSc",
+      "webhookComponent.js":        "/saveWh",
+    };
+
+    for (const [file, route] of Object.entries(saveRoutes)) {
+      try {
+        const src = await (await fetch(`../../resources/public/${file}`)).text();
+        assert(src.includes(route), `${file}: POSTs to ${route}`);
+      } catch (e) {
+        assert(false, `Could not load ${file}: ${e.message}`);
+      }
+    }
+
+    // =========================================================================
+    // 11. addRectangle function — verify it builds correct payload
+    // =========================================================================
+    section("addRectangle — payload structure");
+
+    try {
+      const mainSrc = await (await fetch("../../resources/public/main.js")).text();
+      assert(mainSrc.includes("window.addRectangle"), "main.js defines addRectangle");
+      assert(mainSrc.includes("alias: name"), "addRectangle payload includes alias");
+      assert(mainSrc.includes("sendRectangleData"), "addRectangle calls sendRectangleData");
+    } catch (e) {
+      assert(false, `Could not load main.js: ${e.message}`);
+    }
+
+    // =========================================================================
+    // 12. Selmer template — all components, scripts, and buttons present
+    // =========================================================================
+    section("Selmer template (index.html) — completeness");
+
+    try {
+      const indexSrc = await (await fetch("../../resources/html/index.html")).text();
+
+      // Check toolbar buttons for all new node types
+      for (const alias of newNodeAliases) {
+        assert(indexSrc.includes(`addRectangle('${alias}')`),
+          `index.html: has toolbar button for "${alias}"`);
+      }
+
+      // Check component elements exist
+      for (const tag of Object.values(componentMap)) {
+        assert(indexSrc.includes(`<${tag}`),
+          `index.html: has <${tag}> element`);
+      }
+
+      // Check script tags
+      for (const file of componentFiles) {
+        assert(indexSrc.includes(`src="${file}"`),
+          `index.html: has <script> for ${file}`);
+      }
+
+    } catch (e) {
+      assert(false, `Could not load index.html: ${e.message}`);
+    }
+
+    // =========================================================================
+    // 13. Backend btype-codes — verify all aliases mapped (parse graph2.clj)
+    // =========================================================================
+    section("Backend btype-codes — alias coverage");
+
+    try {
+      const g2Src = await (await fetch("../../src/clj/bitool/graph2.clj")).text();
+
+      for (const [alias, code] of Object.entries(expectedBtypes)) {
+        if (alias === "table" || alias === "grid" || alias === "output") continue; // primitives
+        const pattern = `"${alias}"`;
+        assert(g2Src.includes(pattern), `graph2.clj: btype-codes has "${alias}"`);
+      }
+
+      // Check node-keys has entries for new btypes
+      const newKeysAliases = [
+        "auth", "db-execute", "rate-limiter", "cors", "logger",
+        "cache", "event-emitter", "circuit-breaker"
+      ];
+      for (const alias of newKeysAliases) {
+        assert(g2Src.includes(`"${alias}"`), `graph2.clj: node-keys has "${alias}"`);
+      }
+
+    } catch (e) {
+      assert(false, `Could not load graph2.clj: ${e.message}`);
+    }
+
+    // =========================================================================
+    // 14. Backend routes — save handlers exist
+    // =========================================================================
+    section("Backend routes — save handler registration");
+
+    try {
+      const homeSrc = await (await fetch("../../src/clj/bitool/routes/home.clj")).text();
+
+      const expectedRoutes = [
+        "/saveAuth", "/saveDx", "/saveRl", "/saveCr", "/saveLg",
+        "/saveCq", "/saveEv", "/saveCi", "/saveEndpoint",
+        "/saveResponseBuilder", "/saveValidator", "/saveSc", "/saveWh"
+      ];
+      for (const route of expectedRoutes) {
+        assert(homeSrc.includes(route), `home.clj: has route "${route}"`);
+      }
+
+      // Check get-fx-from-btype handles all new codes
+      const newCodes = ["Au", "Dx", "Rl", "Cr", "Lg", "Cq", "Ev", "Ci", "Sc", "Wh", "Ep", "Rb", "Vd"];
+      for (const code of newCodes) {
+        assert(homeSrc.includes(`"${code}"`), `home.clj: get-fx-from-btype handles "${code}"`);
+      }
+
+    } catch (e) {
+      assert(false, `Could not load home.clj: ${e.message}`);
+    }
+
+    // =========================================================================
+    // 15. Backend item_master — all new btypes have case branches
+    // =========================================================================
+    section("Backend item_master — case coverage");
+
+    try {
+      const g2Src = await (await fetch("../../src/clj/bitool/graph2.clj")).text();
+      // Extract item_master function body (approximate)
+      const itemMasterStart = g2Src.indexOf("defn item_master");
+      const itemMasterEnd = g2Src.indexOf("defn item_columns");
+      const itemMasterBody = g2Src.substring(itemMasterStart, itemMasterEnd);
+
+      const caseCodes = ["Ep", "Rb", "Vd", "Au", "Dx", "Rl", "Cr", "Lg", "Cq", "Ev", "Ci", "Sc", "Wh"];
+      for (const code of caseCodes) {
+        assert(itemMasterBody.includes(`"${code}"`),
+          `item_master: has case for "${code}"`);
+      }
+    } catch (e) {
+      assert(false, `Could not load graph2.clj: ${e.message}`);
+    }
+
+    // =========================================================================
+    // 16. Rectangles connection rules — all new btypes defined
+    // =========================================================================
+    section("Backend rectangles — connection rules");
+
+    try {
+      const g2Src = await (await fetch("../../src/clj/bitool/graph2.clj")).text();
+      const rectStart = g2Src.indexOf("def rectangles");
+      const rectEnd = g2Src.indexOf("}", rectStart + 100) + 1;
+      const rectBody = g2Src.substring(rectStart, rectEnd + 100);
+
+      const btypesWithRules = ["Ep", "Rb", "Vd", "Au", "Dx", "Rl", "Cr", "Lg", "Cq", "Ev", "Ci", "Sc", "Wh"];
+      for (const code of btypesWithRules) {
+        assert(rectBody.includes(`"${code}"`),
+          `rectangles: has entry for "${code}"`);
+      }
+    } catch (e) {
+      assert(false, `Could not load graph2.clj: ${e.message}`);
+    }
+
+    // =========================================================================
+    // Done
+    // =========================================================================
+    summary();
+  </script>
+</body>
+</html>

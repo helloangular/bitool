@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BiTool — Enterprise Integration &amp; Microservices Platform</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    line-height: 1.6;
+  }
+
+  .slide {
+    min-height: 100vh;
+    padding: 60px 80px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    page-break-after: always;
+  }
+
+  .slide::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 80px;
+    right: 80px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #334155, transparent);
+  }
+
+  .slide:last-child::after { display: none; }
+
+  .slide-cover {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    text-align: center;
+    align-items: center;
+  }
+
+  .slide-dark { background: #0f172a; }
+  .slide-accent { background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%); }
+
+  h1 {
+    font-size: 3.2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa, #f472b6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 12px;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 12px;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle {
+    font-size: 1.4rem;
+    color: #94a3b8;
+    font-weight: 300;
+    margin-bottom: 50px;
+    max-width: 700px;
+  }
+
+  .slide-cover .subtitle { margin-left: auto; margin-right: auto; }
+
+  .lead {
+    font-size: 1.1rem;
+    color: #94a3b8;
+    margin-bottom: 36px;
+    max-width: 800px;
+    line-height: 1.7;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 8px 20px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    border: 1px solid #334155;
+    color: #94a3b8;
+    margin-top: 20px;
+  }
+
+  /* Diagram */
+  .diagram { display: flex; justify-content: center; margin: 30px 0; }
+  .diagram svg { max-width: 100%; height: auto; }
+
+  /* Cards */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin: 24px 0;
+  }
+
+  .card {
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 32px;
+  }
+
+  .card-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    margin-bottom: 18px;
+    font-weight: 700;
+  }
+
+  .card-icon.blue { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .card-icon.purple { background: rgba(167,139,250,0.15); color: #a78bfa; }
+  .card-icon.green { background: rgba(52,211,153,0.15); color: #34d399; }
+  .card-icon.pink { background: rgba(244,114,182,0.15); color: #f472b6; }
+  .card-icon.amber { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .card-icon.cyan { background: rgba(34,211,238,0.15); color: #22d3ee; }
+
+  .card h4 { font-size: 1.15rem; color: #f1f5f9; margin-bottom: 10px; font-weight: 600; }
+  .card p { font-size: 0.95rem; color: #94a3b8; line-height: 1.6; }
+
+  /* Stats */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+    margin: 30px 0;
+  }
+
+  .stat {
+    text-align: center;
+    padding: 32px 20px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border: 1px solid #334155;
+  }
+
+  .stat .number {
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+
+  .stat .number.blue { color: #60a5fa; }
+  .stat .number.green { color: #34d399; }
+  .stat .number.purple { color: #a78bfa; }
+  .stat .number.pink { color: #f472b6; }
+  .stat .number.amber { color: #fbbf24; }
+
+  .stat .label { font-size: 0.9rem; color: #94a3b8; font-weight: 500; }
+
+  /* Highlight box */
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(96,165,250,0.1), rgba(167,139,250,0.1));
+    border: 1px solid rgba(96,165,250,0.3);
+    border-radius: 16px;
+    padding: 32px 40px;
+    text-align: center;
+    margin: 30px 0;
+  }
+
+  .highlight-box p { font-size: 1.4rem; font-weight: 600; color: #e2e8f0; }
+  .highlight-box .small { font-size: 1rem; font-weight: 400; color: #94a3b8; margin-top: 8px; }
+
+  /* Comparison */
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin: 24px 0;
+  }
+
+  .compare-col { padding: 32px; border-radius: 16px; }
+  .compare-col.old { background: linear-gradient(135deg, rgba(239,68,68,0.08), rgba(239,68,68,0.02)); border: 1px solid rgba(239,68,68,0.2); }
+  .compare-col.new { background: linear-gradient(135deg, rgba(52,211,153,0.08), rgba(52,211,153,0.02)); border: 1px solid rgba(52,211,153,0.2); }
+  .compare-col h4 { font-size: 1.2rem; margin-bottom: 20px; font-weight: 700; }
+  .compare-col.old h4 { color: #f87171; }
+  .compare-col.new h4 { color: #34d399; }
+
+  .step-list { list-style: none; padding: 0; }
+  .step-list li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 1rem;
+  }
+  .step-list .time { font-weight: 600; font-size: 0.9rem; padding: 4px 12px; border-radius: 6px; }
+  .compare-col.old .time { background: rgba(239,68,68,0.15); color: #fca5a5; }
+  .compare-col.new .time { background: rgba(52,211,153,0.15); color: #6ee7b7; }
+
+  .total-bar {
+    margin-top: 20px; padding: 16px; border-radius: 10px;
+    text-align: center; font-weight: 700; font-size: 1.3rem;
+  }
+  .compare-col.old .total-bar { background: rgba(239,68,68,0.12); color: #fca5a5; }
+  .compare-col.new .total-bar { background: rgba(52,211,153,0.12); color: #6ee7b7; }
+
+  /* Pillar cards (big) */
+  .pillars {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 28px;
+    margin: 30px 0;
+  }
+
+  .pillar {
+    border-radius: 20px;
+    padding: 36px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .pillar::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+  }
+
+  .pillar.ms { background: linear-gradient(180deg, rgba(96,165,250,0.1), rgba(96,165,250,0.02)); border: 1px solid rgba(96,165,250,0.25); }
+  .pillar.ms::before { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+
+  .pillar.eai { background: linear-gradient(180deg, rgba(167,139,250,0.1), rgba(167,139,250,0.02)); border: 1px solid rgba(167,139,250,0.25); }
+  .pillar.eai::before { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+
+  .pillar.elt { background: linear-gradient(180deg, rgba(52,211,153,0.1), rgba(52,211,153,0.02)); border: 1px solid rgba(52,211,153,0.25); }
+  .pillar.elt::before { background: linear-gradient(90deg, #059669, #34d399); }
+
+  .pillar h3 { font-size: 1.3rem; font-weight: 700; margin-bottom: 6px; }
+  .pillar .pillar-sub { font-size: 0.85rem; color: #94a3b8; margin-bottom: 18px; }
+  .pillar ul { list-style: none; padding: 0; }
+  .pillar ul li { padding: 6px 0; padding-left: 20px; position: relative; font-size: 0.95rem; color: #cbd5e1; }
+  .pillar ul li::before { content: ''; position: absolute; left: 0; top: 14px; width: 8px; height: 8px; border-radius: 50%; }
+
+  .pillar.ms h3 { color: #93c5fd; }
+  .pillar.ms ul li::before { background: #3b82f6; }
+  .pillar.eai h3 { color: #c4b5fd; }
+  .pillar.eai ul li::before { background: #7c3aed; }
+  .pillar.elt h3 { color: #6ee7b7; }
+  .pillar.elt ul li::before { background: #059669; }
+
+  /* Timeline */
+  .timeline { margin: 30px 0; }
+  .timeline-row {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 20px;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid #1e293b;
+  }
+  .timeline-label { font-weight: 600; font-size: 0.95rem; }
+  .timeline-bar-container { position: relative; height: 36px; }
+  .timeline-bar {
+    position: absolute;
+    top: 4px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  /* Page number */
+  .page-num {
+    position: absolute;
+    bottom: 30px;
+    right: 80px;
+    font-size: 0.85rem;
+    color: #475569;
+  }
+  .page-num span { color: #94a3b8; }
+
+  @media print {
+    .slide { page-break-after: always; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+
+  /* ========================================================= */
+  /* AI Tool Shell (Overrides)                                  */
+  /* ========================================================= */
+  :root {
+    --bg-0: #070a13;
+    --bg-1: #0b1225;
+    --panel: rgba(15, 23, 42, 0.72);
+    --border: rgba(148, 163, 184, 0.18);
+    --text: #e5e7eb;
+    --muted: rgba(229, 231, 235, 0.72);
+    --muted-2: rgba(229, 231, 235, 0.50);
+    --shadow: 0 26px 80px rgba(0, 0, 0, 0.58);
+    --radius: 22px;
+    --chrome-h: 56px;
+    --rail-w: 72px;
+    --accent: #22c55e;
+    --accent-2: #06b6d4;
+  }
+
+  body {
+    font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background:
+      radial-gradient(1200px 700px at 12% -10%, rgba(34, 197, 94, 0.14), transparent 62%),
+      radial-gradient(900px 600px at 92% 0%, rgba(6, 182, 212, 0.18), transparent 58%),
+      radial-gradient(700px 520px at 40% 110%, rgba(251, 113, 133, 0.12), transparent 60%),
+      linear-gradient(180deg, var(--bg-1), var(--bg-0));
+    color: var(--text);
+  }
+
+  .ai-topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--chrome-h);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(2, 6, 23, 0.58);
+    backdrop-filter: blur(14px);
+  }
+
+  .ai-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 240px;
+  }
+
+  .ai-mark {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: radial-gradient(circle at 30% 30%, #a7f3d0, var(--accent) 60%, rgba(34, 197, 94, 0.1));
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.10);
+  }
+
+  .ai-brand .name {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    color: #f9fafb;
+  }
+
+  .ai-brand .tag {
+    font-size: 0.85rem;
+    color: rgba(229, 231, 235, 0.52);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(2, 6, 23, 0.35);
+  }
+
+  .ai-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .ai-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(2, 6, 23, 0.35);
+    color: rgba(229, 231, 235, 0.72);
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .ai-pill kbd {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: 0.75rem;
+    color: #d1d5db;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-bottom-color: rgba(148, 163, 184, 0.30);
+    padding: 2px 6px;
+    border-radius: 7px;
+    background: rgba(2, 6, 23, 0.55);
+  }
+
+  .ai-btn {
+    appearance: none;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+    background: linear-gradient(180deg, rgba(34, 197, 94, 0.22), rgba(34, 197, 94, 0.10));
+    color: #d1fae5;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+
+  .ai-btn:hover { border-color: rgba(34, 197, 94, 0.55); }
+  .ai-btn:active { transform: translateY(1px); }
+
+  .ai-rail {
+    position: fixed;
+    top: var(--chrome-h);
+    left: 0;
+    bottom: 0;
+    width: var(--rail-w);
+    z-index: 40;
+    padding: 12px 10px;
+    border-right: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(2, 6, 23, 0.46);
+    backdrop-filter: blur(14px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .ai-rail a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 38px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    color: rgba(229, 231, 235, 0.70);
+    text-decoration: none;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: 0.85rem;
+    background: rgba(2, 6, 23, 0.20);
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  }
+
+  .ai-rail a:hover {
+    border-color: rgba(148, 163, 184, 0.26);
+    background: rgba(148, 163, 184, 0.10);
+    color: rgba(229, 231, 235, 0.92);
+  }
+
+  .ai-rail a.is-active {
+    border-color: rgba(34, 197, 94, 0.55);
+    background: rgba(34, 197, 94, 0.12);
+    color: #d1fae5;
+  }
+
+  .ai-main {
+    height: 100vh;
+    overflow-y: auto;
+    padding-top: calc(var(--chrome-h) + 18px);
+    padding-left: calc(var(--rail-w) + 18px);
+    padding-right: 18px;
+    padding-bottom: 28px;
+    scroll-snap-type: y mandatory;
+  }
+
+  .slide {
+    scroll-snap-align: start;
+    scroll-margin-top: calc(var(--chrome-h) + 18px);
+    min-height: calc(100vh - var(--chrome-h) - 36px);
+    max-width: 1200px;
+    margin: 0 auto 18px;
+    padding: 62px 64px 64px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--panel);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    break-after: page;
+  }
+
+  .slide::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(900px 420px at 15% 0%, rgba(34, 197, 94, 0.08), transparent 58%),
+      radial-gradient(760px 420px at 100% 20%, rgba(6, 182, 212, 0.10), transparent 62%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.00));
+  }
+
+  .slide:last-child::after { display: block; }
+  .slide-cover, .slide-dark, .slide-accent { background: var(--panel); }
+
+  h1, h2 {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    color: #f9fafb;
+  }
+
+  h1 { font-weight: 700; letter-spacing: -0.03em; }
+  h2 { font-weight: 650; letter-spacing: -0.02em; }
+
+  .subtitle, .lead { color: rgba(229, 231, 235, 0.74); }
+
+  .diagram {
+    padding: 18px 18px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background:
+      linear-gradient(180deg, rgba(2, 6, 23, 0.36), rgba(2, 6, 23, 0.16)),
+      linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+    background-size: auto, 32px 32px, 32px 32px;
+    background-position: 0 0, 0 0, 0 0;
+  }
+
+  .card, .stat {
+    background: linear-gradient(180deg, rgba(2, 6, 23, 0.36), rgba(2, 6, 23, 0.14));
+    border: 1px solid rgba(148, 163, 184, 0.16);
+  }
+
+  .card-icon.blue { background: rgba(6, 182, 212, 0.12); color: #67e8f9; }
+  .card-icon.purple { background: rgba(148, 163, 184, 0.10); color: rgba(229, 231, 235, 0.88); }
+  .card-icon.green { background: rgba(34, 197, 94, 0.12); color: #bbf7d0; }
+  .card-icon.pink { background: rgba(251, 113, 133, 0.12); color: #fecdd3; }
+  .card-icon.amber { background: rgba(251, 191, 36, 0.14); color: #fde68a; }
+  .card-icon.cyan { background: rgba(6, 182, 212, 0.12); color: #a5f3fc; }
+
+  .stat .number.blue { color: #67e8f9; }
+  .stat .number.green { color: #86efac; }
+  .stat .number.purple { color: rgba(229, 231, 235, 0.92); }
+  .stat .number.pink { color: #fecdd3; }
+  .stat .number.amber { color: #fde68a; }
+
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.10), rgba(6, 182, 212, 0.10));
+    border: 1px solid rgba(34, 197, 94, 0.26);
+  }
+
+  .highlight-box p { color: #f9fafb; }
+  .highlight-box .small { color: rgba(229, 231, 235, 0.70); }
+
+  .compare-col.old {
+    background: linear-gradient(180deg, rgba(251, 113, 133, 0.10), rgba(2, 6, 23, 0.14));
+    border: 1px solid rgba(251, 113, 133, 0.24);
+  }
+
+  .compare-col.new {
+    background: linear-gradient(180deg, rgba(34, 197, 94, 0.10), rgba(2, 6, 23, 0.14));
+    border: 1px solid rgba(34, 197, 94, 0.24);
+  }
+
+  .compare-col.old h4 { color: #fecdd3; }
+  .compare-col.new h4 { color: #d1fae5; }
+
+  .compare-col.old .time { background: rgba(251, 113, 133, 0.15); color: #fecdd3; }
+  .compare-col.new .time { background: rgba(34, 197, 94, 0.15); color: #d1fae5; }
+
+  .compare-col.old .total-bar { background: rgba(251, 113, 133, 0.14); color: #fecdd3; }
+  .compare-col.new .total-bar { background: rgba(34, 197, 94, 0.14); color: #d1fae5; }
+
+  .card p, .stat .label { color: rgba(229, 231, 235, 0.70); }
+
+  .page-num {
+    bottom: 18px;
+    right: 22px;
+    color: rgba(229, 231, 235, 0.42);
+  }
+
+  .page-num span { color: rgba(229, 231, 235, 0.70); }
+
+  @media (max-width: 980px) {
+    .ai-rail { display: none; }
+    .ai-main { padding-left: 16px; padding-right: 16px; }
+    .slide { padding: 56px 22px 58px; min-height: calc(100vh - var(--chrome-h) - 34px); }
+    .cards { grid-template-columns: 1fr; }
+    .pillars { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .compare { grid-template-columns: 1fr; }
+  }
+
+  @media print {
+    .ai-topbar, .ai-rail { display: none; }
+    .ai-main { height: auto; overflow: visible; padding: 0; }
+    .slide {
+      break-after: page;
+      min-height: auto;
+      max-width: none;
+      margin: 0;
+      border-radius: 0;
+      box-shadow: none;
+      border: none;
+      background: #0f172a;
+      padding: 60px 80px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header class="ai-topbar" role="banner">
+  <div class="ai-brand">
+    <span class="ai-mark" aria-hidden="true"></span>
+    <span class="name">BiTool Studio</span>
+    <span class="tag">AI Canvas</span>
+  </div>
+  <div class="ai-controls">
+    <span class="ai-pill">Next: <kbd>J</kbd> <span style="opacity:.7;">or</span> <kbd>↓</kbd></span>
+    <span class="ai-pill">Prev: <kbd>K</kbd> <span style="opacity:.7;">or</span> <kbd>↑</kbd></span>
+    <button class="ai-btn" type="button" aria-label="Run demo action">Run</button>
+  </div>
+</header>
+
+<nav class="ai-rail" aria-label="Deck navigation">
+  <a href="#slide-1" class="is-active" aria-current="true" title="Cover">1</a>
+  <a href="#slide-2" title="The Challenge">2</a>
+  <a href="#slide-3" title="Capabilities">3</a>
+  <a href="#slide-4" title="How It Works">4</a>
+  <a href="#slide-5" title="AI-Accelerated">5</a>
+  <a href="#slide-6" title="Microservices">6</a>
+  <a href="#slide-7" title="EAI">7</a>
+  <a href="#slide-8" title="ELT / ETL">8</a>
+  <a href="#slide-9" title="Before vs After">9</a>
+  <a href="#slide-10" title="Differentiators">10</a>
+  <a href="#slide-11" title="Investment Impact">11</a>
+</nav>
+
+<main class="ai-main" role="main">
+
+<!-- ============================================ -->
+<!-- SLIDE 1: COVER -->
+<!-- ============================================ -->
+<div class="slide slide-cover" id="slide-1">
+  <h1>BiTool</h1>
+  <p class="subtitle">Enterprise Integration &amp; Microservices Platform</p>
+  <div class="diagram">
+    <svg width="750" height="90" viewBox="0 0 750 90" role="img" aria-label="Three platform capabilities: Microservices, EAI, and ELT/ETL">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#64748b"/></marker>
+      </defs>
+      <!-- Three pillars -->
+      <rect x="30" y="20" width="190" height="50" rx="12" fill="rgba(96,165,250,0.12)" stroke="rgba(96,165,250,0.4)" stroke-width="2"/>
+      <text x="125" y="42" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="700">MICROSERVICES</text>
+      <text x="125" y="58" text-anchor="middle" fill="#64748b" font-family="IBM Plex Sans,sans-serif" font-size="10">Builder + Orchestrator</text>
+
+      <rect x="280" y="20" width="190" height="50" rx="12" fill="rgba(167,139,250,0.12)" stroke="rgba(167,139,250,0.4)" stroke-width="2"/>
+      <text x="375" y="42" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="700">EAI</text>
+      <text x="375" y="58" text-anchor="middle" fill="#64748b" font-family="IBM Plex Sans,sans-serif" font-size="10">Enterprise App Integration</text>
+
+      <rect x="530" y="20" width="190" height="50" rx="12" fill="rgba(52,211,153,0.12)" stroke="rgba(52,211,153,0.4)" stroke-width="2"/>
+      <text x="625" y="42" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="700">ELT / ETL</text>
+      <text x="625" y="58" text-anchor="middle" fill="#64748b" font-family="IBM Plex Sans,sans-serif" font-size="10">Data Transformation</text>
+    </svg>
+  </div>
+  <p style="color:#64748b;font-size:1rem;max-width:600px;margin:0 auto;">Visual, AI-driven platform for building enterprise integrations,<br>microservices, and data pipelines — from BRD to production.</p>
+  <div class="badge">Confidential &mdash; Executive Briefing</div>
+  <div class="page-num"><span>1</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 2: THE PROBLEM -->
+<!-- ============================================ -->
+<div class="slide slide-dark" id="slide-2">
+  <h2>The Challenge</h2>
+  <p class="lead">Enterprise integration projects are slow, expensive, and fragile. Whether building microservices, connecting applications, or transforming data &mdash; teams spend more time on handoffs than on building.</p>
+
+  <div class="diagram">
+    <svg width="860" height="180" viewBox="0 0 860 180" role="img" aria-label="Traditional delivery cycle stages and typical durations">
+      <!-- Traditional pipeline -->
+      <text x="430" y="20" text-anchor="middle" fill="#f87171" font-family="IBM Plex Sans,sans-serif" font-size="13" font-weight="600">TRADITIONAL DELIVERY CYCLE</text>
+
+      <rect x="30" y="40" width="115" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="88" y="63" text-anchor="middle" fill="#fca5a5" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="600">Requirements</text>
+      <text x="88" y="78" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">2 wks</text>
+
+      <text x="157" y="68" fill="#475569" font-family="IBM Plex Sans,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="170" y="40" width="100" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="220" y="63" text-anchor="middle" fill="#fca5a5" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="600">Design</text>
+      <text x="220" y="78" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">2 wks</text>
+
+      <text x="282" y="68" fill="#475569" font-family="IBM Plex Sans,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="295" y="40" width="100" height="50" rx="10" fill="rgba(239,68,68,0.15)" stroke="rgba(239,68,68,0.35)" stroke-width="1.5"/>
+      <text x="345" y="63" text-anchor="middle" fill="#fca5a5" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="600">Develop</text>
+      <text x="345" y="78" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">4-8 wks</text>
+
+      <text x="407" y="68" fill="#475569" font-family="IBM Plex Sans,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="420" y="40" width="100" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="470" y="63" text-anchor="middle" fill="#fca5a5" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="600">Test</text>
+      <text x="470" y="78" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">2-4 wks</text>
+
+      <text x="532" y="68" fill="#475569" font-family="IBM Plex Sans,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="545" y="40" width="100" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="595" y="63" text-anchor="middle" fill="#fca5a5" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="600">Deploy</text>
+      <text x="595" y="78" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">1-2 wks</text>
+
+      <text x="657" y="68" fill="#475569" font-family="IBM Plex Sans,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="670" y="40" width="115" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="728" y="63" text-anchor="middle" fill="#fca5a5" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="600">Compliance</text>
+      <text x="728" y="78" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">2-4 wks</text>
+
+      <!-- Total -->
+      <rect x="180" y="110" width="500" height="36" rx="8" fill="rgba(239,68,68,0.08)" stroke="rgba(239,68,68,0.2)" stroke-width="1"/>
+      <text x="430" y="134" text-anchor="middle" fill="#f87171" font-family="IBM Plex Sans,sans-serif" font-size="14" font-weight="700">13-22 WEEKS PER INTEGRATION FLOW</text>
+
+      <!-- Bottom labels -->
+      <text x="140" y="170" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Requirements lost</text>
+      <text x="140" y="180" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">in translation</text>
+      <text x="345" y="170" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Design docs go stale</text>
+      <text x="345" y="180" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">as code diverges</text>
+      <text x="540" y="170" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Bugs found late</text>
+      <text x="540" y="180" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">expensive rework</text>
+      <text x="728" y="170" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Audit requires</text>
+      <text x="728" y="180" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">developer translation</text>
+    </svg>
+  </div>
+
+  <div class="stats" style="margin-top:10px;">
+    <div class="stat">
+      <div class="number pink">60%</div>
+      <div class="label">Time Spent<br>on Handoffs</div>
+    </div>
+    <div class="stat">
+      <div class="number pink">3x</div>
+      <div class="label">Rework Cycles<br>per Flow</div>
+    </div>
+    <div class="stat">
+      <div class="number pink">$2M+</div>
+      <div class="label">Avg Cost per<br>Integration Project</div>
+    </div>
+    <div class="stat">
+      <div class="number pink">0</div>
+      <div class="label">Visibility for<br>Compliance</div>
+    </div>
+  </div>
+  <div class="page-num"><span>2</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 3: THE SOLUTION -->
+<!-- ============================================ -->
+<div class="slide slide-accent" id="slide-3">
+  <h2>BiTool: One Platform, Three Capabilities</h2>
+  <p class="lead">A visual, AI platform that eliminates the gap between what business wants and what engineering delivers.</p>
+
+  <div class="pillars">
+    <div class="pillar ms">
+      <h3>Microservices</h3>
+      <p class="pillar-sub">Builder + Orchestrator</p>
+      <ul>
+        <li>Design APIs visually as flow models</li>
+        <li>Auto-generate from OpenAPI specs</li>
+        <li>Hot deploy to production</li>
+        <li>Canary releases, instant rollback</li>
+        <li>Built-in auth, validation, caching</li>
+      </ul>
+    </div>
+    <div class="pillar eai">
+      <h3>EAI</h3>
+      <p class="pillar-sub">Enterprise Application Integration</p>
+      <ul>
+        <li>Connect any system to any system</li>
+        <li>REST, SOAP, JDBC, MQ, File</li>
+        <li>Message transformation &amp; routing</li>
+        <li>Event-driven or request-driven</li>
+        <li>Pre-built connectors library</li>
+      </ul>
+    </div>
+    <div class="pillar elt">
+      <h3>ELT / ETL</h3>
+      <p class="pillar-sub">Data Transformation</p>
+      <ul>
+        <li>Extract from any source</li>
+        <li>Visual transformation design</li>
+        <li>Load to any destination</li>
+        <li>Scheduled or event-triggered</li>
+        <li>Join, filter, aggregate, enrich</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box">
+    <p>One visual model serves as Design, Code, Documentation, and Audit Trail</p>
+    <p class="small">What you see on screen IS what runs in production. No translation steps.</p>
+  </div>
+  <div class="page-num"><span>3</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 4: HOW IT WORKS -->
+<!-- ============================================ -->
+<div class="slide slide-dark" id="slide-4">
+  <h2>How It Works</h2>
+  <p class="lead">Users visually compose integration flows by connecting processing blocks on a canvas. The platform executes these flows as production services.</p>
+
+  <div class="diagram">
+    <svg width="860" height="320" viewBox="0 0 860 320" role="img" aria-label="Flow canvas composition and deploy to runtime orchestrator">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#64748b"/></marker>
+        <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#a78bfa"/></marker>
+      </defs>
+      <!-- Design-time box -->
+      <rect x="20" y="10" width="400" height="300" rx="16" fill="rgba(96,165,250,0.05)" stroke="rgba(96,165,250,0.25)" stroke-width="2"/>
+      <text x="220" y="40" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="14" font-weight="700">DESIGN TIME — Visual Builder</text>
+
+      <!-- Canvas mockup -->
+      <rect x="45" y="55" width="350" height="190" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+
+      <!-- Flow blocks (abstract, not named nodes) -->
+      <rect x="70" y="80" width="80" height="40" rx="8" fill="rgba(96,165,250,0.2)" stroke="#60a5fa" stroke-width="1.5"/>
+      <text x="110" y="105" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Receive</text>
+
+      <line x1="154" y1="100" x2="178" y2="100" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="184" y="80" width="80" height="40" rx="8" fill="rgba(244,114,182,0.2)" stroke="#f472b6" stroke-width="1.5"/>
+      <text x="224" y="105" text-anchor="middle" fill="#f9a8d4" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Validate</text>
+
+      <line x1="268" y1="100" x2="292" y2="100" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="298" y="80" width="80" height="40" rx="8" fill="rgba(167,139,250,0.2)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="338" y="105" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Process</text>
+
+      <line x1="338" y1="124" x2="338" y2="148" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="298" y="154" width="80" height="40" rx="8" fill="rgba(52,211,153,0.2)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="338" y="179" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Store</text>
+
+      <line x1="294" y1="174" x2="268" y2="174" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="184" y="154" width="80" height="40" rx="8" fill="rgba(34,211,238,0.2)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="224" y="179" text-anchor="middle" fill="#67e8f9" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Respond</text>
+
+      <line x1="180" y1="174" x2="154" y2="174" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="70" y="154" width="80" height="40" rx="8" fill="rgba(251,191,36,0.2)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="110" y="179" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Output</text>
+
+      <!-- Actions below canvas -->
+      <text x="128" y="270" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Drag &amp; Drop</text>
+      <text x="220" y="270" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Configure</text>
+      <text x="312" y="270" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Test</text>
+
+      <!-- Arrow between -->
+      <line x1="430" y1="160" x2="448" y2="160" stroke="#a78bfa" stroke-width="2.5" marker-end="url(#arrP)"/>
+      <text x="440" y="148" text-anchor="middle" fill="#a78bfa" font-family="IBM Plex Sans,sans-serif" font-size="9" font-weight="600">DEPLOY</text>
+
+      <!-- Runtime box -->
+      <rect x="460" y="10" width="380" height="300" rx="16" fill="rgba(167,139,250,0.05)" stroke="rgba(167,139,250,0.25)" stroke-width="2"/>
+      <text x="650" y="40" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="14" font-weight="700">RUNTIME — Orchestrator</text>
+
+      <!-- Runtime services -->
+      <rect x="490" y="60" width="320" height="56" rx="10" fill="rgba(52,211,153,0.06)" stroke="rgba(52,211,153,0.2)" stroke-width="1"/>
+      <text x="650" y="82" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="600">Model Execution Engine</text>
+      <text x="650" y="100" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Traverses flow, executes each block, passes data downstream</text>
+
+      <rect x="490" y="126" width="155" height="44" rx="8" fill="rgba(96,165,250,0.06)" stroke="rgba(96,165,250,0.15)" stroke-width="1"/>
+      <text x="568" y="146" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600">Hot Deployment</text>
+      <text x="568" y="160" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">Zero downtime</text>
+
+      <rect x="655" y="126" width="155" height="44" rx="8" fill="rgba(96,165,250,0.06)" stroke="rgba(96,165,250,0.15)" stroke-width="1"/>
+      <text x="733" y="146" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600">Auto-Scaling</text>
+      <text x="733" y="160" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">Elastic capacity</text>
+
+      <rect x="490" y="180" width="155" height="44" rx="8" fill="rgba(244,114,182,0.06)" stroke="rgba(244,114,182,0.15)" stroke-width="1"/>
+      <text x="568" y="200" text-anchor="middle" fill="#f9a8d4" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600">Observability</text>
+      <text x="568" y="214" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">Metrics, traces, logs</text>
+
+      <rect x="655" y="180" width="155" height="44" rx="8" fill="rgba(244,114,182,0.06)" stroke="rgba(244,114,182,0.15)" stroke-width="1"/>
+      <text x="733" y="200" text-anchor="middle" fill="#f9a8d4" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600">Instant Rollback</text>
+      <text x="733" y="214" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">Any version, &lt; 1s</text>
+
+      <rect x="490" y="234" width="320" height="36" rx="8" fill="rgba(167,139,250,0.06)" stroke="rgba(167,139,250,0.15)" stroke-width="1"/>
+      <text x="650" y="258" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="500">DEV &rarr; QA &rarr; UAT &rarr; PROD promotion pipeline</text>
+
+      <!-- Bottom labels -->
+      <text x="220" y="296" text-anchor="middle" fill="#64748b" font-family="IBM Plex Sans,sans-serif" font-size="10">Business Analysts &bull; Developers &bull; Compliance</text>
+      <text x="650" y="296" text-anchor="middle" fill="#64748b" font-family="IBM Plex Sans,sans-serif" font-size="10">DevOps &bull; SRE &bull; Platform Teams</text>
+    </svg>
+  </div>
+  <div class="page-num"><span>4</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 5: AI-POWERED PIPELINE -->
+<!-- ============================================ -->
+<div class="slide slide-accent" id="slide-5">
+  <h2>AI-Accelerated: BRD to Production</h2>
+  <p class="lead">AI generates each artifact deterministically. Humans review and approve at every gate. The result is auditable, repeatable, and fast.</p>
+
+  <div class="diagram">
+    <svg width="860" height="340" viewBox="0 0 860 340" role="img" aria-label="AI-assisted pipeline from BRD to OpenAPI to model to production">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#a78bfa"/></marker>
+      </defs>
+      <!-- Pipeline stages -->
+      <!-- Stage 1: BRD -->
+      <rect x="30" y="30" width="170" height="80" rx="14" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.4)" stroke-width="2"/>
+      <text x="115" y="58" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="15" font-weight="700">BRD</text>
+      <text x="115" y="76" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Business Requirements</text>
+      <text x="115" y="90" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Document</text>
+
+      <!-- AI arrow 1 -->
+      <line x1="204" y1="70" x2="250" y2="70" stroke="#a78bfa" stroke-width="2.5" marker-end="url(#arr)"/>
+      <rect x="210" y="48" width="36" height="18" rx="9" fill="rgba(167,139,250,0.3)" stroke="rgba(167,139,250,0.5)" stroke-width="1"/>
+      <text x="228" y="61" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="9" font-weight="700">AI</text>
+
+      <!-- Stage 2: OpenAPI Spec -->
+      <rect x="256" y="30" width="170" height="80" rx="14" fill="rgba(167,139,250,0.1)" stroke="rgba(167,139,250,0.4)" stroke-width="2"/>
+      <text x="341" y="58" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="15" font-weight="700">OpenAPI Spec</text>
+      <text x="341" y="76" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Paths, schemas,</text>
+      <text x="341" y="90" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">security, responses</text>
+
+      <!-- AI arrow 2 -->
+      <line x1="430" y1="70" x2="476" y2="70" stroke="#a78bfa" stroke-width="2.5" marker-end="url(#arr)"/>
+      <rect x="436" y="48" width="36" height="18" rx="9" fill="rgba(167,139,250,0.3)" stroke="rgba(167,139,250,0.5)" stroke-width="1"/>
+      <text x="454" y="61" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="9" font-weight="700">AI</text>
+
+      <!-- Stage 3: Model -->
+      <rect x="482" y="30" width="170" height="80" rx="14" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.4)" stroke-width="2"/>
+      <text x="567" y="58" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="15" font-weight="700">Model</text>
+      <text x="567" y="76" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Visual integration</text>
+      <text x="567" y="90" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">model on canvas</text>
+
+      <!-- AI arrow 3 -->
+      <line x1="656" y1="70" x2="702" y2="70" stroke="#a78bfa" stroke-width="2.5" marker-end="url(#arr)"/>
+      <rect x="662" y="48" width="36" height="18" rx="9" fill="rgba(167,139,250,0.3)" stroke="rgba(167,139,250,0.5)" stroke-width="1"/>
+      <text x="680" y="61" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="9" font-weight="700">AI</text>
+
+      <!-- Stage 4: Production -->
+      <rect x="708" y="30" width="130" height="80" rx="14" fill="rgba(244,114,182,0.1)" stroke="rgba(244,114,182,0.4)" stroke-width="2"/>
+      <text x="773" y="58" text-anchor="middle" fill="#f9a8d4" font-family="IBM Plex Sans,sans-serif" font-size="15" font-weight="700">Production</text>
+      <text x="773" y="76" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Live service</text>
+      <text x="773" y="90" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">deployed &amp; monitored</text>
+
+      <!-- HUMAN IN THE LOOP gates -->
+      <!-- Gate 1 -->
+      <line x1="115" y1="114" x2="115" y2="140" stroke="rgba(251,191,36,0.4)" stroke-width="1.5"/>
+      <rect x="55" y="143" width="120" height="36" rx="8" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.4)" stroke-width="2"/>
+      <text x="115" y="158" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="9" font-weight="700">HUMAN REVIEW</text>
+      <text x="115" y="171" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="8">Approve BRD scope</text>
+
+      <!-- Gate 2 -->
+      <line x1="341" y1="114" x2="341" y2="140" stroke="rgba(251,191,36,0.4)" stroke-width="1.5"/>
+      <rect x="281" y="143" width="120" height="36" rx="8" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.4)" stroke-width="2"/>
+      <text x="341" y="158" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="9" font-weight="700">HUMAN REVIEW</text>
+      <text x="341" y="171" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="8">Validate API contract</text>
+
+      <!-- Gate 3 -->
+      <line x1="567" y1="114" x2="567" y2="140" stroke="rgba(251,191,36,0.4)" stroke-width="1.5"/>
+      <rect x="507" y="143" width="120" height="36" rx="8" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.4)" stroke-width="2"/>
+      <text x="567" y="158" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="9" font-weight="700">HUMAN REVIEW</text>
+      <text x="567" y="171" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="8">Test &amp; approve model</text>
+
+      <!-- Gate 4 -->
+      <line x1="773" y1="114" x2="773" y2="140" stroke="rgba(251,191,36,0.4)" stroke-width="1.5"/>
+      <rect x="713" y="143" width="120" height="36" rx="8" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.4)" stroke-width="2"/>
+      <text x="773" y="158" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="9" font-weight="700">HUMAN REVIEW</text>
+      <text x="773" y="171" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="8">Canary &amp; sign-off</text>
+
+      <!-- Key properties bar -->
+      <rect x="30" y="205" width="808" height="50" rx="12" fill="rgba(167,139,250,0.06)" stroke="rgba(167,139,250,0.2)" stroke-width="1.5"/>
+
+      <text x="145" y="226" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="700">Deterministic</text>
+      <text x="145" y="243" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Same input = same output</text>
+
+      <line x1="270" y1="213" x2="270" y2="247" stroke="rgba(167,139,250,0.2)" stroke-width="1"/>
+
+      <text x="385" y="226" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="700">Auditable</text>
+      <text x="385" y="243" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Every AI step is versioned</text>
+
+      <line x1="500" y1="213" x2="500" y2="247" stroke="rgba(167,139,250,0.2)" stroke-width="1"/>
+
+      <text x="610" y="226" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="700">Human-Gated</text>
+      <text x="610" y="243" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">No step runs without approval</text>
+
+      <line x1="725" y1="213" x2="725" y2="247" stroke="rgba(167,139,250,0.2)" stroke-width="1"/>
+
+      <text x="795" y="226" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="12" font-weight="700">Reversible</text>
+      <text x="795" y="243" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Rollback any stage</text>
+
+      <!-- Bottom detail cards -->
+      <rect x="30" y="272" width="196" height="58" rx="10" fill="rgba(96,165,250,0.06)" stroke="rgba(96,165,250,0.15)" stroke-width="1"/>
+      <text x="128" y="292" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600">BRD &rarr; OpenAPI</text>
+      <text x="128" y="308" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">AI extracts endpoints, params,</text>
+      <text x="128" y="320" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">schemas from requirements</text>
+
+      <rect x="236" y="272" width="196" height="58" rx="10" fill="rgba(167,139,250,0.06)" stroke="rgba(167,139,250,0.15)" stroke-width="1"/>
+      <text x="334" y="292" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600">OpenAPI &rarr; Model</text>
+      <text x="334" y="308" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">AI auto-generates the visual</text>
+      <text x="334" y="320" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">model with correct blocks</text>
+
+      <rect x="442" y="272" width="196" height="58" rx="10" fill="rgba(52,211,153,0.06)" stroke="rgba(52,211,153,0.15)" stroke-width="1"/>
+      <text x="540" y="292" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600">Model &rarr; Production</text>
+      <text x="540" y="308" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">AI configures deployment,</text>
+      <text x="540" y="320" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">scaling, monitoring rules</text>
+
+      <rect x="648" y="272" width="190" height="58" rx="10" fill="rgba(244,114,182,0.06)" stroke="rgba(244,114,182,0.15)" stroke-width="1"/>
+      <text x="743" y="292" text-anchor="middle" fill="#f9a8d4" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="600">Continuous Improvement</text>
+      <text x="743" y="308" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">AI suggests optimizations from</text>
+      <text x="743" y="320" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">production metrics &amp; logs</text>
+    </svg>
+  </div>
+  <div class="page-num"><span>5</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 6: USE CASE 1 — MICROSERVICES -->
+<!-- ============================================ -->
+<div class="slide slide-dark" id="slide-6">
+  <h2>Microservices: Build &amp; Deploy APIs Visually</h2>
+  <p class="lead">Design complete REST APIs as visual models. Each model becomes a live HTTP microservice with built-in security, validation, and data access.</p>
+
+  <div class="diagram">
+    <svg width="860" height="120" viewBox="0 0 860 120" role="img" aria-label="Example payment API flow blocks from HTTP endpoint to response">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#64748b"/></marker>
+      </defs>
+      <text x="430" y="18" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="500">EXAMPLE: Payment Processing API</text>
+
+      <!-- Flow -->
+      <rect x="30" y="35" width="100" height="50" rx="10" fill="rgba(96,165,250,0.15)" stroke="rgba(96,165,250,0.4)" stroke-width="2"/>
+      <text x="80" y="57" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="700">HTTP</text>
+      <text x="80" y="72" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="700">Endpoint</text>
+
+      <line x1="134" y1="60" x2="158" y2="60" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="164" y="35" width="100" height="50" rx="10" fill="rgba(244,114,182,0.12)" stroke="rgba(244,114,182,0.35)" stroke-width="1.5"/>
+      <text x="214" y="57" text-anchor="middle" fill="#f9a8d4" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Authenticate</text>
+      <text x="214" y="72" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">JWT / OAuth</text>
+
+      <line x1="268" y1="60" x2="292" y2="60" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="298" y="35" width="100" height="50" rx="10" fill="rgba(167,139,250,0.12)" stroke="rgba(167,139,250,0.35)" stroke-width="1.5"/>
+      <text x="348" y="57" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Validate</text>
+      <text x="348" y="72" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">Business rules</text>
+
+      <line x1="402" y1="60" x2="426" y2="60" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="432" y="35" width="100" height="50" rx="10" fill="rgba(52,211,153,0.12)" stroke="rgba(52,211,153,0.35)" stroke-width="1.5"/>
+      <text x="482" y="57" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Execute</text>
+      <text x="482" y="72" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">DB / API call</text>
+
+      <line x1="536" y1="60" x2="560" y2="60" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="566" y="35" width="100" height="50" rx="10" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.35)" stroke-width="1.5"/>
+      <text x="616" y="57" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">Transform</text>
+      <text x="616" y="72" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">Shape response</text>
+
+      <line x1="670" y1="60" x2="694" y2="60" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>
+
+      <rect x="700" y="35" width="100" height="50" rx="10" fill="rgba(34,211,238,0.12)" stroke="rgba(34,211,238,0.35)" stroke-width="1.5"/>
+      <text x="750" y="57" text-anchor="middle" fill="#67e8f9" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="700">Response</text>
+      <text x="750" y="72" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">201 Created</text>
+
+      <text x="430" y="110" text-anchor="middle" fill="#64748b" font-family="IBM Plex Sans,sans-serif" font-size="10">Each block is configurable via a visual panel &mdash; no coding required</text>
+    </svg>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon blue">&#9881;</div>
+      <h4>Auto-generate from OpenAPI</h4>
+      <p>Import an existing OpenAPI/Swagger spec and automatically generate the complete microservice model. 50 endpoints in under a minute.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon purple">&#9889;</div>
+      <h4>Production-Ready Runtime</h4>
+      <p>Kubernetes-native deployment. Service mesh, circuit breakers, rate limiting, distributed tracing — all built in.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon green">&#9733;</div>
+      <h4>Country-Specific Extensions</h4>
+      <p>Add market-specific processing blocks (IBAN validation, tax calculation, regulatory screening) without modifying the platform.</p>
+    </div>
+  </div>
+  <div class="page-num"><span>6</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 7: USE CASE 2 — EAI -->
+<!-- ============================================ -->
+<div class="slide slide-dark" id="slide-7">
+  <h2>EAI: Connect Any System to Any System</h2>
+  <p class="lead">Enterprise Application Integration as visual models. Connect databases, APIs, message queues, file systems, and legacy applications through a unified design canvas.</p>
+
+  <div class="diagram">
+    <svg width="860" height="230" viewBox="0 0 860 230" role="img" aria-label="Integration hub connecting multiple source systems to target systems">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+      </defs>
+      <!-- Source systems -->
+      <rect x="20" y="10" width="170" height="210" rx="14" fill="rgba(96,165,250,0.05)" stroke="rgba(96,165,250,0.2)" stroke-width="1.5"/>
+      <text x="105" y="35" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">SOURCE SYSTEMS</text>
+
+      <rect x="40" y="50" width="130" height="32" rx="6" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.25)" stroke-width="1"/>
+      <text x="105" y="71" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Core Banking (DB)</text>
+      <rect x="40" y="90" width="130" height="32" rx="6" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.25)" stroke-width="1"/>
+      <text x="105" y="111" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">SAP ERP (RFC)</text>
+      <rect x="40" y="130" width="130" height="32" rx="6" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.25)" stroke-width="1"/>
+      <text x="105" y="151" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">CRM (REST API)</text>
+      <rect x="40" y="170" width="130" height="32" rx="6" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.25)" stroke-width="1"/>
+      <text x="105" y="191" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Legacy (SOAP/MQ)</text>
+
+      <!-- Arrows in -->
+      <line x1="194" y1="66" x2="260" y2="100" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="194" y1="106" x2="260" y2="110" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="194" y1="146" x2="260" y2="120" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="194" y1="186" x2="260" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- BiTool integration hub -->
+      <rect x="270" y="40" width="310" height="150" rx="16" fill="rgba(167,139,250,0.08)" stroke="rgba(167,139,250,0.35)" stroke-width="2"/>
+      <text x="425" y="65" text-anchor="middle" fill="#c4b5fd" font-family="IBM Plex Sans,sans-serif" font-size="13" font-weight="700">BiTool Integration Hub</text>
+
+      <rect x="295" y="80" width="110" height="34" rx="7" fill="rgba(244,114,182,0.1)" stroke="rgba(244,114,182,0.2)" stroke-width="1"/>
+      <text x="350" y="102" text-anchor="middle" fill="#f9a8d4" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Transform</text>
+
+      <rect x="295" y="122" width="110" height="34" rx="7" fill="rgba(251,191,36,0.1)" stroke="rgba(251,191,36,0.2)" stroke-width="1"/>
+      <text x="350" y="144" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Route &amp; Enrich</text>
+
+      <rect x="430" y="80" width="130" height="34" rx="7" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.2)" stroke-width="1"/>
+      <text x="495" y="102" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Validate &amp; Map</text>
+
+      <rect x="430" y="122" width="130" height="34" rx="7" fill="rgba(34,211,238,0.1)" stroke="rgba(34,211,238,0.2)" stroke-width="1"/>
+      <text x="495" y="144" text-anchor="middle" fill="#67e8f9" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Error Handling</text>
+
+      <text x="425" y="178" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="9">Visual design &bull; Real-time monitoring &bull; Versioned</text>
+
+      <!-- Arrows out -->
+      <line x1="584" y1="100" x2="650" y2="66" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="584" y1="110" x2="650" y2="106" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="584" y1="120" x2="650" y2="146" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="584" y1="130" x2="650" y2="186" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Target systems -->
+      <rect x="660" y="10" width="170" height="210" rx="14" fill="rgba(52,211,153,0.05)" stroke="rgba(52,211,153,0.2)" stroke-width="1.5"/>
+      <text x="745" y="35" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="11" font-weight="600">TARGET SYSTEMS</text>
+
+      <rect x="680" y="50" width="130" height="32" rx="6" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.25)" stroke-width="1"/>
+      <text x="745" y="71" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Payment Rails</text>
+      <rect x="680" y="90" width="130" height="32" rx="6" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.25)" stroke-width="1"/>
+      <text x="745" y="111" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Data Warehouse</text>
+      <rect x="680" y="130" width="130" height="32" rx="6" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.25)" stroke-width="1"/>
+      <text x="745" y="151" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Regulatory (MASAK)</text>
+      <rect x="680" y="170" width="130" height="32" rx="6" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.25)" stroke-width="1"/>
+      <text x="745" y="191" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Partner APIs</text>
+    </svg>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon purple">&#8644;</div>
+      <h4>Any-to-Any Connectivity</h4>
+      <p>REST, SOAP, JDBC, Kafka, RabbitMQ, SFTP, flat files. Extensible connector model for proprietary protocols.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon amber">&#8634;</div>
+      <h4>Message-Level Transformation</h4>
+      <p>Visual field mapping, format conversion (JSON/XML/CSV/ISO 20022), data enrichment from multiple sources.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon cyan">&#9878;</div>
+      <h4>Content-Based Routing</h4>
+      <p>Route messages based on content, headers, or business rules. Split, aggregate, and multicast patterns built in.</p>
+    </div>
+  </div>
+  <div class="page-num"><span>7</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 8: USE CASE 3 — ELT/ETL -->
+<!-- ============================================ -->
+<div class="slide slide-accent" id="slide-8">
+  <h2>ELT / ETL: Visual Data Transformation</h2>
+  <p class="lead">Design data pipelines visually — extract from any source, transform with joins, filters, and aggregations, load to any destination. Schedule or trigger on events.</p>
+
+  <div class="diagram">
+    <svg width="860" height="200" viewBox="0 0 860 200" role="img" aria-label="Extract, transform, and load data pipeline">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#64748b"/></marker>
+      </defs>
+      <!-- E -->
+      <rect x="30" y="30" width="180" height="140" rx="14" fill="rgba(96,165,250,0.06)" stroke="rgba(96,165,250,0.25)" stroke-width="2"/>
+      <text x="120" y="55" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="15" font-weight="700">EXTRACT</text>
+
+      <rect x="50" y="70" width="140" height="26" rx="5" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.2)" stroke-width="1"/>
+      <text x="120" y="88" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10">PostgreSQL / MySQL</text>
+      <rect x="50" y="102" width="140" height="26" rx="5" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.2)" stroke-width="1"/>
+      <text x="120" y="120" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10">REST APIs / Files</text>
+      <rect x="50" y="134" width="140" height="26" rx="5" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.2)" stroke-width="1"/>
+      <text x="120" y="152" text-anchor="middle" fill="#93c5fd" font-family="IBM Plex Sans,sans-serif" font-size="10">Kafka / S3</text>
+
+      <!-- Arrow -->
+      <line x1="214" y1="100" x2="268" y2="100" stroke="#64748b" stroke-width="2.5" marker-end="url(#arr)"/>
+
+      <!-- T - highlighted -->
+      <rect x="276" y="20" width="310" height="160" rx="14" fill="rgba(251,191,36,0.08)" stroke="rgba(251,191,36,0.4)" stroke-width="2.5"/>
+      <text x="431" y="48" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="15" font-weight="700">TRANSFORM</text>
+
+      <rect x="296" y="62" width="130" height="30" rx="6" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.25)" stroke-width="1"/>
+      <text x="361" y="82" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Join &amp; Enrich</text>
+
+      <rect x="436" y="62" width="130" height="30" rx="6" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.25)" stroke-width="1"/>
+      <text x="501" y="82" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Filter &amp; Validate</text>
+
+      <rect x="296" y="100" width="130" height="30" rx="6" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.25)" stroke-width="1"/>
+      <text x="361" y="120" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Aggregate &amp; Group</text>
+
+      <rect x="436" y="100" width="130" height="30" rx="6" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.25)" stroke-width="1"/>
+      <text x="501" y="120" text-anchor="middle" fill="#fcd34d" font-family="IBM Plex Sans,sans-serif" font-size="10" font-weight="500">Map &amp; Rename</text>
+
+      <rect x="296" y="138" width="270" height="30" rx="6" fill="rgba(251,191,36,0.08)" stroke="rgba(251,191,36,0.15)" stroke-width="1"/>
+      <text x="431" y="158" text-anchor="middle" fill="#94a3b8" font-family="IBM Plex Sans,sans-serif" font-size="10">Calculated columns &bull; Functions &bull; Sort &bull; Deduplicate</text>
+
+      <!-- Arrow -->
+      <line x1="590" y1="100" x2="644" y2="100" stroke="#64748b" stroke-width="2.5" marker-end="url(#arr)"/>
+
+      <!-- L -->
+      <rect x="652" y="30" width="180" height="140" rx="14" fill="rgba(52,211,153,0.06)" stroke="rgba(52,211,153,0.25)" stroke-width="2"/>
+      <text x="742" y="55" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="15" font-weight="700">LOAD</text>
+
+      <rect x="672" y="70" width="140" height="26" rx="5" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.2)" stroke-width="1"/>
+      <text x="742" y="88" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10">Data Warehouse</text>
+      <rect x="672" y="102" width="140" height="26" rx="5" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.2)" stroke-width="1"/>
+      <text x="742" y="120" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10">Target Database</text>
+      <rect x="672" y="134" width="140" height="26" rx="5" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.2)" stroke-width="1"/>
+      <text x="742" y="152" text-anchor="middle" fill="#6ee7b7" font-family="IBM Plex Sans,sans-serif" font-size="10">Reporting / BI Tools</text>
+    </svg>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon amber">T</div>
+      <h4>Visual Transformation Design</h4>
+      <p>Join multiple sources, filter rows, aggregate data, rename columns, apply functions — all through drag-and-drop. No SQL or code required.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon green">&#8635;</div>
+      <h4>Scheduled or Event-Driven</h4>
+      <p>Run pipelines on a schedule (hourly, daily) or trigger on events (new file, database change, API webhook).</p>
+    </div>
+    <div class="card">
+      <div class="card-icon blue">&#9635;</div>
+      <h4>ELT-First Architecture</h4>
+      <p>Load raw data first, then transform in-database for performance. Or traditional ETL — transform before loading. Same visual interface for both.</p>
+    </div>
+  </div>
+  <div class="page-num"><span>8</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 9: SIDE BY SIDE COMPARISON -->
+<!-- ============================================ -->
+<div class="slide slide-dark" id="slide-9">
+  <h2>Time to Delivery: Before vs After</h2>
+  <p class="lead">Whether building a microservice, integrating two applications, or creating a data pipeline — BiTool compresses the cycle from months to days.</p>
+
+  <div class="compare">
+    <div class="compare-col old">
+      <h4>Traditional Approach</h4>
+      <ul class="step-list">
+        <li><span>Gather requirements</span> <span class="time">2 weeks</span></li>
+        <li><span>Architecture &amp; design</span> <span class="time">2 weeks</span></li>
+        <li><span>Develop &amp; code</span> <span class="time">4-8 weeks</span></li>
+        <li><span>Testing &amp; QA</span> <span class="time">2-4 weeks</span></li>
+        <li><span>Deployment</span> <span class="time">1-2 weeks</span></li>
+        <li><span>Compliance audit</span> <span class="time">2-4 weeks</span></li>
+      </ul>
+      <div class="total-bar">13 &ndash; 22 weeks</div>
+    </div>
+    <div class="compare-col new">
+      <h4>BiTool Platform</h4>
+      <ul class="step-list">
+        <li><span>Gather requirements</span> <span class="time">Same</span></li>
+        <li><span>Design on canvas</span> <span class="time">Hours</span></li>
+        <li><span>Configure blocks</span> <span class="time">1-2 days</span></li>
+        <li><span>Test in browser</span> <span class="time">Hours</span></li>
+        <li><span>Deploy</span> <span class="time">1 click</span></li>
+        <li><span>Compliance = the model</span> <span class="time">0 days</span></li>
+      </ul>
+      <div class="total-bar">3 &ndash; 5 days</div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top:8px;">
+    <p>The model eliminates translation between teams</p>
+    <p class="small">
+      No BRD-to-design translation. No design-to-code translation. No code-to-audit translation.<br>
+      <strong style="color:#86efac;">One artifact</strong> flows from requirements to production.
+    </p>
+  </div>
+  <div class="page-num"><span>9</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 10: DIFFERENTIATORS -->
+<!-- ============================================ -->
+<div class="slide slide-accent" id="slide-10">
+  <h2>Platform Differentiators</h2>
+
+  <div class="cards" style="grid-template-columns: repeat(2, 1fr); gap: 28px;">
+    <div class="card">
+      <div class="card-icon blue">&#8634;</div>
+      <h4>Unified Platform for All Three Use Cases</h4>
+      <p style="font-size:1rem;line-height:1.7;color:#cbd5e1;">One tool for microservices, EAI, and ELT/ETL. Teams learn one interface, share building blocks across projects. No more juggling MuleSoft + Informatica + custom code.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon green">&#128065;</div>
+      <h4>Visual = Auditable = Compliant</h4>
+      <p style="font-size:1rem;line-height:1.7;color:#cbd5e1;">The model is human-readable by compliance officers, business analysts, and regulators. No developer needed to explain what the system does. Cuts audit cycles to zero.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon purple">&#9889;</div>
+      <h4>OpenAPI / Spec-Driven Generation</h4>
+      <p style="font-size:1rem;line-height:1.7;color:#cbd5e1;">Import an OpenAPI spec and auto-generate complete service models. Migrate existing APIs to the platform in minutes, not months. Bidirectional: export models as API specs.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon amber">&#9881;</div>
+      <h4>Extensible Block Architecture</h4>
+      <p style="font-size:1rem;line-height:1.7;color:#cbd5e1;">Add country-specific, industry-specific, or proprietary processing blocks without modifying the platform. Turkey payment rules, SWIFT messaging, MASAK screening — all pluggable.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon pink">&#9850;</div>
+      <h4>Zero-Downtime Operations</h4>
+      <p style="font-size:1rem;line-height:1.7;color:#cbd5e1;">Hot deploy, canary releases, instant rollback. Every model version is stored — roll back to any version in under a second. Kubernetes-native auto-scaling.</p>
+    </div>
+  </div>
+  <div class="page-num"><span>10</span> / 11</div>
+</div>
+
+<!-- ============================================ -->
+<!-- SLIDE 11: ROI & CLOSING -->
+<!-- ============================================ -->
+<div class="slide slide-dark" id="slide-11">
+  <h2>Investment Impact</h2>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="number green">97%</div>
+      <div class="label">Reduction in<br>Delivery Time</div>
+    </div>
+    <div class="stat">
+      <div class="number blue">5x</div>
+      <div class="label">More Integrations<br>per Quarter</div>
+    </div>
+    <div class="stat">
+      <div class="number purple">0</div>
+      <div class="label">Separate Audit<br>Documentation</div>
+    </div>
+    <div class="stat">
+      <div class="number amber">&lt;1s</div>
+      <div class="label">Rollback to<br>Any Version</div>
+    </div>
+  </div>
+
+  <div class="cards" style="grid-template-columns: repeat(3, 1fr); margin-top:24px;">
+    <div class="card" style="text-align:center;">
+      <h4 style="color:#67e8f9;font-size:1.3rem;">Microservices</h4>
+      <p style="font-size:1.05rem;color:#cbd5e1;margin-top:12px;">Build &amp; deploy APIs visually.<br>OpenAPI import. Hot deploy.<br>Production observability.</p>
+    </div>
+    <div class="card" style="text-align:center;">
+      <h4 style="color:#f3f4f6;font-size:1.3rem;">EAI</h4>
+      <p style="font-size:1.05rem;color:#cbd5e1;margin-top:12px;">Connect any system.<br>Transform &amp; route messages.<br>Replace middleware sprawl.</p>
+    </div>
+    <div class="card" style="text-align:center;">
+      <h4 style="color:#86efac;font-size:1.3rem;">ELT / ETL</h4>
+      <p style="font-size:1.05rem;color:#cbd5e1;margin-top:12px;">Visual data pipelines.<br>Join, filter, aggregate, load.<br>Scheduled or event-driven.</p>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top:28px;">
+    <p style="font-size:1.8rem;letter-spacing:-0.02em;">One Model. Three Capabilities. Zero Translation.</p>
+    <p class="small" style="margin-top:12px;">Design = Code = Documentation = Audit Trail</p>
+  </div>
+  <div class="page-num"><span>11</span> / 11</div>
+</div>
+
+</main>
+
+<script>
+  (() => {
+    const main = document.querySelector('.ai-main');
+    const railLinks = Array.from(document.querySelectorAll('.ai-rail a'));
+    const slides = railLinks
+      .map(a => document.querySelector(a.getAttribute('href')))
+      .filter(Boolean);
+
+    const setActive = (id) => {
+      for (const a of railLinks) {
+        const isActive = a.getAttribute('href') === `#${id}`;
+        a.classList.toggle('is-active', isActive);
+        if (isActive) a.setAttribute('aria-current', 'true');
+        else a.removeAttribute('aria-current');
+      }
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const top = entries
+          .filter(e => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (top && top.target && top.target.id) setActive(top.target.id);
+      },
+      { root: main, threshold: [0.55, 0.7] }
+    );
+
+    for (const s of slides) observer.observe(s);
+
+    const scrollToSlide = (dir) => {
+      const currentIdx = slides.findIndex((s) => {
+        if (!s.id) return false;
+        return document.querySelector(`.ai-rail a[href=\"#${s.id}\"]`)?.classList.contains('is-active');
+      });
+      const idx = Math.max(0, Math.min(slides.length - 1, currentIdx + dir));
+      slides[idx]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    document.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown' || e.key === 'PageDown') scrollToSlide(+1);
+      if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp' || e.key === 'PageUp') scrollToSlide(-1);
+    });
+  })();
+</script>
+
+</body>
+</html>

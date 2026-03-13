@@ -18,4 +18,24 @@ profiles.clj
 /node_modules
 /log
 
+# Additional ignores
+.clj-kondo
+.tmp.driveupload
+Design/scratchpad.txt
+
+# Vim swap files
+.*.sw[a-p]
+.*.s[st][a-z]
+.*.s[uv][a-z]
+
+# macOS
+.DS_Store
+
+# Manual backup copies
+*\ copy.*
+*_bkp
+*_bkp*
+*_claude
+*.clj.datomic
+
 

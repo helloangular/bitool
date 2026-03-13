@@ -1,0 +1,442 @@
+# BiTool Microservices Platform
+## From BRD to Binary — Visual Microservice Development
+
+---
+
+## Slide 1: The Problem — BRD to Binary Takes Too Long
+
+```
+┌─────────────────── TRADITIONAL APPROACH (12-16 weeks) ───────────────────┐
+│                                                                           │
+│  BRD          Design        Code         Test        Deploy     Binary   │
+│  ┌───┐       ┌───┐        ┌───┐        ┌───┐       ┌───┐      ┌───┐   │
+│  │ 📄 │──2w──▶│ 📐 │──3w──▶│ 💻 │──4w──▶│ 🧪 │──2w──▶│ 🚀 │──1w──▶│ ✅ │   │
+│  └───┘       └───┘        └───┘        └───┘       └───┘      └───┘   │
+│                                                                           │
+│  • Requirements lost in translation between teams                        │
+│  • Design docs go stale as code diverges                                 │
+│  • Integration bugs found late in cycle                                  │
+│  • Monolith changes risk regressions across all markets                  │
+│  • Compliance can't audit code — only developers understand it           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+**Pain Points:**
+- 60% of time spent on handoffs, not building
+- Average 3 cycles of rework per microservice
+- Compliance review adds 2-4 weeks (code → English translation)
+
+---
+
+## Slide 2: The Solution — Visual Microservice Builder + Orchestrator
+
+```
+┌─────────────────── BiTool APPROACH (2-3 weeks) ──────────────────────────┐
+│                                                                           │
+│         BRD              BUILD              DEPLOY           BINARY      │
+│        ┌───┐           ┌───────┐           ┌───┐            ┌───┐      │
+│        │ 📄 │────1d───▶│ VISUAL │────1d───▶│ 🚀 │────1d────▶│ ✅ │      │
+│        └───┘           │BUILDER │           └───┘            └───┘      │
+│                        │        │                                        │
+│                        │ ┌─┐─┌─┐│    The graph IS the                   │
+│                        │ │E│→│V││    microservice.                       │
+│                        │ └─┘ └─┘│    No code translation.               │
+│                        │  ↓   ↓ │    No design docs to maintain.        │
+│                        │ ┌─┐─┌─┐│    What you see = what runs.          │
+│                        │ │D│→│R││                                        │
+│                        │ └─┘ └─┘│                                        │
+│                        └────────┘                                        │
+│                                                                           │
+│  BUILD visually  →  TEST instantly  →  DEPLOY with one click             │
+└───────────────────────────────────────────────────────────────────────────┘
+
+           Traditional          BiTool
+           ───────────          ──────
+Design:     2 weeks      →     2 hours  (drag-and-drop)
+Build:      4 weeks      →     2 days   (configure nodes)
+Test:       2 weeks      →     1 day    (built-in test mode)
+Deploy:     1 week       →     1 click  (hot deployment)
+Audit:      2 weeks      →     0 days   (graph IS the audit trail)
+           ──────────           ──────
+TOTAL:     11+ weeks     →     ~1 week          ▲ 10x FASTER
+```
+
+---
+
+## Slide 3: Two Products — Builder + Orchestrator
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│    DESIGN TIME                              RUNTIME                     │
+│    ──────────                               ───────                     │
+│                                                                          │
+│   ┌─────────────────────────┐    IGL     ┌─────────────────────────┐   │
+│   │  MICROSERVICES BUILDER  │───Graph───▶│ MICROSERVICES           │   │
+│   │                         │            │ ORCHESTRATOR             │   │
+│   │  ┌─────────────────┐   │            │                         │   │
+│   │  │  Visual Canvas   │   │            │  ┌──────────────────┐  │   │
+│   │  │                  │   │            │  │  Graph Executor   │  │   │
+│   │  │  [Ep]→[Au]→[Vd] │   │            │  │                  │  │   │
+│   │  │        ↓         │   │            │  │  HTTP Request    │  │   │
+│   │  │  [Dx]→[P]→[Rb]  │   │            │  │       ↓          │  │   │
+│   │  │        ↓         │   │            │  │  Execute Ep      │  │   │
+│   │  │       [O]        │   │            │  │       ↓          │  │   │
+│   │  └─────────────────┘   │            │  │  Execute Au      │  │   │
+│   │                         │            │  │       ↓          │  │   │
+│   │  • Drag-and-drop nodes  │            │  │  Execute Vd      │  │   │
+│   │  • Configure visually   │            │  │       ↓          │  │   │
+│   │  • Test in browser      │            │  │     ...          │  │   │
+│   │  • Version control      │            │  │       ↓          │  │   │
+│   │  • OpenAPI import       │            │  │  HTTP Response   │  │   │
+│   │                         │            │  └──────────────────┘  │   │
+│   └─────────────────────────┘            │                         │   │
+│                                           │  • Hot deployment      │   │
+│      WHO USES IT:                        │  • Auto-scaling        │   │
+│      • Developers                        │  • Circuit breakers    │   │
+│      • Business Analysts                 │  • Distributed tracing │   │
+│      • Compliance Officers               │  • Canary releases     │   │
+│                                           └─────────────────────────┘   │
+│                                                                          │
+│                                              WHO USES IT:               │
+│                                              • DevOps                   │
+│                                              • SRE Teams                │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Slide 4: The Node Library — Building Blocks for Any Microservice
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         NODE LIBRARY                                     │
+│                                                                          │
+│  ENTRY POINTS          SECURITY             DATA                        │
+│  ─────────────         ────────             ────                        │
+│  ┌──────────┐         ┌──────────┐         ┌──────────┐               │
+│  │ Endpoint │  HTTP   │   Auth   │  JWT    │DB Execute│  SQL          │
+│  │   (Ep)   │  entry  │   (Au)   │  OAuth  │   (Dx)   │  CRUD         │
+│  └──────────┘         └──────────┘         └──────────┘               │
+│  ┌──────────┐         ┌──────────┐         ┌──────────┐               │
+│  │  Queue   │  Event  │   Rate   │  Throt- │HTTP Call │  External     │
+│  │Consumer  │  driven │ Limiter  │  tling  │   (Hc)   │  APIs         │
+│  └──────────┘         └──────────┘         └──────────┘               │
+│                                                                          │
+│  LOGIC                 TRANSFORM            OUTPUT                      │
+│  ─────                 ─────────            ──────                      │
+│  ┌──────────┐         ┌──────────┐         ┌──────────┐               │
+│  │Validator │  Rules  │Projection│  Shape  │ Response │  Status       │
+│  │   (Vd)   │  check  │   (P)    │  data   │ Builder  │  + headers    │
+│  └──────────┘         └──────────┘         └──────────┘               │
+│  ┌──────────┐         ┌──────────┐         ┌──────────┐               │
+│  │Condition │  Route  │  Filter  │  WHERE  │  Error   │  Catch +      │
+│  │ Branch   │  logic  │   (Fi)   │  clause │ Handler  │  format       │
+│  └──────────┘         └──────────┘         └──────────┘               │
+│  ┌──────────┐         ┌──────────┐         ┌──────────┐               │
+│  │  Cache   │  Perf   │ Transfor-│  Map /  │  Logger  │  Audit        │
+│  │   (Ca)   │  boost  │ mer (Tr) │  reduce │   (Lg)   │  trail        │
+│  └──────────┘         └──────────┘         └──────────┘               │
+│                                                                          │
+│  EXTENSIBLE: Add domain-specific nodes (IBAN, AML, FX, Tax, ...)       │
+│  Each node = plug-and-play. Reuse across any microservice.              │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Slide 5: How It Works — BRD Requirement to Running Service
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│  STEP 1: Read BRD requirement                                           │
+│  ─────────────────────────────                                           │
+│  "POST /payments — validate input, authenticate, check fraud,           │
+│   record in DB, call payment rail, return 201"                          │
+│                                                                          │
+│  STEP 2: Drag nodes onto canvas (5 minutes)                             │
+│  ───────────────────────────────────────────                             │
+│                                                                          │
+│   ┌────┐    ┌────┐    ┌────┐    ┌────┐    ┌────┐    ┌────┐    ┌───┐  │
+│   │ Ep │───▶│ Au │───▶│ Vd │───▶│ Hc │───▶│ Dx │───▶│ Rb │───▶│ O │  │
+│   │POST│    │JWT │    │Rule│    │AML │    │INS │    │201│    │   │  │
+│   └────┘    └────┘    └────┘    └────┘    └────┘    └────┘    └───┘  │
+│                                                                          │
+│  STEP 3: Configure each node (30 minutes)                               │
+│  ────────────────────────────────────────                                │
+│   • Ep: POST /payments, body={amount, sender, receiver}                 │
+│   • Au: JWT, header=Authorization, extract user_id                      │
+│   • Vd: amount > 0, sender matches IBAN pattern                        │
+│   • Hc: POST to fraud-screening service                                 │
+│   • Dx: INSERT INTO transactions (...)                                  │
+│   • Rb: 201 Created, return {transaction_id, status}                    │
+│                                                                          │
+│  STEP 4: Test in browser (5 minutes)                                    │
+│  ───────────────────────────────────                                     │
+│   Built-in test panel: send mock request → see response                 │
+│                                                                          │
+│  STEP 5: Deploy (1 click)                                               │
+│  ────────────────────────                                                │
+│   Graph → Orchestrator → Live HTTP endpoint                             │
+│                                                                          │
+│  TOTAL: ~40 minutes from BRD line item to running microservice          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Slide 6: IGL — The Graph IS the Code
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│              IGL — Intermediate Graph Language                            │
+│                                                                          │
+│  Like a compiler turns source code into binary,                         │
+│  BiTool turns visual graphs into running microservices.                  │
+│                                                                          │
+│   COMPILER                          BiTool                              │
+│   ────────                          ──────                              │
+│   Source code (Java/C)              Visual Canvas / OpenAPI Spec        │
+│        ↓                                  ↓                             │
+│   IR (SSA / bytecode)               IGL (Graph data structure)          │
+│        ↓                                  ↓                             │
+│   Binary (machine code)             Live HTTP Microservice              │
+│                                                                          │
+│                                                                          │
+│   ┌─── WHAT IGL ENABLES ───────────────────────────────────────────┐   │
+│   │                                                                 │   │
+│   │  VISUAL      ←→  IGL GRAPH  ←→  TEXTUAL DSL                   │   │
+│   │  (Canvas)         (Storage)      (Code-as-config)              │   │
+│   │                      ↕                                          │   │
+│   │                  OpenAPI SPEC                                   │   │
+│   │                  (Import/Export)                                 │   │
+│   │                      ↕                                          │   │
+│   │               RUNNING SERVICE                                   │   │
+│   │               (Orchestrator)                                    │   │
+│   │                                                                 │   │
+│   │  • Same graph powers canvas UI, API docs, and runtime          │   │
+│   │  • Version the graph = version the service                     │   │
+│   │  • Diff two graphs = diff two service versions                 │   │
+│   │  • Compliance reads the graph = compliance reads the code      │   │
+│   └─────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Slide 7: Orchestrator — Production-Grade Runtime
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    ORCHESTRATOR ARCHITECTURE                              │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                    KUBERNETES CLUSTER                             │   │
+│  │                                                                   │   │
+│  │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │   │
+│  │   │  Executor   │  │  Executor   │  │  Executor   │  Auto-     │   │
+│  │   │   Pod 1     │  │   Pod 2     │  │   Pod N     │  scaled    │   │
+│  │   │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │            │   │
+│  │   │ │Graph A  │ │  │ │Graph A  │ │  │ │Graph B  │ │            │   │
+│  │   │ │Graph B  │ │  │ │Graph C  │ │  │ │Graph D  │ │            │   │
+│  │   │ └─────────┘ │  │ └─────────┘ │  │ └─────────┘ │            │   │
+│  │   └─────────────┘  └─────────────┘  └─────────────┘            │   │
+│  │          ↕                ↕                ↕                     │   │
+│  │   ┌──────────────────────────────────────────────────┐          │   │
+│  │   │              SERVICE MESH (Istio)                 │          │   │
+│  │   │  mTLS │ Load Balancing │ Circuit Breaking        │          │   │
+│  │   └──────────────────────────────────────────────────┘          │   │
+│  │          ↕                ↕                ↕                     │   │
+│  │   ┌──────────┐  ┌──────────────┐  ┌──────────────┐             │   │
+│  │   │  Graph   │  │   Secrets    │  │   Cache      │             │   │
+│  │   │ Registry │  │   (Vault)    │  │   (Redis)    │             │   │
+│  │   │ (DB)     │  │              │  │              │             │   │
+│  │   └──────────┘  └──────────────┘  └──────────────┘             │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│  DEPLOYMENT CAPABILITIES                                                │
+│  ──────────────────────                                                  │
+│                                                                          │
+│   Hot Deploy        Canary Release       Instant Rollback               │
+│   ──────────        ──────────────       ────────────────               │
+│   Zero downtime     5% → 25% → 100%     Any version, < 1 sec          │
+│   Blue-green swap   Auto-rollback on     Graph registry keeps          │
+│   No dropped reqs   error rate > 0.1%    full version history          │
+│                                                                          │
+│  OBSERVABILITY                                                          │
+│  ─────────────                                                           │
+│   ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐      │
+│   │  Metrics   │  │  Logging   │  │  Tracing   │  │  Alerting  │      │
+│   │ Prometheus │  │    ELK     │  │   Jaeger   │  │ PagerDuty  │      │
+│   │  Grafana   │  │            │  │ OpenTelem  │  │            │      │
+│   └────────────┘  └────────────┘  └────────────┘  └────────────┘      │
+│                                                                          │
+│   Every node execution = 1 trace span. Full visibility into the graph.  │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Slide 8: BRD to Binary — The Accelerated Pipeline
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                  BRD TO BINARY — SIDE BY SIDE                            │
+│                                                                          │
+│  TRADITIONAL                        BiTool PLATFORM                     │
+│  ───────────                        ───────────────                     │
+│                                                                          │
+│  ┌──────────────┐                   ┌──────────────┐                   │
+│  │ 1. BRD       │ 2 weeks           │ 1. BRD       │ Same              │
+│  │    Written   │                   │    Written   │                   │
+│  └──────┬───────┘                   └──────┬───────┘                   │
+│         ↓                                  ↓                            │
+│  ┌──────────────┐                   ┌──────────────┐                   │
+│  │ 2. Technical │ 2 weeks           │ 2. DRAG NODES│ 2 hours           │
+│  │    Design    │                   │    on canvas │                   │
+│  └──────┬───────┘                   └──────┬───────┘                   │
+│         ↓                                  ↓                            │
+│  ┌──────────────┐                   ┌──────────────┐                   │
+│  │ 3. Code      │ 4 weeks           │ 3. CONFIGURE │ 1 day             │
+│  │    Services  │                   │    each node │                   │
+│  └──────┬───────┘                   └──────┬───────┘                   │
+│         ↓                                  ↓                            │
+│  ┌──────────────┐                   ┌──────────────┐                   │
+│  │ 4. Write     │ 2 weeks           │ 4. TEST in   │ 1 hour            │
+│  │    Tests     │                   │    browser   │                   │
+│  └──────┬───────┘                   └──────┬───────┘                   │
+│         ↓                                  ↓                            │
+│  ┌──────────────┐                   ┌──────────────┐                   │
+│  │ 5. QA +      │ 2 weeks           │ 5. DEPLOY    │ 1 click           │
+│  │    Deploy    │                   │    (hot)     │                   │
+│  └──────┬───────┘                   └──────┬───────┘                   │
+│         ↓                                  ↓                            │
+│  ┌──────────────┐                   ┌──────────────┐                   │
+│  │ 6. Compliance│ 2 weeks           │ 6. Compliance│ 0 days            │
+│  │    Audit     │                   │    = Graph   │ (graph IS audit)  │
+│  └──────────────┘                   └──────────────┘                   │
+│                                                                          │
+│  TOTAL: 14 weeks                    TOTAL: ~3 days                      │
+│                                                                          │
+│  ════════════════════════════════════════════════════                    │
+│           SAVINGS: 13+ WEEKS PER MICROSERVICE                           │
+│           WITH 50 MICROSERVICES = 650 WEEKS SAVED                       │
+│  ════════════════════════════════════════════════════                    │
+│                                                                          │
+│  KEY INSIGHT: The graph eliminates 3 translation steps:                 │
+│    ✗ BRD → Design doc    (graph IS the design)                         │
+│    ✗ Design → Code       (graph IS the code)                           │
+│    ✗ Code → Audit doc    (graph IS the audit trail)                    │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Slide 9: OpenAPI Import — Instant Graph Generation
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│              OPENAPI SPEC → INSTANT MICROSERVICE GRAPH                   │
+│                                                                          │
+│  EXISTING API SPEC (YAML/JSON)           AUTO-GENERATED GRAPH           │
+│  ─────────────────────────────           ────────────────────           │
+│                                                                          │
+│  paths:                                                                  │
+│    /users/{id}:                           ┌────┐    ┌────┐             │
+│      get:                        ──▶      │ Ep │───▶│ Au │             │
+│        security:                          │GET │    │JWT │             │
+│          - bearerAuth                     └────┘    └────┘             │
+│        parameters:                                    │                 │
+│          - name: id                                   ↓                 │
+│            in: path                          ┌────┐  ┌────┐            │
+│            required: true                    │ Vd │──│ Dx │            │
+│            schema:                           │id>0│  │SEL │            │
+│              type: integer                   └────┘  └────┘            │
+│              minimum: 1                               │                 │
+│        responses:                                     ↓                 │
+│          200:                                ┌────┐  ┌────┐  ┌───┐    │
+│            schema:                           │ P  │──│ Rb │──│ O │    │
+│              properties:                     │3col│  │200 │  │   │    │
+│                id: integer                   └────┘  └────┘  └───┘    │
+│                name: string                                            │
+│                email: string                                           │
+│          401:                                                           │
+│            description: ...      ──▶  Error Handler auto-wired        │
+│                                                                          │
+│  MAPPING RULES:                                                         │
+│  ──────────────                                                          │
+│  • paths + method           →  Endpoint (Ep) node                      │
+│  • securitySchemes          →  Auth (Au) node                          │
+│  • parameters + schema      →  Validator (Vd) node                     │
+│  • (inferred from context)  →  DB Execute (Dx) node                    │
+│  • response.schema          →  Projection (P) node                     │
+│  • response status codes    →  Response Builder (Rb) node              │
+│  • error responses          →  Error Handler (Eh) node                 │
+│                                                                          │
+│  ┌───────────────────────────────────────────────────────────────┐      │
+│  │  RESULT: Import 50-endpoint OpenAPI spec                      │      │
+│  │          → 50 microservice graphs generated in < 1 minute     │      │
+│  │          → Configure domain logic → Deploy all                │      │
+│  └───────────────────────────────────────────────────────────────┘      │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Slide 10: ROI Summary — Why This Platform
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        RETURN ON INVESTMENT                               │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │                    TIME SAVINGS                                 │     │
+│  │                                                                 │     │
+│  │  Per microservice:    14 weeks → 3 days     (97% reduction)   │     │
+│  │  50 microservices:    700 weeks → 30 weeks  (670 weeks saved) │     │
+│  │  Time to market:      9 months → 9 weeks    (4x faster)      │     │
+│  └────────────────────────────────────────────────────────────────┘     │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │                    RISK REDUCTION                               │     │
+│  │                                                                 │     │
+│  │  • Zero monolith regression risk (isolated graph services)    │     │
+│  │  • Instant rollback (< 1 second to any previous version)      │     │
+│  │  • Visual audit trail (compliance reads the graph directly)   │     │
+│  │  • Hot deployment (zero downtime, canary releases)            │     │
+│  └────────────────────────────────────────────────────────────────┘     │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │                    TEAM EFFICIENCY                              │     │
+│  │                                                                 │     │
+│  │  Developers:    Build 5x more services per quarter            │     │
+│  │  Analysts:      Directly verify logic (no code reading)       │     │
+│  │  Compliance:    Self-service audit (graph = documentation)    │     │
+│  │  DevOps:        One-click deploy, auto-scaling, full traces   │     │
+│  └────────────────────────────────────────────────────────────────┘     │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │                    EXTENSIBILITY                                │     │
+│  │                                                                 │     │
+│  │  • Add country-specific nodes without changing platform       │     │
+│  │  • Import existing APIs via OpenAPI spec                      │     │
+│  │  • Reuse nodes across projects (build once, use everywhere)   │     │
+│  │  • Open IGL format — no vendor lock-in                        │     │
+│  └────────────────────────────────────────────────────────────────┘     │
+│                                                                          │
+│  ═══════════════════════════════════════════════════════════════════     │
+│                                                                          │
+│  GRAPH = DESIGN = CODE = DOCUMENTATION = AUDIT TRAIL                    │
+│                                                                          │
+│  One artifact. Zero translation. Maximum velocity.                      │
+│                                                                          │
+│  ═══════════════════════════════════════════════════════════════════     │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+*BiTool Microservices Platform — From BRD to Binary*
+*Confidential — For Internal Use Only*

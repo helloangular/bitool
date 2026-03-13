@@ -557,10 +557,21 @@ class TreeComponent extends HTMLElement {
         }));
     }
 
-    const WIDTH = 110;
+    const BASE_WIDTH = 110;
+    const WIDE_WIDTH = 230;
     const HEIGHT = 50;
-    const H_SPACE = 20;
+    const H_SPACE = 50;
     const V_SPACE = 30;
+
+    function nodeWidth(node) {
+      return ["Ep", "Wh"].includes(node?.btype) ? WIDE_WIDTH : BASE_WIDTH;
+    }
+
+    function treeDepth(node) {
+      const children = node.children || [];
+      if (children.length === 0) return 1;
+      return 1 + Math.max(...children.map(treeDepth));
+    }
 
     function assignPositions(node, x, y) {
       node.x = x;
@@ -573,9 +584,10 @@ class TreeComponent extends HTMLElement {
       const childHeights = [];
 
       for (let i = 0; i < children.length; i++) {
+        const xStep = Math.max(nodeWidth(node), nodeWidth(children[i])) + H_SPACE;
         const h = assignPositions(
           children[i],
-          x - (WIDTH + H_SPACE),
+          x - xStep,
           y + totalHeight
         );
         childHeights.push(h);
@@ -591,7 +603,9 @@ class TreeComponent extends HTMLElement {
 
     const roots = buildTree(items);
     let currentY = (this.droppableArea.clientHeight - this.droppableArea.clientHeight / 2) - 22.5; // 22.5 is approx height/2 of a rectangle.
-    const startX = 600; // keep all roots aligned vertically on the right
+    const maxDepth = Math.max(1, ...roots.map(treeDepth));
+    const maxStep = WIDE_WIDTH + H_SPACE;
+    const startX = Math.max(600, 80 + ((maxDepth - 1) * maxStep)); // ensure left-most nodes remain visible with wider spacing
 
     roots.forEach((root) => {
       const subtreeHeight = assignPositions(root, startX, currentY);
@@ -676,6 +690,11 @@ class TreeComponent extends HTMLElement {
     rectangle.setAttribute("id", item.id);
     rectangle.setAttribute("parent", item.parent);
     rectangle.setAttribute("btype", item.btype);
+    const method = String(item.http_method || "").toUpperCase();
+    const endpointLabel = (item.btype === "Ep" && method && item.route_path)
+      ? `${method} ${item.route_path}`
+      : (item.endpoint_label || item.route_path || item.webhook_path || "");
+    if (endpointLabel) rectangle.setAttribute("endpoint-label", endpointLabel);
     rectangle.style.position = "absolute";
     rectangle.style.left = `${item.x}px`;
     rectangle.style.top = `${item.y}px`;

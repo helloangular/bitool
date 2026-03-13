@@ -1,0 +1,58 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<style>
+  .panel { display:flex; flex-direction:column; height:100%; box-shadow:0 4px 8px rgba(0,0,0,.2); }
+  .header { display:flex; justify-content:space-between; align-items:center; padding:10px; }
+  .body { padding:10px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:none; flex:1; }
+  .row { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:#555; }
+  select, textarea { width:100%; padding:8px; border:1px solid #e0e0e0; border-radius:4px; font-size:13px; box-sizing:border-box; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { background:#f5f5f5; padding:6px; text-align:left; border-bottom:1px solid #ddd; }
+  td { padding:4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  td input, td select { width:100%; padding:4px; border:1px solid #e0e0e0; border-radius:3px; font-size:12px; box-sizing:border-box; }
+  .add-btn { font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fafafa; padding:4px 10px; border-radius:3px; }
+  .remove-btn { background:none; border:none; color:#c00; cursor:pointer; font-size:14px; }
+  .info { background:#f0f7ff; border:1px solid #b3d4f5; border-radius:4px; padding:8px; font-size:11px; color:#336; }
+</style>
+
+<div class="panel">
+  <div class="header">
+    <strong>Auth</strong>
+    <div style="display:flex;gap:6px;">
+      <button id="saveBtn" style="font-size:11px;">Save</button>
+      <button id="closeBtn" style="font-size:20px;background:none;border:none;cursor:pointer;">&#9747;</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="row">
+      <label>Node Name</label>
+      <smart-input id="nodeName" class="outlined" style="width:100%"></smart-input>
+    </div>
+    <div class="row">
+      <label>Auth Type</label>
+      <select id="authType">
+        <option value="jwt">JWT (Bearer token)</option>
+        <option value="api-key">API Key</option>
+        <option value="basic">Basic Auth</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Token Header</label>
+      <smart-input id="tokenHeader" class="outlined" style="width:100%" placeholder="Authorization"></smart-input>
+    </div>
+    <div class="row">
+      <label>Secret / Public Key</label>
+      <textarea id="secret" rows="3" placeholder="JWT public key or API key value"></textarea>
+    </div>
+    <div class="row">
+      <label>Claims to Columns</label>
+      <table>
+        <thead><tr><th>Claim Path</th><th>Output Column</th><th>Data Type</th><th></th></tr></thead>
+        <tbody id="claimsBody"></tbody>
+      </table>
+      <button class="add-btn" id="addClaimBtn">+ Add Claim</button>
+    </div>
+    <div class="info">Extracted claims are injected as columns available to all downstream nodes. Returns 401 on auth failure.</div>
+  </div>
+</div>

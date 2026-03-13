@@ -1,0 +1,40 @@
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<link rel="stylesheet" href="./styles/apiComponent.css" />
+<div class="side-panel">
+  <div class="panel-header">
+    <button class="save" id="saveButton" disabled>Save</button>
+    <button class="close" id="closeButton">Close</button>
+  </div>
+  <div class="panel-item">
+    <h3 style="margin:0 0 10px 0;">Validator</h3>
+    <small style="color:#888;display:block;margin-bottom:12px;">
+      Define rules to validate incoming columns. Returns 422 with error details if any rule fails.
+    </small>
+
+    <div class="card" style="padding:10px;border:1px solid #e0e0e0;border-radius:6px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h4 style="margin:0;">Validation Rules</h4>
+        <button id="addRuleBtn" style="padding:4px 8px;font-size:12px;cursor:pointer;">+ Add Rule</button>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:1px solid #ddd;">
+            <th style="text-align:left;padding:4px;">Field</th>
+            <th style="text-align:left;padding:4px;">Rule</th>
+            <th style="text-align:left;padding:4px;">Value</th>
+            <th style="text-align:left;padding:4px;">Error Message</th>
+            <th style="width:30px;"></th>
+          </tr>
+        </thead>
+        <tbody id="rulesBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top:12px;padding:10px;border:1px solid #e0e0e0;border-radius:6px;background:#f9f9f9;">
+      <small style="color:#888;">
+        Columns pass through unchanged on success. On failure, pipeline stops and returns
+        <code>422 Unprocessable Entity</code> with structured error details.
+      </small>
+    </div>
+  </div>
+</div>

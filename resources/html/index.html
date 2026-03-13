@@ -79,6 +79,71 @@
       <span class="tooltiptext">Conditionals</span>
     </div>
     <div class="tooltip">
+      <button data-label="endpoint" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('endpoint')">&#9881;</button>
+      <span class="tooltiptext">Endpoint</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="response-builder" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('response-builder')">&#128221;</button>
+      <span class="tooltiptext">Response Builder</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="validator" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('validator')">&#10003;</button>
+      <span class="tooltiptext">Validator</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="auth" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('auth')">&#128274;</button>
+      <span class="tooltiptext">Auth</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="db-execute" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('db-execute')">&#128196;</button>
+      <span class="tooltiptext">DB Execute</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="rate-limiter" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('rate-limiter')">&#9200;</button>
+      <span class="tooltiptext">Rate Limiter</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="cors" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('cors')">&#127760;</button>
+      <span class="tooltiptext">CORS</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="logger" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('logger')">&#128221;</button>
+      <span class="tooltiptext">Logger</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="cache" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('cache')">&#9889;</button>
+      <span class="tooltiptext">Cache</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="event-emitter" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('event-emitter')">&#128228;</button>
+      <span class="tooltiptext">Event Emitter</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="circuit-breaker" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('circuit-breaker')">&#9934;</button>
+      <span class="tooltiptext">Circuit Breaker</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="scheduler" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('scheduler')">&#128337;</button>
+      <span class="tooltiptext">Scheduler</span>
+    </div>
+    <div class="tooltip">
+      <button data-label="webhook" data-conn_id="123" data-schema="schema"
+        onclick="addRectangle('webhook')">&#127381;</button>
+      <span class="tooltiptext">Webhook</span>
+    </div>
+    <div class="tooltip">
       <button onclick="toggleScheduler(this)">&#128198;</button>
       <span class="tooltiptext">Schedular</span>
     </div>
@@ -100,6 +165,14 @@
     <div class="tooltip">
       <button onclick="toggleWfDialog()" style="width:fit-content; padding:0 5px;">WorFlow</button>
       <span class="tooltiptext">New Workflow</span>
+    </div>
+    <div class="tooltip">
+      <button onclick="toggleOpenApiImport()" style="width:fit-content; padding:0 5px;">OpenAPI</button>
+      <span class="tooltiptext">Import OpenAPI Spec</span>
+    </div>
+    <div class="tooltip">
+      <button onclick="deployEndpoints()" style="width:fit-content; padding:0 5px;">Deploy API</button>
+      <span class="tooltiptext">Deploy Ep/Wh routes for live testing</span>
     </div>
   </div>
 
@@ -181,6 +254,33 @@
   <api-connection-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </api-connection-component>
 
+  <endpoint-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </endpoint-component>
+  <response-builder-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </response-builder-component>
+  <validator-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </validator-component>
+  <scheduler-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </scheduler-component>
+  <webhook-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </webhook-component>
+  <auth-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </auth-component>
+  <db-execute-component style="display:none; height: 100vh; width: 50%; position: fixed; top: 0;right: 0;background-color: white;">
+  </db-execute-component>
+  <rate-limiter-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </rate-limiter-component>
+  <cors-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </cors-component>
+  <logger-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </logger-component>
+  <cache-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </cache-component>
+  <event-emitter-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </event-emitter-component>
+  <circuit-breaker-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  </circuit-breaker-component>
+
   <smart-window id="renameDialog" label="Change Name" style="width:400px;height:400px;position:fixed;left:40%;top:20%">
     <div class="rename-form">
       <div>
@@ -247,11 +347,25 @@
   <script type="module" src="scheduler-wizard.js"></script>
   <script type="module" src="functionBuilder.js"></script>
   <script type="module" src="targetComponent.js"></script>
-  <script type="module" src="database_forms/index.js"></script>
+  <!-- <script type="module" src="database_forms/index.js"></script> TODO: create database_forms module -->
   <script type="module" src="gitlabPipelineBuilder.js"></script>
   <script type="module" src="apiConnectionComponent.js"></script>
+  <script type="module" src="endpointComponent.js"></script>
+  <script type="module" src="responseBuilderComponent.js"></script>
+  <script type="module" src="validatorComponent.js"></script>
+  <script type="module" src="authComponent.js"></script>
+  <script type="module" src="dbExecuteComponent.js"></script>
+  <script type="module" src="rateLimiterComponent.js"></script>
+  <script type="module" src="corsComponent.js"></script>
+  <script type="module" src="loggerComponent.js"></script>
+  <script type="module" src="cacheComponent.js"></script>
+  <script type="module" src="eventEmitterComponent.js"></script>
+  <script type="module" src="circuitBreakerComponent.js"></script>
+  <script type="module" src="schedulerComponent.js"></script>
+  <script type="module" src="webhookComponent.js"></script>
 
   <script src="main.js"></script>
+  <script type="module" src="openApiImport.js"></script>
 </body>
 
 </html>

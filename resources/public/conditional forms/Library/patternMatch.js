@@ -81,17 +81,16 @@ class PatternMatchEditor extends HTMLElement {
         inputElement1.type = "text";
         inputElement1.classList.add("margin-left");
         parentElement.insertBefore(inputElement1, this.addColumnBtn);
-    
+
         const inputElement2 = document.createElement("input");
         inputElement2.type = "text";
         inputElement2.classList.add("margin-left");
-    
+
         const guardSection = parentElement.nextElementSibling;
         guardSection.insertBefore(inputElement2, guardSection.querySelector('label'));
     }
 
     addPattern(list) {
-        // Clone the Guard and Group sections
         const guardSection = this.shadowRoot.querySelectorAll('.section')[1].cloneNode(true);
         const groupSection = this.shadowRoot.querySelectorAll('.section')[2].cloneNode(true);
         const container = document.createElement("div");
@@ -106,46 +105,61 @@ class PatternMatchEditor extends HTMLElement {
         container.querySelector('input[name="group"]').value = "";
     }
 
-    save(object) {
-        const jsonData = {
-            headers: [],
-            headersValue: [],
-            cases: [],
-            default: object.default.value
-        };
-    
-        // Add the first section data as an array of headers
-        const firstSection = object.shadowRoot.querySelector('.section');
-        const headerInputs = firstSection.querySelectorAll('input[type="text"], select');
-        headerInputs.forEach(input => {
-            jsonData.headers.push(input.value);
+    collectData() {
+        const branches = [];
+        // First pattern from main fields
+        branches.push({
+            guard: this.shadowRoot.querySelector('input[name="guard"]').value,
+            group: this.shadowRoot.querySelector('input[name="group"]').value
         });
-    
-        // Add the second section data before the guard clause as an array of headers
-        const secondSection = object.shadowRoot.querySelectorAll('.section')[1];
-        const secondSectionInputs = secondSection.querySelectorAll('input:not([name="guard"])');
-        const secondSectionValues = [];
-        secondSectionInputs.forEach(input => {
-            secondSectionValues.push(input.value);
-        });
-        jsonData.headersValue.push(secondSectionValues);
-    
-        // Add the first "guard" and "group" values from the main fields
-        jsonData.cases.push({
-            guard: object.shadowRoot.querySelector('input[name="guard"]').value,
-            group: object.shadowRoot.querySelector('input[name="group"]').value
-        });
-    
-        for (const content of object.list.childNodes) {
+        // Additional patterns from list
+        for (const content of this.list.childNodes) {
             const guardSection = content.querySelectorAll('.section')[0];
             const groupSection = content.querySelectorAll('.section')[1];
-            const guard = guardSection.querySelector('input[name="guard"]').value;
-            const group = groupSection.querySelector('input[name="group"]').value;
-            jsonData.cases.push({ guard, group });
+            branches.push({
+                guard: guardSection?.querySelector('input[name="guard"]')?.value || "",
+                group: groupSection?.querySelector('input[name="group"]')?.value || ""
+            });
         }
-    
-        console.log(jsonData);
-        storeData(jsonData);
+        // Collect headers from first section
+        const firstSection = this.shadowRoot.querySelector('.section');
+        const headerInputs = firstSection.querySelectorAll('input[type="text"], select');
+        const headers = [];
+        headerInputs.forEach(input => headers.push(input.value));
+
+        return {
+            branches,
+            default_branch: this.default.value,
+            headers
+        };
+    }
+
+    loadData(data) {
+        const branches = data.branches || [];
+        while (this.list.firstChild) this.list.removeChild(this.list.firstChild);
+
+        if (branches.length > 0) {
+            this.shadowRoot.querySelector('input[name="guard"]').value = branches[0].guard || "";
+            this.shadowRoot.querySelector('input[name="group"]').value = branches[0].group || "";
+        }
+        for (let i = 1; i < branches.length; i++) {
+            this.addPattern(this.list);
+            const last = this.list.children[0];
+            const guardEl = last.querySelector('input[name="guard"]');
+            if (guardEl) guardEl.value = branches[i].guard || "";
+            const groupEl = last.querySelector('input[name="group"]');
+            if (groupEl) groupEl.value = branches[i].group || "";
+        }
+        this.default.value = data.default_branch || "";
+    }
+
+    save(object) {
+        const d = this.collectData();
+        storeData({
+            cond_type: "pattern-match",
+            branches: d.branches,
+            default_branch: d.default_branch
+        });
     }
 }
 

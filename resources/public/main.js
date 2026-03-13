@@ -1,5 +1,5 @@
 // Initialize global data
-window.data = JSON.parse(localStorage.getItem('jqdata')) || {
+window.data = {
   rectangles: [],
   associations: [],
   selectedRectangle: "",
@@ -141,15 +141,26 @@ window.addRectangle = function (name) {
 
 const panelBtns = document.querySelectorAll('.panel-btns>div>button');
 addDragListeners(panelBtns);
-function addDragListeners(groups) {
-  const groupArray = Array.from(groups);
-  for (let i = 0; i < 4; i++) {
-    groupArray.pop();
-  }
-  groupArray.forEach((element) => {
-    element.setAttribute("draggable", "true");
-    element.addEventListener("dragstart", handleDragStart.bind(this));
+
+// Position tooltips with fixed positioning so they escape overflow containers
+document.querySelectorAll('.panel-btns .tooltip').forEach(tip => {
+  const tt = tip.querySelector('.tooltiptext');
+  if (!tt) return;
+  tip.addEventListener('mouseenter', () => {
+    const r = tip.getBoundingClientRect();
+    tt.style.top = (r.bottom + 4) + 'px';
+    tt.style.left = (r.left + r.width / 2 - 60) + 'px';
+    tt.style.display = 'block';
   });
+  tip.addEventListener('mouseleave', () => { tt.style.display = 'none'; });
+});
+function addDragListeners(groups) {
+  Array.from(groups)
+    .filter((element) => element.hasAttribute("data-label") && element.hasAttribute("data-conn_id"))
+    .forEach((element) => {
+      element.setAttribute("draggable", "true");
+      element.addEventListener("dragstart", handleDragStart.bind(this));
+    });
 }
 
 function handleDragStart(event) {
@@ -180,6 +191,33 @@ window.toggleLogic = function () {
     lambda.setAttribute("visibility", "close");
   } else {
     lambda.setAttribute("visibility", "open");
+  }
+}
+
+window.deployEndpoints = async function () {
+  try {
+    const response = await fetch("/deployEndpoints", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error || `HTTP ${response.status}`);
+    }
+
+    if (!data?.count) {
+      alert(`No Ep/Wh nodes found in graph ${data?.graph_id}. Add endpoints and deploy again.`);
+      return;
+    }
+
+    const lines = (data.endpoints || [])
+      .map((ep) => `${ep.method} ${ep.url}`)
+      .join("\n");
+    alert(`Deployed ${data.count} endpoint(s) for graph ${data.graph_id}:\n\n${lines}`);
+  } catch (error) {
+    console.error("deployEndpoints error:", error);
+    alert(`Deploy failed: ${error.message || "Unknown error"}`);
   }
 }
 

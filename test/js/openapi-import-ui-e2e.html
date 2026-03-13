@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>OpenAPI Import UI E2E Test</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; font-weight: bold; }
+    .section { margin-top: 16px; font-weight: bold; border-bottom: 1px solid #ccc; }
+    #results { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>OpenAPI Import UI E2E Test</h2>
+  <div id="results"></div>
+
+  <script type="module">
+    let passed = 0;
+    let failed = 0;
+    const log = document.getElementById("results");
+
+    function section(name) {
+      const el = document.createElement("div");
+      el.className = "section";
+      el.textContent = `\n--- ${name} ---`;
+      log.appendChild(el);
+    }
+
+    function assert(condition, msg) {
+      const el = document.createElement("div");
+      if (condition) {
+        passed++;
+        el.className = "pass";
+        el.textContent = `  PASS: ${msg}`;
+      } else {
+        failed++;
+        el.className = "fail";
+        el.textContent = `  FAIL: ${msg}`;
+      }
+      log.appendChild(el);
+    }
+
+    function assertEqual(actual, expected, msg) {
+      assert(actual === expected, `${msg} — expected "${expected}", got "${actual}"`);
+    }
+
+    async function waitFor(fn, timeoutMs = 4000) {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        const val = fn();
+        if (val) return val;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error("Timed out waiting for condition");
+    }
+
+    function summary() {
+      const el = document.createElement("div");
+      el.className = failed > 0 ? "fail" : "pass";
+      el.textContent = `\n========== ${passed} passed, ${failed} failed ==========`;
+      log.appendChild(el);
+      window.__TEST_FAILED__ = failed > 0;
+    }
+
+    section("Setup");
+
+    window.data = {
+      selectedRectangle: "",
+      rectangles: [
+        {
+          id: "ep-1",
+          btype: "Ep",
+          http_method: "get",
+          route_path: "/pet/{petId}",
+          path_params: [
+            { param_name: "petId", data_type: "integer", description: "Pet ID" }
+          ],
+          query_params: [
+            { param_name: "status", data_type: "varchar", required: false, default_value: "" }
+          ],
+          body_schema: [],
+          response_format: "json",
+          description: "Find pet by id"
+        },
+        {
+          id: "ep-2",
+          btype: "Ep",
+          http_method: "DELETE",
+          route_path: "/user/{username}",
+          path_params: [
+            { param_name: "username", data_type: "varchar", description: "Username" }
+          ],
+          query_params: [],
+          body_schema: [],
+          response_format: "json",
+          description: "Delete user by username"
+        },
+        {
+          id: "rb-1",
+          btype: "Rb",
+          status_code: "200",
+          response_type: "json",
+          headers: "",
+          template: [
+            { output_key: "id", source_column: "id" },
+            { output_key: "name", source_column: "name" }
+          ],
+          items: [
+            { business_name: "getPetById.petId", technical_name: "getPetById.petId", data_type: "integer" },
+            { business_name: "getPetById.status", technical_name: "getPetById.status", data_type: "varchar" },
+            { business_name: "getPetById.id", technical_name: "getPetById.id", data_type: "integer" },
+            { business_name: "getPetById.name", technical_name: "getPetById.name", data_type: "varchar" }
+          ]
+        }
+      ]
+    };
+
+    const originalFetch = window.fetch.bind(window);
+
+    window.fetch = async (input, init = {}) => {
+      const raw = typeof input === "string" ? input : input.url;
+      if (raw.endsWith("endpointComponent.html")) {
+        return originalFetch("../../resources/public/endpointComponent.html");
+      }
+      if (raw.endsWith("responseBuilderComponent.html")) {
+        return originalFetch("../../resources/public/responseBuilderComponent.html");
+      }
+      if (raw.includes("/saveEndpoint") || raw.includes("/saveResponseBuilder")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return originalFetch(input, init);
+    };
+
+    assert(true, "Mock OpenAPI-imported rectangles initialized");
+
+    section("Canvas Ep Label");
+
+    await import("../../resources/public/rectangleComponent.js");
+    const epRect = document.createElement("rectangle-component");
+    epRect.setAttribute("id", "ep-node-1");
+    epRect.setAttribute("alias", "getUserByName");
+    epRect.setAttribute("btype", "Ep");
+    epRect.setAttribute("endpoint-label", "/user/{username}");
+    document.body.appendChild(epRect);
+
+    const epAliasInfo = await waitFor(() => epRect.shadowRoot && epRect.shadowRoot.querySelector("#alias-info"));
+    const epPath = epRect.shadowRoot.querySelector(".endpoint-path");
+    const epIcon = epRect.shadowRoot.querySelector(".endpoint-icon");
+
+    assert(epAliasInfo.classList.contains("endpoint-alias"), "Endpoint rectangle uses endpoint label layout");
+    assertEqual(epPath.textContent, "/user/{username}", "Endpoint rectangle shows route path text");
+    assert(epIcon !== null, "Endpoint rectangle keeps Ep icon on the right");
+
+    section("Endpoint UI");
+
+    await import("../../resources/public/endpointComponent.js");
+    const epComp = document.createElement("endpoint-component");
+    document.body.appendChild(epComp);
+
+    await waitFor(() => epComp.shadowRoot && epComp.shadowRoot.querySelector("#httpMethod"));
+    window.data.selectedRectangle = "ep-1";
+    epComp.setAttribute("visibility", "open");
+
+    const httpMethodSelect = epComp.shadowRoot.querySelector("#httpMethod");
+    const routePathInput = epComp.shadowRoot.querySelector("#routePath");
+    const pathRows = epComp.shadowRoot.querySelectorAll("#pathParamsBody tr");
+    const queryRows = epComp.shadowRoot.querySelectorAll("#queryParamsBody tr");
+    const firstPathName = epComp.shadowRoot.querySelector('#pathParamsBody input[data-field="param_name"]');
+    const firstQueryName = epComp.shadowRoot.querySelector('#queryParamsBody input[data-field="param_name"]');
+
+    assertEqual(httpMethodSelect.value, "GET", "Endpoint normalizes lower-case imported method to GET selection");
+    assertEqual(routePathInput.value, "/pet/{petId}", "Endpoint route path rendered from imported node");
+    assertEqual(pathRows.length, 1, "Endpoint shows imported path param row");
+    assertEqual(queryRows.length, 1, "Endpoint shows imported query param row");
+    assertEqual(firstPathName.value, "petId", "Endpoint path param name is visible");
+    assertEqual(firstQueryName.value, "status", "Endpoint query param name is visible");
+
+    epComp.setAttribute("visibility", "close");
+    window.data.selectedRectangle = "ep-2";
+    epComp.setAttribute("visibility", "open");
+    assertEqual(epComp.shadowRoot.querySelector("#httpMethod").value, "DELETE",
+      "Endpoint method selection refreshes per-node (no stale default)");
+
+    section("Response Builder UI");
+
+    await import("../../resources/public/responseBuilderComponent.js");
+    const rbComp = document.createElement("response-builder-component");
+    document.body.appendChild(rbComp);
+
+    await waitFor(() => rbComp.shadowRoot && rbComp.shadowRoot.querySelector("#statusCode"));
+    window.data.selectedRectangle = "rb-1";
+    rbComp.setAttribute("visibility", "open");
+
+    const varsCard = rbComp.shadowRoot.querySelector("#availableVarsCard");
+    const varsText = rbComp.shadowRoot.querySelector("#availableVarsList").textContent;
+    const templateRows = rbComp.shadowRoot.querySelectorAll("#fieldMappingsBody tr");
+    const sourceInput = rbComp.shadowRoot.querySelector(".rb-source_column");
+
+    assert(varsCard.style.display !== "none", "Response Builder variables card is visible");
+    assert(varsText.includes("petId"), "Response Builder lists imported upstream param petId");
+    assert(varsText.includes("status"), "Response Builder lists imported upstream param status");
+    assertEqual(templateRows.length, 2, "Response template rows render from imported Rb template");
+    assertEqual(sourceInput.getAttribute("list"), "sourceColumnOptions", "Source column autocomplete is wired");
+
+    summary();
+  </script>
+</body>
+</html>

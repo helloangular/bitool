@@ -40,7 +40,6 @@ class Condition extends HTMLElement {
     }
 
     addCondition(list) {
-        // Clone the textarea/group-name section
         const section = this.shadowRoot.querySelectorAll('.section')[0].cloneNode(true);
         const container = document.createElement("div");
         container.append(section);
@@ -54,24 +53,50 @@ class Condition extends HTMLElement {
         container.querySelector('input[name="group-name"]').value = "";
     }
 
-    save(object) {
-        const jsonData = {
-            conditions: [],
-            default: object.default.value
-        };
-        // Add the first "condition" and "group-name" values from the main fields
-        jsonData.conditions.push({
-            condition: object.shadowRoot.querySelector('textarea').value,
-            groupName: object.shadowRoot.querySelector('input[name="group-name"]').value
+    collectData() {
+        const branches = [];
+        branches.push({
+            condition: this.shadowRoot.querySelector('textarea').value,
+            group: this.shadowRoot.querySelector('input[name="group-name"]').value
         });
-        for (const content of object.list.childNodes) {
-            jsonData.conditions.push({
-                condition: content.querySelector('textarea').value,
-                groupName: content.querySelector('input[name="group-name"]').value
+        for (const content of this.list.childNodes) {
+            branches.push({
+                condition: content.querySelector('textarea')?.value || "",
+                group: content.querySelector('input[name="group-name"]')?.value || ""
             });
         }
-        console.log(jsonData);
-        storeData(jsonData);
+        return {
+            branches,
+            default_branch: this.default.value
+        };
+    }
+
+    loadData(data) {
+        const branches = data.branches || [];
+        while (this.list.firstChild) this.list.removeChild(this.list.firstChild);
+
+        if (branches.length > 0) {
+            this.shadowRoot.querySelector('textarea').value = branches[0].condition || "";
+            this.shadowRoot.querySelector('input[name="group-name"]').value = branches[0].group || "";
+        }
+        for (let i = 1; i < branches.length; i++) {
+            this.addCondition(this.list);
+            const last = this.list.children[0];
+            const ta = last.querySelector('textarea');
+            if (ta) ta.value = branches[i].condition || "";
+            const gn = last.querySelector('input[name="group-name"]');
+            if (gn) gn.value = branches[i].group || "";
+        }
+        this.default.value = data.default_branch || "";
+    }
+
+    save(object) {
+        const d = this.collectData();
+        storeData({
+            cond_type: "cond",
+            branches: d.branches,
+            default_branch: d.default_branch
+        });
     }
 }
 

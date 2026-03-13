@@ -190,6 +190,8 @@ class FilterComponent extends HTMLElement {
   }
 
   appendExpression() {
+    // Remove any stale expression-component before appending a fresh one
+    this.shadowRoot.querySelectorAll("expression-component").forEach(el => el.remove());
     const component = document.createElement("expression-component");
     component.selectedRectangle = this.selectedRectangle;
     this.mainContainer.appendChild(component);

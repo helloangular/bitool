@@ -1,0 +1,52 @@
+<svg width="860" height="180" viewBox="0 0 860 180">
+      <!-- Traditional pipeline -->
+      <text x="430" y="20" text-anchor="middle" fill="#f87171" font-family="Inter,sans-serif" font-size="13" font-weight="600">TRADITIONAL DELIVERY CYCLE</text>
+
+      <rect x="30" y="40" width="115" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="88" y="63" text-anchor="middle" fill="#fca5a5" font-family="Inter,sans-serif" font-size="12" font-weight="600">Requirements</text>
+      <text x="88" y="78" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">2 wks</text>
+
+      <text x="157" y="68" fill="#475569" font-family="Inter,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="170" y="40" width="100" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="220" y="63" text-anchor="middle" fill="#fca5a5" font-family="Inter,sans-serif" font-size="12" font-weight="600">Design</text>
+      <text x="220" y="78" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">2 wks</text>
+
+      <text x="282" y="68" fill="#475569" font-family="Inter,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="295" y="40" width="100" height="50" rx="10" fill="rgba(239,68,68,0.15)" stroke="rgba(239,68,68,0.35)" stroke-width="1.5"/>
+      <text x="345" y="63" text-anchor="middle" fill="#fca5a5" font-family="Inter,sans-serif" font-size="12" font-weight="600">Develop</text>
+      <text x="345" y="78" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">4-8 wks</text>
+
+      <text x="407" y="68" fill="#475569" font-family="Inter,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="420" y="40" width="100" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="470" y="63" text-anchor="middle" fill="#fca5a5" font-family="Inter,sans-serif" font-size="12" font-weight="600">Test</text>
+      <text x="470" y="78" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">2-4 wks</text>
+
+      <text x="532" y="68" fill="#475569" font-family="Inter,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="545" y="40" width="100" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="595" y="63" text-anchor="middle" fill="#fca5a5" font-family="Inter,sans-serif" font-size="12" font-weight="600">Deploy</text>
+      <text x="595" y="78" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">1-2 wks</text>
+
+      <text x="657" y="68" fill="#475569" font-family="Inter,sans-serif" font-size="18">&#8250;</text>
+
+      <rect x="670" y="40" width="115" height="50" rx="10" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.3)" stroke-width="1.5"/>
+      <text x="728" y="63" text-anchor="middle" fill="#fca5a5" font-family="Inter,sans-serif" font-size="12" font-weight="600">Compliance</text>
+      <text x="728" y="78" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">2-4 wks</text>
+
+      <!-- Total -->
+      <rect x="180" y="110" width="500" height="36" rx="8" fill="rgba(239,68,68,0.08)" stroke="rgba(239,68,68,0.2)" stroke-width="1"/>
+      <text x="430" y="134" text-anchor="middle" fill="#f87171" font-family="Inter,sans-serif" font-size="14" font-weight="700">13-22 WEEKS PER INTEGRATION FLOW</text>
+
+      <!-- Bottom labels -->
+      <text x="140" y="170" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">Requirements lost</text>
+      <text x="140" y="180" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">in translation</text>
+      <text x="345" y="170" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">Design docs go stale</text>
+      <text x="345" y="180" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">as code diverges</text>
+      <text x="540" y="170" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">Bugs found late</text>
+      <text x="540" y="180" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">expensive rework</text>
+      <text x="728" y="170" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">Audit requires</text>
+      <text x="728" y="180" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">developer translation</text>
+    </svg>

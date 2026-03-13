@@ -1,0 +1,51 @@
+<link rel="stylesheet" href="./app.css" />
+<link rel="stylesheet" href="./source/styles/smart.default.css" />
+<style>
+  .panel { display:flex; flex-direction:column; height:100%; box-shadow:0 4px 8px rgba(0,0,0,.2); }
+  .header { display:flex; justify-content:space-between; align-items:center; padding:10px; }
+  .body { padding:10px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; scrollbar-width:none; flex:1; }
+  .row { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:#555; }
+  select { width:100%; padding:8px; border:1px solid #e0e0e0; border-radius:4px; font-size:13px; box-sizing:border-box; }
+  .info { background:#f0f7ff; border:1px solid #b3d4f5; border-radius:4px; padding:8px; font-size:11px; color:#336; }
+  .cols-hint { font-size:11px; color:#888; display:flex; flex-wrap:wrap; gap:4px; }
+  .col-chip { background:#eef; border:1px solid #ccf; border-radius:3px; padding:1px 6px; cursor:pointer; }
+</style>
+
+<div class="panel">
+  <div class="header">
+    <strong>Event Emitter</strong>
+    <div style="display:flex;gap:6px;">
+      <button id="saveBtn" style="font-size:11px;">Save</button>
+      <button id="closeBtn" style="font-size:20px;background:none;border:none;cursor:pointer;">&#9747;</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="row">
+      <label>Node Name</label>
+      <smart-input id="nodeName" class="outlined" style="width:100%"></smart-input>
+    </div>
+    <div class="row">
+      <label>Broker URL</label>
+      <smart-input id="brokerUrl" class="outlined" style="width:100%" placeholder="kafka://broker:9092"></smart-input>
+    </div>
+    <div class="row">
+      <label>Topic</label>
+      <smart-input id="topic" class="outlined" style="width:100%" placeholder="orders.created"></smart-input>
+    </div>
+    <div class="row">
+      <label>Message Key Template — use <code>{{column}}</code></label>
+      <smart-input id="keyTemplate" class="outlined" style="width:100%" placeholder="{{order_id}}"></smart-input>
+      <div class="cols-hint" id="colsHint"></div>
+    </div>
+    <div class="row">
+      <label>Payload Format</label>
+      <select id="format">
+        <option value="json">JSON</option>
+        <option value="avro">Avro</option>
+        <option value="edn">EDN</option>
+      </select>
+    </div>
+    <div class="info">Fire-and-forget — pipeline continues immediately after publish regardless of broker response.</div>
+  </div>
+</div>

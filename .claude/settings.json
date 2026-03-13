@@ -1,0 +1,12 @@
+{
+  "model": "opus",
+  "permissions": {
+    "allow": ["Bash(*)",
+              "WebSearch",
+      "WebFetch(*)",
+      "Read(*)",
+      "Write(*)","Bash", "Read", "Write"],
+  
+    "deny": []
+  }
+}

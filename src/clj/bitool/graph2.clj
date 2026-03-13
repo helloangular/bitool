@@ -19,12 +19,37 @@
 
 (def rectangles
 	{
-	    "T" ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "O"]
-	    "V" ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "O"]
-	    "P" ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "O"]
-	    "Ap" ["T" "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "O"]
-	    "J" ["T" "V" "P" "A" "S" "Fi" "Fu" "J" "U" "O"]
-	    "U" ["T" "V" "P" "A" "S" "Fi" "Fu" "J" "U" "O"]
+	    "T"  ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
+	    "V"  ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
+	    "P"  ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
+	    "Ap" ["T" "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
+	    "J"  ["T" "V" "P" "A" "S" "Fi" "Fu" "J" "U" "C" "O"]
+	    "U"  ["T" "V" "P" "A" "S" "Fi" "Fu" "J" "U" "C" "O"]
+	    "Ep" ["Au" "Vd" "Rl" "Cr" "Lg" "Ci" "Cq" "Dx"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "Rb" "O"]
+	    "Rb" ["O"]
+	    "Vd" ["Au" "Dx" "Rl" "Cr" "Lg" "Ci" "Cq" "Ev"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "Rb" "O"]
+	    "Au" ["Vd" "Dx" "Rl" "Cr" "Lg" "Ci" "Cq" "Ev"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "Rb" "O"]
+	    "Rl" ["Vd" "Au" "Dx" "Cr" "Lg" "Ci" "Cq" "Ev"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Rb" "O"]
+	    "Cr" ["Vd" "Au" "Dx" "Rl" "Lg" "Ci" "Cq" "Ev"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Rb" "O"]
+	    "Lg" ["Vd" "Au" "Dx" "Rl" "Cr" "Ci" "Cq" "Ev"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "Rb" "O"]
+	    "Ci" ["Vd" "Au" "Dx" "Rl" "Cr" "Lg" "Cq" "Ev"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Rb" "O"]
+	    "Cq" ["Vd" "Au" "Dx" "Rl" "Cr" "Lg" "Ci" "Ev"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Rb" "O"]
+	    "Dx" ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "Rb" "Lg" "O"]
+	    "Ev" ["Rb" "O"]
+	    "Sc" ["Au" "Vd" "Rl" "Lg" "Dx"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "O"]
+	    "Wh" ["Au" "Vd" "Rl" "Lg" "Dx"
+	          "J" "U" "P" "A" "S" "Fi" "Fu" "Rb" "O"]
+	    "Fu" ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "Rb" "O"]
+    "C"  ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "Rb" "O"]
         })
 ;; Tg -> Target , TgT Target Table
 
@@ -43,6 +68,19 @@
   "api-connection" "Ap",
   "graphql-builder" "Gq",
   "conditionals" "C",
+  "endpoint" "Ep",
+  "response-builder" "Rb",
+  "validator" "Vd",
+  "auth" "Au",
+  "db-execute" "Dx",
+  "rate-limiter" "Rl",
+  "cors" "Cr",
+  "logger" "Lg",
+  "cache" "Cq",
+  "event-emitter" "Ev",
+  "circuit-breaker" "Ci",
+  "scheduler" "Sc",
+  "webhook" "Wh",
   "output" "O"
         })
 
@@ -148,7 +186,22 @@
 
 (defn tmap[g node] (get-in g [:n node :na]))
 
-(def node-keys {"filter" [:sql], "calculated" [:returntype :length :description :sql :datadef] , "aggregation" [:groupby :having]}) 
+(def node-keys {"filter" [:sql], "calculated" [:returntype :length :description :sql :datadef] , "aggregation" [:groupby :having],
+                 "endpoint" [:http_method :route_path :path_params :query_params :body_schema :response_format :description]
+                 "response-builder" [:status_code :response_type :headers :template]
+                 "validator" [:rules]
+                 "auth" [:auth_type :token_header :secret :claims_to_cols]
+                 "db-execute" [:connection_id :operation :sql_template :result_mode]
+                 "rate-limiter" [:max_requests :window_seconds :key_type :burst]
+                 "cors" [:allowed_origins :allowed_methods :allowed_headers :allow_credentials :max_age]
+                 "logger" [:log_level :log_fields]
+                 "cache" [:cache_key :ttl_seconds :strategy]
+                 "event-emitter" [:event_name :payload_template]
+                 "circuit-breaker" [:failure_threshold :reset_timeout :fallback_response]
+                 "scheduler" [:cron_expression :timezone :params]
+                 "webhook"   [:webhook_path :secret_header :secret_value :payload_format]
+                 "conditionals" [:cond_type :branches :default_branch]
+                 "function" [:fn_name :fn_params :fn_lets :fn_return :fn_outputs]})
 
 (defn add-keys-with-empty-values [m keys]
   (reduce (fn [acc key]
@@ -190,6 +243,17 @@
 
 (defn delete-edge [ g edge ]
       (update-in g [:n (first edge) :e] dissoc (second edge)))
+
+(defn remove-node
+  "Remove node id from the graph and drop all edges pointing to it."
+  [g id]
+  (let [g' (update g :n dissoc id)]
+    (update g' :n
+            (fn [nodes]
+              (into {}
+                    (map (fn [[nid nd]]
+                           [nid (update nd :e dissoc id)])
+                         nodes))))))
 
 (defn add-edges [ g edges ]
    (reduce add-edge g edges))
@@ -348,7 +412,7 @@
 (defn successors [ g node ] (if (= node (getFinalNode g)) [] (tail  (top-sort g) (parent g node))))
 
 (defn getTcols[g id]
-        (let [tid (first (filter #(not (some #{(btype % g)} ["filter" "sorter" "lookup" "association"] )) (predecessors g id)))
+        (let [tid (first (filter #(not (some #{(btype % g)} ["filter" "sorter" "lookup" "association" "conditionals"] )) (predecessors g id)))
               _ (println (str "------TID : " tid))
              ]
              (tcols g tid)))
@@ -397,17 +461,28 @@
         sp/NONE))
     g)) 
 
+(defn- endpoint-node-label
+  "Label shown on endpoint-like nodes in the canvas."
+  [na]
+  (case (:btype na)
+    "Ep" (let [method (-> (or (:http_method na) "") str string/upper-case)
+               route  (or (:route_path na) "")]
+           (string/trim (str (when (seq method) (str method " ")) route)))
+    "Wh" (or (:webhook_path na) "")
+    ""))
+
 (defn getOrphanNodeAttrs[g acc node]
-      ;; (conj acc {"alias" (node-name node g), "y" (attr g node :y) , "x" (attr g node :x) ,"btype" (attr g node :btype) ,"parent"   (if (nil? (parent g node)) 0 (parent g node)) ,"id" node}))
-       (conj acc {"alias" (node-name node g), 
-                  "y" (attr g node :y) , 
+      (let [na (node node g)]
+       (conj acc {"alias" (:name na)
+                  "endpoint_label" (endpoint-node-label na)
+                  "y" (attr g node :y) ,
 		  "x" (attr g node :x) ,
-		  "btype" (attr g node :btype) ,
+		  "btype" (:btype na) ,
 		  "parent" (case (count (parents g node))
                                         0 0
                                         1 (first (parents g node))
                                         (parents g node))   ,
-		  "id" node}))
+		  "id" node})))
 
 (defn getOrphanAttrs[g]
       (reduce (partial getOrphanNodeAttrs g) [] (keys (:n g))))
@@ -685,7 +760,7 @@
                           _ (println (str "start-node : " start-node)) 
                           _ (println (str "table : " table)) 
            ]
-      (append-nodes-tcols g (find-nodes-btype g ["O" "Tg" "P" "Fi" "S" "A" "Fu"] (successors g start-node)) (:tcols table))))
+      (append-nodes-tcols g (find-nodes-btype g ["O" "Tg" "P" "Fi" "S" "A" "Fu" "C"] (successors g start-node)) (:tcols table))))
 
 (defn populate-join-cols [g join t1 t2]
       (assoc-in g [:n join :na] (-> (node join g) 
@@ -816,10 +891,10 @@
                 _ (println (str "VALID : " (validate-connect g t1 t2)))
 	] 
        (if (validate-connect g t1 t2)
-           (-> g
-               (add-edge [t1 t2])
-             ;;  (update-table-cols t2 (tcols g t1))
-               (db/insertGraph)) g)))
+           (let [g1 (add-edge g [t1 t2])]
+             (-> g1
+                 (update-table-cols t1 (tmap g1 t1))
+                 (db/insertGraph))) g)))
 
 (defn isFirstTable[t1 t2] (or (= 1 t1) (= 1 t2)))
 
@@ -886,10 +961,26 @@
         		"technical_name" alias,           
         		"btype" btype	}
            ]
-           (case btype 
+           (case btype
   		 "A" (assoc item "having" (:having tmap))
   		 "Fi" (assoc item "expression" (:sql tmap))
   		 "Tg" (merge item (select-keys tmap [:truncate :create_table :c :connection :table_name]))
+  		 "Ep" (merge item (select-keys tmap [:http_method :route_path :path_params
+                                                      :query_params :body_schema :response_format :description]))
+  		 "Rb" (merge item (select-keys tmap [:status_code :response_type :headers :template]))
+		 "Vd" (assoc item "rules" (:rules tmap))
+		 "Au" (merge item (select-keys tmap [:auth_type :token_header :claims_to_cols]))
+		 "Dx" (merge item (select-keys tmap [:connection_id :operation :sql_template :result_mode]))
+		 "Rl" (merge item (select-keys tmap [:max_requests :window_seconds :key_type :burst]))
+		 "Cr" (merge item (select-keys tmap [:allowed_origins :allowed_methods :allowed_headers :allow_credentials :max_age]))
+		 "Lg" (merge item (select-keys tmap [:log_level :log_fields]))
+		 "Cq" (merge item (select-keys tmap [:cache_key :ttl_seconds :strategy]))
+		 "Ev" (merge item (select-keys tmap [:event_name :payload_template]))
+		 "Ci" (merge item (select-keys tmap [:failure_threshold :reset_timeout :fallback_response]))
+		 "Sc" (merge item (select-keys tmap [:cron_expression :timezone :params]))
+		 "Wh" (merge item (select-keys tmap [:webhook_path :secret_header :payload_format]))
+		 "C"  (merge item (select-keys tmap [:cond_type :branches :default_branch]))
+		 "Fu" (merge item (select-keys tmap [:fn_name :fn_params :fn_lets :fn_return :fn_outputs]))
  		 item)))
 
 (defn item_columns
@@ -998,6 +1089,352 @@ mapping node 7
           ]
         (assoc (item_master id alias btype  tmap) "items" (item_columns g columns))))
         ;; (assoc (item_master id alias btype  tmap) "items" (item_columns g columns id (:table tmap)))))
+
+;; ---- Endpoint (Ep) node functions ----
+
+(defn ep-params->tcols
+  "Convert endpoint path_params, query_params, and body_schema into standard tcols format.
+   Produces maps matching the format expected by column_row_details."
+  [node-id path-params query-params body-schema]
+  (let [gk       (fn [m & ks] (some #(get m %) ks))
+        make-col (fn [col-name dtype nullable]
+                   {:column_name (or col-name "")
+                    :data_type   (or dtype "varchar")
+                    :is_nullable (if nullable "YES" "NO")})
+        path-cols  (mapv #(make-col (gk % :param_name :name "param_name") (gk % :data_type "data_type") false) path-params)
+        query-cols (mapv #(make-col (gk % :param_name :name "param_name") (gk % :data_type "data_type") (not (gk % :required "required"))) query-params)
+        body-cols  (mapv #(make-col (gk % :field_name :name "field_name") (gk % :data_type "data_type") (not (gk % :required "required"))) body-schema)]
+    {node-id (vec (concat path-cols query-cols body-cols))}))
+
+(defn- mget
+  "Read a value from map `m` using the first present key from `ks`."
+  [m & ks]
+  (some (fn [k] (when (contains? m k) (get m k))) ks))
+
+(defn save-endpoint
+  "Save endpoint node configuration. Converts params into columns."
+  [g id params]
+  (let [params       (walk/keywordize-keys (or params {}))
+        kw-maps      (fn [coll] (mapv #(into {} (map (fn [[k v]] [(keyword k) v]) %)) coll))
+        path-params  (kw-maps (or (:path_params params) []))
+        query-params (kw-maps (or (:query_params params) []))
+        body-schema  (kw-maps (or (:body_schema params) []))
+        method       (-> (or (:http_method params) "GET") str string/upper-case)
+        method       (if (contains? #{"GET" "POST" "PUT" "DELETE" "PATCH" "HEAD" "OPTIONS" "TRACE"} method)
+                       method
+                       "GET")
+        tcols        (ep-params->tcols id path-params query-params body-schema)
+        node-params  {:http_method method
+                      :route_path (or (:route_path params) "")
+                      :response_format (or (:response_format params) "json")
+                      :description (or (:description params) "")
+                      :path_params path-params
+                      :query_params query-params
+                      :body_schema body-schema}
+        g          (update-node g id (assoc node-params :tcols tcols))
+        child-ids  (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-endpoint-item
+  "Retrieve endpoint node data for UI display."
+  [id g]
+  (let [tmap        (getData g id)
+        name        (or (mget tmap :name "name") "")
+        btype       (or (mget tmap :btype "btype") "Ep")
+        columns     (or (mget tmap :tcols "tcols") {})
+        http-method (-> (or (mget tmap :http_method "http_method") "GET") str string/upper-case)]
+    (assoc (item_master id name btype tmap)
+           "items" (item_columns g columns)
+           "http_method" http-method
+           "route_path" (or (mget tmap :route_path "route_path") "")
+           "path_params" (or (mget tmap :path_params "path_params") [])
+           "query_params" (or (mget tmap :query_params "query_params") [])
+           "body_schema" (or (mget tmap :body_schema "body_schema") [])
+           "response_format" (or (mget tmap :response_format "response_format") "json")
+           "description" (or (mget tmap :description "description") ""))))
+
+(defn parse-rb-headers
+  "Validate and parse headers string. Must be empty or a JSON object.
+   Returns the string as-is if valid, throws ex-info if not."
+  [headers-str]
+  (let [s (clojure.string/trim (or headers-str ""))]
+    (if (empty? s)
+      s
+      (let [parsed (try (cheshire.core/parse-string s)
+                        (catch Exception _ ::invalid))]
+        (if (and (not= parsed ::invalid) (map? parsed))
+          s
+          (throw (ex-info "headers must be a JSON object or empty"
+                          {:field :headers :value s})))))))
+
+(defn parse-rb-template
+  "Validate template: must be a vector of maps each with non-blank output_key and source_column.
+   Rows where both are blank are silently dropped (user left an empty row).
+   Rows where exactly one is blank are rejected."
+  [template]
+  (let [kw-maps (fn [coll] (mapv #(into {} (map (fn [[k v]] [(keyword k) v]) %)) coll))
+        rows    (kw-maps (or template []))]
+    (mapv (fn [row]
+            (let [ok (clojure.string/trim (str (:output_key row "")))
+                  sc (clojure.string/trim (str (:source_column row "")))]
+              (when (or (empty? ok) (empty? sc))
+                (throw (ex-info "each template row must have a non-blank output_key and source_column"
+                                {:field :template :row row})))
+              {:output_key ok :source_column sc}))
+          (remove (fn [r]
+                    (and (empty? (clojure.string/trim (str (:output_key r ""))))
+                         (empty? (clojure.string/trim (str (:source_column r ""))))))
+                  rows))))
+
+(defn- find-upstream-tcols
+  "Find the nearest upstream node with non-empty tcols."
+  [g id]
+  ;; Use incoming edges directly to avoid parent/child naming confusion in legacy helpers.
+  (loop [queue (seq (find-edges g id "src"))
+         visited #{}]
+    (if-let [nid (first queue)]
+      (let [rest-q (rest queue)]
+        (if (contains? visited nid)
+          (recur rest-q visited)
+          (let [cols (tcols g nid)]
+            (if (seq cols)
+              cols
+              (recur (concat rest-q (remove visited (find-edges g nid "src")))
+                     (conj visited nid))))))
+      {})))
+
+(defn save-response-builder
+  "Save response builder node configuration."
+  [g id params]
+  (let [params      (walk/keywordize-keys (or params {}))
+        headers     (parse-rb-headers (:headers params))
+        template    (parse-rb-template (:template params))
+        parent-tcols (find-upstream-tcols g id)
+        node-params {:status_code   (or (:status_code params) "200")
+                     :response_type (or (:response_type params) "json")
+                     :headers       headers
+                     :template      template
+                     :tcols         parent-tcols}
+        g          (update-node g id node-params)
+        child-ids  (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-response-builder-item
+  "Retrieve response builder node data for UI display."
+  [id g]
+  (let [tmap        (getData g id)
+        name        (or (mget tmap :name "name") "")
+        btype       (or (mget tmap :btype "btype") "Rb")
+        parent-cols (or (not-empty (mget tmap :tcols "tcols"))
+                        (find-upstream-tcols g id))]
+    (assoc (item_master id name btype tmap)
+           "status_code"   (or (mget tmap :status_code "status_code") "200")
+           "response_type" (or (mget tmap :response_type "response_type") "json")
+           "headers"       (or (mget tmap :headers "headers") "")
+           "template"      (or (mget tmap :template "template") [])
+           "items"         (item_columns g parent-cols))))
+
+;; --- Validator (Vd) ---
+
+(def valid-rule-types
+  #{"required" "min" "max" "min-length" "max-length" "regex" "one-of" "type"})
+
+(defn validate-rules [rules]
+  (doseq [[i row] (map-indexed vector rules)]
+    (when (clojure.string/blank? (str (:field row "")))
+      (throw (ex-info (str "Rule " (inc i) ": field name must not be blank")
+                      {:field :rules :row i})))
+    (when-not (valid-rule-types (:rule row))
+      (throw (ex-info (str "Rule " (inc i) ": unknown rule type '" (:rule row)
+                           "'. Must be one of: " (clojure.string/join ", " (sort valid-rule-types)))
+                      {:field :rules :row i}))))
+  rules)
+
+(defn save-validator [g id params]
+  (let [kw-maps      (fn [coll] (mapv #(into {} (map (fn [[k v]] [(keyword k) v]) %)) coll))
+        rules        (validate-rules (kw-maps (or (:rules params) [])))
+        parent-tcols (getTcols g id)
+        g            (update-node g id {:rules rules :tcols parent-tcols})
+        child-ids    (map second (find-edges g id))]
+    (reduce (fn [acc cid]
+              (assoc-in acc [:n cid :na :tcols] (getTcols acc cid)))
+            g child-ids)))
+
+(defn get-validator-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "rules" (:rules tmap)
+           "items" (item_columns g (:tcols tmap)))))
+
+;; --- Scheduler (Sc) ---
+
+(defn sc-params->tcols [id params]
+  (let [system-cols [{:column_name "triggered_at" :data_type "varchar" :is_nullable "NO"}
+                     {:column_name "job_id"        :data_type "varchar" :is_nullable "NO"}
+                     {:column_name "run_number"    :data_type "integer" :is_nullable "NO"}]
+        param-cols  (mapv #(hash-map :column_name (:name %)
+                                     :data_type   (or (:data_type %) "varchar")
+                                     :is_nullable "YES") params)]
+    {id (vec (concat system-cols param-cols))}))
+
+(defn validate-sc-cron [expr]
+  (let [s (clojure.string/trim (or expr ""))]
+    (when (empty? s)
+      (throw (ex-info "cron_expression must not be blank" {:field :cron_expression})))
+    ;; 5 whitespace-separated fields; each field: digits, *, -, /, ,
+    (when-not (re-matches #"[\d*/,\-]+\s+[\d*/,\-]+\s+[\d*/,\-]+\s+[\d*/,\-]+\s+[\w*/,\-]+" s)
+      (throw (ex-info (str "Invalid cron expression: '" s "'. Expected 5 fields (min hour day month weekday)")
+                      {:field :cron_expression})))
+    s))
+
+(defn validate-sc-timezone [tz]
+  (let [s (clojure.string/trim (or tz "UTC"))]
+    (try
+      (java.time.ZoneId/of s)
+      s
+      (catch java.time.DateTimeException _
+        (throw (ex-info (str "Invalid or unknown timezone: '" s "'") {:field :timezone}))))))
+
+(defn save-sc [g id params]
+  (let [cron-expr (validate-sc-cron (:cron_expression params))
+        timezone  (validate-sc-timezone (:timezone params))
+        kw-maps   (fn [coll] (mapv #(into {} (map (fn [[k v]] [(keyword k) v]) %)) coll))
+        sc-params (kw-maps (or (:params params) []))
+        tcols     (sc-params->tcols id sc-params)
+        node-params {:cron_expression cron-expr
+                     :timezone        timezone
+                     :params          sc-params
+                     :tcols           tcols}
+        g         (update-node g id node-params)
+        child-ids (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-sc-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "cron_expression" (:cron_expression tmap)
+           "timezone"        (:timezone tmap)
+           "params"          (:params tmap)
+           "items"           (item_columns g (:tcols tmap)))))
+
+;; --- Webhook (Wh) ---
+
+(defn wh-tcols [id]
+  {id [{:column_name "event_type"  :data_type "varchar" :is_nullable "YES"}
+       {:column_name "payload"     :data_type "json"    :is_nullable "NO"}
+       {:column_name "received_at" :data_type "varchar" :is_nullable "NO"}]})
+
+(defn save-wh [g id params]
+  (let [tcols          (wh-tcols id)
+        existing       (getData g id)
+        ;; Preserve existing secret when UI sends empty string (user did not re-enter it)
+        secret-value   (let [v (clojure.string/trim (str (:secret_value params "")))]
+                         (if (empty? v)
+                           (:secret_value existing "")
+                           v))
+        node-params    {:webhook_path   (:webhook_path params)
+                        :secret_header  (:secret_header params)
+                        :secret_value   secret-value
+                        :payload_format (or (:payload_format params) "json")
+                        :tcols          tcols}
+        g              (update-node g id node-params)
+        child-ids      (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-wh-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    ;; secret_value intentionally omitted — never sent to the UI
+    (assoc (item_master id name btype tmap)
+           "webhook_path"    (:webhook_path tmap)
+           "secret_header"   (:secret_header tmap)
+           "secret_set"      (boolean (seq (str (:secret_value tmap ""))))
+           "payload_format"  (:payload_format tmap)
+           "items"           (item_columns g (:tcols tmap)))))
+
+;; --- Conditional (C) ---
+
+(defn save-conditional
+  "Save conditional node configuration.
+   :cond_type is one of: if-else, if-elif-else, multi-if, case, cond, pattern-match
+   :branches is a vector of branch maps (structure varies by cond_type)
+   :default_branch is the default/else group name."
+  [g id params]
+  (let [node-params {:cond_type      (or (:cond_type params) "if-else")
+                     :branches       (or (:branches params) [])
+                     :default_branch (or (:default_branch params) "")}]
+    (update-node g id node-params)))
+
+(defn get-conditional-item
+  "Retrieve conditional node data for UI display.
+   Returns parent columns as 'items' so the UI can reference them in conditions."
+  [id g]
+  (let [tmap    (getData g id)
+        name    (:name tmap)
+        btype   (:btype tmap)
+        columns (or (:tcols tmap) (getTcols g id))]
+    (assoc (item_master id name btype tmap)
+           "cond_type"      (or (:cond_type tmap) "if-else")
+           "branches"       (or (:branches tmap) [])
+           "default_branch" (or (:default_branch tmap) "")
+           "items"          (item_columns g columns))))
+
+;; --- Logic / Function (Fu) ---
+
+(defn logic-outputs->tcols
+  "Convert fn_outputs vector into tcols format.
+   Each output is {:output_name \"x\" :data_type \"int\"}.
+   Produces {node-id [{:column_name \"x\" :data_type \"int\" :is_nullable \"YES\"} ...]}."
+  [node-id outputs]
+  {node-id (mapv (fn [o]
+                   {:column_name (:output_name o)
+                    :data_type   (or (:data_type o) "varchar")
+                    :is_nullable "YES"})
+                 (or outputs []))})
+
+(defn save-logic
+  "Save logic/function node configuration.
+   :fn_name    — function name
+   :fn_params  — [{:param_name \"a\" :param_type \"int\" :source_column \"table.col\"} ...]
+   :fn_lets    — [{:variable \"d\" :expression \"3 * a + b\"} ...]
+   :fn_return  — return expression string
+   :fn_outputs — [{:output_name \"result\" :data_type \"double\"} ...] defines produced columns"
+  [g id params]
+  (let [kw-maps    (fn [coll] (mapv #(into {} (map (fn [[k v]] [(keyword k) v]) %)) coll))
+        fn-params  (kw-maps (or (:fn_params params) []))
+        fn-lets    (kw-maps (or (:fn_lets params) []))
+        fn-outputs (kw-maps (or (:fn_outputs params) []))
+        tcols      (logic-outputs->tcols id fn-outputs)
+        node-params {:fn_name    (or (:fn_name params) "MyFunction")
+                     :fn_params  fn-params
+                     :fn_lets    fn-lets
+                     :fn_return  (or (:fn_return params) "")
+                     :fn_outputs fn-outputs
+                     :tcols      tcols}
+        g          (update-node g id node-params)
+        child-ids  (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-logic-item
+  "Retrieve logic/function node data for UI display.
+   Returns parent columns as 'items' so user can map them to params."
+  [id g]
+  (let [tmap       (getData g id)
+        name       (:name tmap)
+        btype      (:btype tmap)
+        parent-cols (or (:tcols tmap) (getTcols g id))]
+    (assoc (item_master id name btype tmap)
+           "fn_name"    (or (:fn_name tmap) "MyFunction")
+           "fn_params"  (or (:fn_params tmap) [])
+           "fn_lets"    (or (:fn_lets tmap) [])
+           "fn_return"  (or (:fn_return tmap) "")
+           "fn_outputs" (or (:fn_outputs tmap) [])
+           "items"      (item_columns g parent-cols))))
 
 (defn mapping_items[g tmap]
       (let [
@@ -1201,14 +1638,21 @@ mapping node 7
  						edge (find-edge graph tid "src")
 						_ (println "edge:")
 						_ (print edge)
-                                     		g (-> graph
-                                		  (delete-edge edge)
-                                		  (add-edges [[tid id] [id (second edge)]])
-  						  (setTcols id))
+                                     		outputId (find-node-id-by-btype graph "O")
+                                     		g (if edge
+                                     		    ;; Parent has outgoing edge: splice new node in between
+                                     		    (-> graph
+                                		      (delete-edge edge)
+                                		      (add-edges [[tid id] [id (second edge)]])
+  						      (setTcols id))
+                                     		    ;; Parent is orphan: connect parent → new node → Output
+                                     		    (-> graph
+                                     		      (add-edges [[tid id] [id outputId]])
+                                     		      (setTcols id)))
                                 		cp (db/insertGraph g)
  						sp (getOrphanAttrs cp)
-  						rp (get-item id g) 
-                                   	      ] 
+  						rp (get-item id g)
+                                   	      ]
                                    	  {:cp cp :rp rp :sp sp}))
 
 
@@ -1601,6 +2045,7 @@ mapping node 7
                                        longiEnd (getLongiHeight gdef)
                                        coord {}]
                                         (map #(assoc coord  :alias (:name (second %))
+                                                            :endpoint_label (endpoint-node-label (second %))
                                                             :y (+ (:lati (second %)) latiEnd)
                                                             :x (+ (:longi (second %)) longiEnd)
                                                             :btype (:btype (second %))
@@ -1717,16 +2162,252 @@ mapping node 7
 	(let [
 		tmap (node tid g)
                 table (:table_name tmap)
-                create_table (:create_table table) 
+                create_table (:create_table table)
                 truncate (:truncate table)
                 cid (:cid table)
                 columns (:target (node (first (children g tid)) g))
                 insert (db/make-insert-sql cid table columns)
              ]
              (do
-		(if create_table 
+		(if create_table
                     (db/create-table cid table))
-		(if truncate 
+		(if truncate
                     (db/truncate-table cid table))
                 (db/insert-row! cid table columns values))))
-)         
+) ;; end comment
+
+;; ---------------------------------------------------------------------------
+;; Auth (Au)
+;; ---------------------------------------------------------------------------
+
+(defn save-auth [g id params]
+  (let [kw-maps    (fn [coll] (mapv #(into {} (map (fn [[k v]] [(keyword k) v]) %)) coll))
+        claims     (kw-maps (or (:claims_to_cols params) []))
+        claim-cols (mapv (fn [c] {:column_name (:column c)
+                                  :data_type   (or (:data_type c) "varchar")
+                                  :is_nullable "YES"}) claims)
+        parent-cols (vec (for [[_ v] (getTcols g id), item v] item))
+        merged-cols {id (vec (concat parent-cols claim-cols))}
+        ;; Preserve existing secret when UI sends blank (secret is never echoed back)
+        existing-secret (:secret (getData g id))
+        new-secret      (let [v (string/trim (str (:secret params "")))]
+                          (if (empty? v) existing-secret v))
+        node-params {:auth_type      (:auth_type params)
+                     :token_header   (:token_header params)
+                     :secret         new-secret
+                     :claims_to_cols claims
+                     :tcols          merged-cols}
+        g           (update-node g id node-params)
+        child-ids   (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-auth-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "auth_type"      (:auth_type tmap)
+           "token_header"   (:token_header tmap)
+           "secret_set"     (boolean (seq (str (:secret tmap ""))))
+           "claims_to_cols" (:claims_to_cols tmap)
+           "items"          (item_columns g (:tcols tmap)))))
+
+;; ---------------------------------------------------------------------------
+;; DB Execute (Dx)
+;; ---------------------------------------------------------------------------
+
+(defn parse-dx-tcols [id sql-template operation]
+  (if (= "SELECT" (string/upper-case (or operation "SELECT")))
+    (let [select-body (first (string/split
+                               (string/replace sql-template #"(?i)^\s*select\s+" "")
+                               #"(?i)\s+from\s+"))
+          col-names   (map string/trim (string/split (or select-body "") #","))]
+      {id (mapv #(hash-map :column_name % :data_type "varchar" :is_nullable "YES") col-names)})
+    {id [{:column_name "affected_rows" :data_type "integer" :is_nullable "NO"}]}))
+
+(defn validate-dx-sql [sql operation]
+  (let [allowed #{"SELECT" "INSERT" "UPDATE" "DELETE"}
+        op (string/upper-case (or operation "SELECT"))]
+    (when-not (allowed op)
+      (throw (ex-info "DB Execute: disallowed SQL operation" {:field :operation})))
+    (when (re-find #"(?i)(CREATE|DROP|ALTER|TRUNCATE|GRANT|REVOKE)" (or sql ""))
+      (throw (ex-info "DB Execute: DDL not permitted in sql_template" {:field :sql_template})))))
+
+(defn save-dx [g id params]
+  (let [sql       (:sql_template params)
+        operation (or (:operation params) "SELECT")
+        _         (validate-dx-sql sql operation)
+        tcols     (parse-dx-tcols id sql operation)
+        node-params {:connection_id (:connection_id params)
+                     :operation     operation
+                     :sql_template  sql
+                     :result_mode   (or (:result_mode params) "single")
+                     :tcols         tcols}
+        g         (update-node g id node-params)
+        child-ids (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-dx-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "connection_id" (:connection_id tmap)
+           "operation"     (:operation tmap)
+           "sql_template"  (:sql_template tmap)
+           "result_mode"   (:result_mode tmap)
+           "items"         (item_columns g (:tcols tmap)))))
+
+;; ---------------------------------------------------------------------------
+;; Rate Limiter (Rl) — transparent pass-through
+;; ---------------------------------------------------------------------------
+
+(defn- safe-int [v default]
+  (try (Integer. (str v)) (catch Exception _ default)))
+
+(defn save-rl [g id params]
+  (let [parent-tcols (getTcols g id)
+        g (update-node g id {:max_requests   (safe-int (:max_requests params) 100)
+                             :window_seconds (safe-int (:window_seconds params) 60)
+                             :key_type       (or (:key_type params) "ip")
+                             :burst          (safe-int (:burst params) 0)
+                             :tcols          parent-tcols})
+        child-ids (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-rl-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "max_requests"   (:max_requests tmap)
+           "window_seconds" (:window_seconds tmap)
+           "key_type"       (:key_type tmap)
+           "burst"          (:burst tmap)
+           "items"          (item_columns g (:tcols tmap)))))
+
+;; ---------------------------------------------------------------------------
+;; CORS (Cr) — transparent pass-through
+;; ---------------------------------------------------------------------------
+
+(defn save-cr [g id params]
+  (let [str->vec     (fn [v] (if (string? v) (string/split v #",\s*") (or v [])))
+        parent-tcols (getTcols g id)
+        g (update-node g id {:allowed_origins   (str->vec (:allowed_origins params))
+                             :allowed_methods   (str->vec (:allowed_methods params))
+                             :allowed_headers   (str->vec (:allowed_headers params))
+                             :allow_credentials (= "true" (str (:allow_credentials params)))
+                             :max_age           (safe-int (:max_age params) 86400)
+                             :tcols             parent-tcols})
+        child-ids (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-cr-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "allowed_origins"   (:allowed_origins tmap)
+           "allowed_methods"   (:allowed_methods tmap)
+           "allowed_headers"   (:allowed_headers tmap)
+           "allow_credentials" (:allow_credentials tmap)
+           "max_age"           (:max_age tmap)
+           "items"             (item_columns g (:tcols tmap)))))
+
+;; ---------------------------------------------------------------------------
+;; Logger (Lg) — transparent pass-through
+;; ---------------------------------------------------------------------------
+
+(defn save-lg [g id params]
+  (let [parent-tcols (getTcols g id)
+        g (update-node g id {:log_level     (or (:log_level params) "INFO")
+                             :fields_to_log (or (:fields_to_log params) [])
+                             :destination   (or (:destination params) "console")
+                             :format        (or (:format params) "json")
+                             :external_url  (:external_url params)
+                             :tcols         parent-tcols})
+        child-ids (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-lg-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "log_level"     (:log_level tmap)
+           "fields_to_log" (:fields_to_log tmap)
+           "destination"   (:destination tmap)
+           "format"        (:format tmap)
+           "external_url"  (:external_url tmap)
+           "items"         (item_columns g (:tcols tmap)))))
+
+;; ---------------------------------------------------------------------------
+;; Cache (Cq) — transparent pass-through
+;; ---------------------------------------------------------------------------
+
+(defn save-cq [g id params]
+  (let [parent-tcols (getTcols g id)
+        g (update-node g id {:cache_key   (or (:cache_key params) "")
+                             :ttl_seconds (safe-int (:ttl_seconds params) 300)
+                             :strategy    (or (:strategy params) "read-through")
+                             :tcols       parent-tcols})
+        child-ids (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-cq-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "cache_key"   (:cache_key tmap)
+           "ttl_seconds" (:ttl_seconds tmap)
+           "strategy"    (:strategy tmap)
+           "items"       (item_columns g (:tcols tmap)))))
+
+;; ---------------------------------------------------------------------------
+;; Event Emitter (Ev) — transparent pass-through, fire-and-forget
+;; ---------------------------------------------------------------------------
+
+(defn save-ev [g id params]
+  (let [parent-tcols (getTcols g id)
+        g (update-node g id {:topic        (or (:topic params) "")
+                             :broker_url   (or (:broker_url params) "")
+                             :key_template (or (:key_template params) "")
+                             :format       (or (:format params) "json")
+                             :tcols        parent-tcols})
+        child-ids (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-ev-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "topic"        (:topic tmap)
+           "broker_url"   (:broker_url tmap)
+           "key_template" (:key_template tmap)
+           "format"       (:format tmap)
+           "items"        (item_columns g (:tcols tmap)))))
+
+;; ---------------------------------------------------------------------------
+;; Circuit Breaker (Ci) — transparent pass-through
+;; ---------------------------------------------------------------------------
+
+(defn save-ci [g id params]
+  (let [parent-tcols (getTcols g id)
+        g (update-node g id {:failure_threshold (safe-int (:failure_threshold params) 5)
+                             :reset_timeout     (safe-int (:reset_timeout params) 30)
+                             :fallback_response (or (:fallback_response params) "{}")
+                             :tcols             parent-tcols})
+        child-ids (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
+
+(defn get-ci-item [id g]
+  (let [tmap  (getData g id)
+        name  (:name tmap)
+        btype (:btype tmap)]
+    (assoc (item_master id name btype tmap)
+           "failure_threshold" (:failure_threshold tmap)
+           "reset_timeout"     (:reset_timeout tmap)
+           "fallback_response" (:fallback_response tmap)
+           "items"             (item_columns g (:tcols tmap)))))

@@ -23,6 +23,34 @@ template.innerHTML = `
     width: 20px;
     height: 20px;
   }
+  .rectangle-container.endpoint-node {
+    width: 230px;
+    padding: 8px 10px;
+  }
+  #alias-info.endpoint-alias {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .endpoint-path {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: monospace;
+  }
+  .endpoint-icon {
+    flex: 0 0 auto;
+    width: 20px;
+    text-align: center;
+    font-size: 16px;
+    line-height: 1;
+  }
 </style>
 
 <div class="rectangle-container">
@@ -55,6 +83,7 @@ class RectangleComponent extends HTMLElement {
 
     this.alias = null;
     this.btype = null;
+    this.endpointLabel = "";
 
     this.isDragged = false;
 
@@ -89,7 +118,7 @@ class RectangleComponent extends HTMLElement {
   }
 
   static get observedAttributes() {
-    return ["alias", "style", "btype"];
+    return ["alias", "style", "btype", "endpoint-label"];
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
@@ -97,12 +126,15 @@ class RectangleComponent extends HTMLElement {
       this.alias = newValue;
     } else if (name === "btype") {
       this.btype = newValue;
+    } else if (name === "endpoint-label") {
+      this.endpointLabel = newValue || "";
     }
 
     if (this.alias && this.btype) {
       const aliasEl = this.shadow.querySelector('#alias-info');
       const icon = getBtypeIcon(this.btype);
-      if (icon) {
+      const isEndpointLike = this.btype === getShortBtype("endpoint") || this.btype === getShortBtype("webhook");
+      if (icon && !isEndpointLike) {
         aliasEl.classList.add('icon');
       } else {
         aliasEl.classList.remove('icon');
@@ -124,6 +156,10 @@ class RectangleComponent extends HTMLElement {
     try {
       this.style.cursor = "wait";
       const id = this.getAttribute("id");
+      if (!id || id === "null" || id === "undefined") {
+        console.warn("Rectangle has no server-assigned ID — skipping getItem");
+        return;
+      }
       const resp = await request(`/getItem?id=${id}`, {method: 'GET'});
       existingRectangle = resp;
       ensureWindowDataShapes();
@@ -150,7 +186,7 @@ class RectangleComponent extends HTMLElement {
         document.querySelector("function-component")?.setAttribute("visibility", "open");
         break;
       case getShortBtype('function'):
-        document.querySelector("function-component")?.setAttribute("visibility", "open");
+        document.querySelector("lambda-function-builder")?.setAttribute("visibility", "open");
         break;
       case getShortBtype('filter'):
         document.querySelector("filter-component")?.setAttribute("visibility", "open");
@@ -179,6 +215,45 @@ class RectangleComponent extends HTMLElement {
       case getShortBtype('target'):
         document.querySelector('target-component')?.setAttribute("visibility", "open");
         break;
+      case getShortBtype('endpoint'):
+        document.querySelector('endpoint-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('response-builder'):
+        document.querySelector('response-builder-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('validator'):
+        document.querySelector('validator-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('auth'):
+        document.querySelector('auth-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('db-execute'):
+        document.querySelector('db-execute-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('rate-limiter'):
+        document.querySelector('rate-limiter-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('cors'):
+        document.querySelector('cors-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('logger'):
+        document.querySelector('logger-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('cache'):
+        document.querySelector('cache-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('event-emitter'):
+        document.querySelector('event-emitter-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('circuit-breaker'):
+        document.querySelector('circuit-breaker-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('scheduler'):
+        document.querySelector('scheduler-component')?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('webhook'):
+        document.querySelector('webhook-component')?.setAttribute("visibility", "open");
+        break;
       default:
         document.querySelector("column-list-component")?.setAttribute("visibility", "open");
     }
@@ -191,13 +266,26 @@ class RectangleComponent extends HTMLElement {
       document.body.appendChild(menu);
     }
 
+    const techNodes = ['rate-limiter', 'cors', 'logger', 'cache', 'circuit-breaker'];
+    // Source-like btypes that can have tech middleware children
+    const techParentBtypes = ["Ep", "Wh", "T", "A", "Dx"];
+
     if (this.btype === "O") {
       this.hideMenuOptions(["target"], false);
     } else if (this.hasParent() || ["O", "Tg", "Mp"].includes(this.btype)) {
-      this.hideMenuOptions(["output", "run", "schedule"], true);
+      this.hideMenuOptions(["output", "run", "schedule", "delete"], true);
     } else {
       Array.from(menu.menu.children).forEach((c) => {
         c.style.display = "flex";
+      });
+    }
+
+    // Hide tech middleware items unless node is a source type (applies to all branches)
+    if (!techParentBtypes.includes(this.btype)) {
+      techNodes.forEach(label => {
+        Array.from(menu.menu.children).forEach((c) => {
+          if ((c.innerText || "").trim().toLowerCase() === label) c.style.display = "none";
+        });
       });
     }
 
@@ -239,6 +327,32 @@ class RectangleComponent extends HTMLElement {
   updateAlias(btype, alias) {
     const icon = getBtypeIcon(btype);
     const aliasEl = this.shadow.querySelector("#alias-info");
+    const isEndpointLike = btype === getShortBtype("endpoint") || btype === getShortBtype("webhook");
+    const routeLabel = (this.endpointLabel || "").trim();
+    const displayLabel = routeLabel || alias;
+
+    aliasEl.classList.remove("endpoint-alias");
+    this.container.classList.remove("endpoint-node");
+
+    if (isEndpointLike && displayLabel) {
+      aliasEl.classList.add("endpoint-alias");
+      this.container.classList.add("endpoint-node");
+      aliasEl.textContent = "";
+
+      const pathEl = document.createElement("span");
+      pathEl.className = "endpoint-path";
+      pathEl.textContent = displayLabel;
+
+      const iconEl = document.createElement("span");
+      iconEl.className = "endpoint-icon";
+      iconEl.innerHTML = icon || "";
+
+      aliasEl.append(pathEl, iconEl);
+      this.setAttribute("title", displayLabel);
+      return;
+    }
+
+    this.setAttribute("title", alias || "");
     if (icon) {
       aliasEl.innerHTML = icon;
     } else {
@@ -283,10 +397,16 @@ class FloaterMenu extends HTMLElement {
     const menu = document.createElement('div');
     menu.className = 'menu';
 
-    // Add some sample icons (menu items)
+    // Add menu items — includes add-child actions, implicit tech nodes, and delete
     ['filter', 'join', 'function', 'projection', 'aggregation', 'union', 'sorter', 'mapping',
-      'target', 'conditionals', 'api-connection', 'output', 'run', 'schedule'].forEach((label) => {
+      'target', 'conditionals', 'api-connection', 'output', 'run', 'schedule',
+      'rate-limiter', 'cors', 'logger', 'cache', 'circuit-breaker',
+      'delete'].forEach((label) => {
         const item = this.createMenuItemAndAddListener(label);
+        if (label === 'delete') {
+          item.style.borderTop = '1px solid #ddd';
+          item.style.color = '#c00';
+        }
         menu.appendChild(item);
       });
 
@@ -325,7 +445,6 @@ class FloaterMenu extends HTMLElement {
   }
 
   async handleItemClick(id, label) {
-    // Send an AJAX request
     try {
       if (label === "run") {
         request("/run", {method: 'POST', body: {id: this.getAttribute("id")}});
@@ -333,6 +452,13 @@ class FloaterMenu extends HTMLElement {
         return;
       } else if (label === "schedule") {
         window.toggleScheduler();
+        this.hideMenu();
+        return;
+      } else if (label === "delete") {
+        const data = await request("/removeNode", {method: 'POST', body: {id}});
+        const panel = data?.cp || data?.sp || data;
+        setPanelItems(panel);
+        closeOpenedPanel();
         this.hideMenu();
         return;
       }
@@ -355,24 +481,28 @@ class FloaterMenu extends HTMLElement {
 
       // open panel for clicked label, guard for absent node
       const map = {
-        aggregation: 'aggregation-editor-component',
-        function: 'function-component',
-        projection: 'function-component',
-        join: 'join-editor-component',
-        union: 'union-editor-component',
-        sorter: 'sorter-editor',
-        mapping: 'mapping-editor',
-        conditionals: 'control-flow-component',
-        'api-connection': 'api-component',
+        aggregation:       'aggregation-editor-component',
+        function:          'function-component',
+        projection:        'function-component',
+        join:              'join-editor-component',
+        union:             'union-editor-component',
+        sorter:            'sorter-editor',
+        mapping:           'mapping-editor',
+        conditionals:      'control-flow-component',
+        'api-connection':  'api-component',
+        'rate-limiter':    'rate-limiter-component',
+        cors:              'cors-component',
+        logger:            'logger-component',
+        cache:             'cache-component',
+        'circuit-breaker': 'circuit-breaker-component',
       };
       const elementSelector = map[label] || 'filter-component';
       const el = document.querySelector(elementSelector);
       if (el) el.setAttribute('visibility', 'open');
     } catch (error) {
-      console.error('Error on adding filter:', error);
+      console.error('Error on menu action:', error);
     }
 
-    // Hide the menu after clicking
     this.hideMenu();
   }
 }
