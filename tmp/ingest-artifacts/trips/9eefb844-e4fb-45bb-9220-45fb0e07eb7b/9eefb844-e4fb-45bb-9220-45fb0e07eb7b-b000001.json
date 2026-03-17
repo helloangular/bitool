@@ -1,0 +1,1 @@
+{"batch_id":"9eefb844-e4fb-45bb-9220-45fb0e07eb7b-b000001","run_id":"9eefb844-e4fb-45bb-9220-45fb0e07eb7b","endpoint_name":"trips","source_system":"samara","pages":[{"page":null,"state":{"last-cursor":"next-cursor"},"response":{"status":200,"retry_count":null},"body":{"data":[]}}]}

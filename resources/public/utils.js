@@ -94,6 +94,8 @@ export function closeOpenedPanel() {
     "transform-editor",
     "projection-component",
     "api-component",
+    "kafka-source-component",
+    "file-source-component",
     "control-flow-component"
   ];
 
@@ -121,6 +123,8 @@ export function getShortBtype(btype) {
     "projection": "P",
     "target": "Tg",
     "api-connection": "Ap",
+    "kafka-source": "Kf",
+    "file-source": "Fs",
     "conditionals": "C",
     "grid": "G",
     "output": "O"
@@ -138,6 +142,8 @@ export function getBtypeIcon(btype) {
     S: "&#x25B2;",
     Mp: "&#x1F4CD;",
     Ap: "&Alpha;",
+    Kf: "&#9107;",
+    Fs: "&#128194;",
     C: "&#128295;",
     P: "&#960;"
   };

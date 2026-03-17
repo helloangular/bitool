@@ -1,0 +1,890 @@
+[api-bronze-proof] run_dir=tmp/api-bronze-proof-test/20260316T190727Z
+[api-bronze-proof] Phase 1/3: Load-shape coverage
+[api-bronze-proof][test][load_shape] bitool.ingest-runtime-test/run-api-node-streams-batches-and-persists-manifests
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-runtime-test/run-api-node-streams-batches-and-persists-manifests]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline17083365039519557698.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline13700447714913395344.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-runtime-test
+2026-03-16 12:08:05,273 [main] WARN  bitool.ingest.runtime - Skipping workspace-context lookup for endpoint freshness {:graph_id 99, :api_node_id 2} 
+org.postgresql.util.PSQLException: The connection attempt failed.
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:296)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:49)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:211)
+	at org.postgresql.Driver.makeConnection(Driver.java:459)
+	at org.postgresql.Driver.connect(Driver.java:261)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:683)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:191)
+	at next.jdbc.connection$get_driver_connection.invokeStatic(connection.clj:410)
+	at next.jdbc.connection$get_driver_connection.invoke(connection.clj:404)
+	at next.jdbc.connection$url_PLUS_etc$reify__3031.getConnection(connection.clj:427)
+	at next.jdbc.connection$make_connection.invokeStatic(connection.clj:453)
+	at next.jdbc.connection$make_connection.invoke(connection.clj:437)
+	at next.jdbc.connection$eval3052$fn__3053.invoke(connection.clj:482)
+	at next.jdbc.protocols$eval2782$fn__2783$G__2773__2790.invoke(protocols.clj:25)
+	at next.jdbc.result_set$eval3755$fn__3763.invoke(result_set.clj:933)
+	at next.jdbc.protocols$eval2814$fn__2830$G__2805__2839.invoke(protocols.clj:34)
+	at next.jdbc$execute_BANG_.invokeStatic(jdbc.clj:254)
+	at next.jdbc$execute_BANG_.invoke(jdbc.clj:241)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_$fn__8134.invoke(control_plane.clj:205)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_.invokeStatic(control_plane.clj:138)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_.invoke(control_plane.clj:135)
+	at bitool.control_plane$graph_workspace_context.invokeStatic(control_plane.clj:378)
+	at bitool.control_plane$graph_workspace_context.invoke(control_plane.clj:376)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564$fn__48572$fn__48573.invoke(runtime.clj:3042)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564$fn__48572.invoke(runtime.clj:3041)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564.invoke(runtime.clj:3040)
+	at clojure.core$mapv$fn__8565.invoke(core.clj:7059)
+	at clojure.lang.ArrayChunk.reduce(ArrayChunk.java:60)
+	at clojure.core.protocols$fn__8270.invokeStatic(protocols.clj:135)
+	at clojure.core.protocols$fn__8270.invoke(protocols.clj:123)
+	at clojure.core.protocols$fn__8229$G__8224__8238.invoke(protocols.clj:19)
+	at clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:31)
+	at clojure.core.protocols$fn__8262.invokeStatic(protocols.clj:74)
+	at clojure.core.protocols$fn__8262.invoke(protocols.clj:74)
+	at clojure.core.protocols$fn__8203$G__8198__8216.invoke(protocols.clj:13)
+	at clojure.core$reduce.invokeStatic(core.clj:6965)
+	at clojure.core$mapv.invokeStatic(core.clj:7050)
+	at clojure.core$mapv.invoke(core.clj:7050)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2865)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2826)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest_runtime_test$fn__56192$fn__56222.invoke(ingest_runtime_test.clj:1110)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$fn__56192.invokeStatic(ingest_runtime_test.clj:1062)
+	at bitool.ingest_runtime_test$fn__56192.invoke(ingest_runtime_test.clj:1043)
+	at clojure.test$test_var$fn__9894.invoke(test.clj:717)
+	at clojure.test$test_var.invokeStatic(test.clj:717)
+	at clojure.test$test_var.invoke(test.clj:708)
+	at clojure.test$test_vars$fn__9920$fn__9925.invoke(test.clj:735)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$eval55158$fn__55159.invoke(ingest_runtime_test.clj:32)
+	at clojure.test$compose_fixtures$fn__9888$fn__9889.invoke(test.clj:694)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$compose_fixtures$fn__9888.invoke(test.clj:694)
+	at clojure.test$test_vars$fn__9920.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars.invokeStatic(test.clj:731)
+	at clojure.test$test_all_vars.invokeStatic(test.clj:737)
+	at clojure.test$test_ns.invokeStatic(test.clj:758)
+	at clojure.test$test_ns.invoke(test.clj:743)
+	at user$eval54951$fn__55074.invoke(form-init10442659238702708180.clj:1)
+	at clojure.lang.AFn.applyToHelper(AFn.java:156)
+	at clojure.lang.AFn.applyTo(AFn.java:144)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$compose_hooks$fn__54778.doInvoke(form-init10442659238702708180.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$run_hooks.invokeStatic(form-init10442659238702708180.clj:1)
+	at leiningen.core.injected$run_hooks.invoke(form-init10442659238702708180.clj:1)
+	at leiningen.core.injected$prepare_for_hooks$fn__54783$fn__54784.doInvoke(form-init10442659238702708180.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.AFunction$1.doInvoke(AFunction.java:33)
+	at clojure.lang.RestFn.invoke(RestFn.java:411)
+	at clojure.core$map$fn__5954.invoke(core.clj:2772)
+	at clojure.lang.LazySeq.force(LazySeq.java:50)
+	at clojure.lang.LazySeq.realize(LazySeq.java:89)
+	at clojure.lang.LazySeq.seq(LazySeq.java:106)
+	at clojure.lang.Cons.next(Cons.java:41)
+	at clojure.lang.RT.boundedLength(RT.java:1810)
+	at clojure.lang.RestFn.applyTo(RestFn.java:133)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.test$run_tests.invokeStatic(test.clj:768)
+	at clojure.test$run_tests.doInvoke(test.clj:768)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at user$eval54951$fn__55084$fn__55137.invoke(form-init10442659238702708180.clj:1)
+	at user$eval54951$fn__55084$fn__55085.invoke(form-init10442659238702708180.clj:1)
+	at user$eval54951$fn__55084.invoke(form-init10442659238702708180.clj:1)
+	at user$eval54951.invokeStatic(form-init10442659238702708180.clj:1)
+	at user$eval54951.invoke(form-init10442659238702708180.clj:1)
+	at clojure.lang.Compiler.eval(Compiler.java:7700)
+	at clojure.lang.Compiler.eval(Compiler.java:7690)
+	at clojure.lang.Compiler.load(Compiler.java:8165)
+	at clojure.lang.Compiler.loadFile(Compiler.java:8103)
+	at clojure.main$load_script.invokeStatic(main.clj:476)
+	at clojure.main$init_opt.invokeStatic(main.clj:478)
+	at clojure.main$init_opt.invoke(main.clj:478)
+	at clojure.main$initialize.invokeStatic(main.clj:509)
+	at clojure.main$null_opt.invokeStatic(main.clj:543)
+	at clojure.main$null_opt.invoke(main.clj:540)
+	at clojure.main$main.invokeStatic(main.clj:665)
+	at clojure.main$main.doInvoke(main.clj:617)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.main.main(main.java:40)
+Caused by: java.net.SocketException: Operation not permitted
+	at java.base/sun.nio.ch.Net.connect0(Native Method)
+	at java.base/sun.nio.ch.Net.connect(Net.java:589)
+	at java.base/sun.nio.ch.Net.connect(Net.java:578)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:583)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:751)
+	at org.postgresql.core.PGStream.<init>(PGStream.java:81)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:92)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:196)
+	... 112 common frames omitted
+2026-03-16 12:08:05,282 [main] WARN  bitool.ingest.runtime - Failed to record endpoint freshness metadata {:graph_id 99, :api_node_id 2, :endpoint_name trips, :run_id ad82c327-0a8c-4b1c-97ae-3a6849e71c85, :status success} 
+org.postgresql.util.PSQLException: The connection attempt failed.
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:296)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:49)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:211)
+	at org.postgresql.Driver.makeConnection(Driver.java:459)
+	at org.postgresql.Driver.connect(Driver.java:261)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:683)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:191)
+	at next.jdbc.connection$get_driver_connection.invokeStatic(connection.clj:410)
+	at next.jdbc.connection$get_driver_connection.invoke(connection.clj:404)
+	at next.jdbc.connection$url_PLUS_etc$reify__3031.getConnection(connection.clj:427)
+	at next.jdbc.connection$make_connection.invokeStatic(connection.clj:453)
+	at next.jdbc.connection$make_connection.invoke(connection.clj:437)
+	at next.jdbc.connection$eval3052$fn__3053.invoke(connection.clj:482)
+	at next.jdbc.protocols$eval2782$fn__2783$G__2773__2790.invoke(protocols.clj:25)
+	at next.jdbc.result_set$eval3755$fn__3763.invoke(result_set.clj:933)
+	at next.jdbc.protocols$eval2814$fn__2830$G__2805__2839.invoke(protocols.clj:34)
+	at next.jdbc$execute_BANG_.invokeStatic(jdbc.clj:254)
+	at next.jdbc$execute_BANG_.invoke(jdbc.clj:241)
+	at bitool.operations$ensure_operations_tables_BANG_$fn__47799.invoke(operations.clj:54)
+	at bitool.operations$ensure_operations_tables_BANG_.invokeStatic(operations.clj:52)
+	at bitool.operations$ensure_operations_tables_BANG_.invoke(operations.clj:49)
+	at bitool.operations$record_endpoint_freshness_BANG_.invokeStatic(operations.clj:103)
+	at bitool.operations$record_endpoint_freshness_BANG_.invoke(operations.clj:100)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564$fn__48572.invoke(runtime.clj:3048)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564.invoke(runtime.clj:3040)
+	at clojure.core$mapv$fn__8565.invoke(core.clj:7059)
+	at clojure.lang.ArrayChunk.reduce(ArrayChunk.java:60)
+	at clojure.core.protocols$fn__8270.invokeStatic(protocols.clj:135)
+	at clojure.core.protocols$fn__8270.invoke(protocols.clj:123)
+	at clojure.core.protocols$fn__8229$G__8224__8238.invoke(protocols.clj:19)
+	at clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:31)
+	at clojure.core.protocols$fn__8262.invokeStatic(protocols.clj:74)
+	at clojure.core.protocols$fn__8262.invoke(protocols.clj:74)
+	at clojure.core.protocols$fn__8203$G__8198__8216.invoke(protocols.clj:13)
+	at clojure.core$reduce.invokeStatic(core.clj:6965)
+	at clojure.core$mapv.invokeStatic(core.clj:7050)
+	at clojure.core$mapv.invoke(core.clj:7050)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2865)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2826)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest_runtime_test$fn__56192$fn__56222.invoke(ingest_runtime_test.clj:1110)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$fn__56192.invokeStatic(ingest_runtime_test.clj:1062)
+	at bitool.ingest_runtime_test$fn__56192.invoke(ingest_runtime_test.clj:1043)
+	at clojure.test$test_var$fn__9894.invoke(test.clj:717)
+	at clojure.test$test_var.invokeStatic(test.clj:717)
+	at clojure.test$test_var.invoke(test.clj:708)
+	at clojure.test$test_vars$fn__9920$fn__9925.invoke(test.clj:735)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$eval55158$fn__55159.invoke(ingest_runtime_test.clj:32)
+	at clojure.test$compose_fixtures$fn__9888$fn__9889.invoke(test.clj:694)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$compose_fixtures$fn__9888.invoke(test.clj:694)
+	at clojure.test$test_vars$fn__9920.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars.invokeStatic(test.clj:731)
+	at clojure.test$test_all_vars.invokeStatic(test.clj:737)
+	at clojure.test$test_ns.invokeStatic(test.clj:758)
+	at clojure.test$test_ns.invoke(test.clj:743)
+	at user$eval54951$fn__55074.invoke(form-init10442659238702708180.clj:1)
+	at clojure.lang.AFn.applyToHelper(AFn.java:156)
+	at clojure.lang.AFn.applyTo(AFn.java:144)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$compose_hooks$fn__54778.doInvoke(form-init10442659238702708180.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$run_hooks.invokeStatic(form-init10442659238702708180.clj:1)
+	at leiningen.core.injected$run_hooks.invoke(form-init10442659238702708180.clj:1)
+	at leiningen.core.injected$prepare_for_hooks$fn__54783$fn__54784.doInvoke(form-init10442659238702708180.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.AFunction$1.doInvoke(AFunction.java:33)
+	at clojure.lang.RestFn.invoke(RestFn.java:411)
+	at clojure.core$map$fn__5954.invoke(core.clj:2772)
+	at clojure.lang.LazySeq.force(LazySeq.java:50)
+	at clojure.lang.LazySeq.realize(LazySeq.java:89)
+	at clojure.lang.LazySeq.seq(LazySeq.java:106)
+	at clojure.lang.Cons.next(Cons.java:41)
+	at clojure.lang.RT.boundedLength(RT.java:1810)
+	at clojure.lang.RestFn.applyTo(RestFn.java:133)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.test$run_tests.invokeStatic(test.clj:768)
+	at clojure.test$run_tests.doInvoke(test.clj:768)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at user$eval54951$fn__55084$fn__55137.invoke(form-init10442659238702708180.clj:1)
+	at user$eval54951$fn__55084$fn__55085.invoke(form-init10442659238702708180.clj:1)
+	at user$eval54951$fn__55084.invoke(form-init10442659238702708180.clj:1)
+	at user$eval54951.invokeStatic(form-init10442659238702708180.clj:1)
+	at user$eval54951.invoke(form-init10442659238702708180.clj:1)
+	at clojure.lang.Compiler.eval(Compiler.java:7700)
+	at clojure.lang.Compiler.eval(Compiler.java:7690)
+	at clojure.lang.Compiler.load(Compiler.java:8165)
+	at clojure.lang.Compiler.loadFile(Compiler.java:8103)
+	at clojure.main$load_script.invokeStatic(main.clj:476)
+	at clojure.main$init_opt.invokeStatic(main.clj:478)
+	at clojure.main$init_opt.invoke(main.clj:478)
+	at clojure.main$initialize.invokeStatic(main.clj:509)
+	at clojure.main$null_opt.invokeStatic(main.clj:543)
+	at clojure.main$null_opt.invoke(main.clj:540)
+	at clojure.main$main.invokeStatic(main.clj:665)
+	at clojure.main$main.doInvoke(main.clj:617)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.main.main(main.java:40)
+Caused by: java.net.SocketException: Operation not permitted
+	at java.base/sun.nio.ch.Net.connect0(Native Method)
+	at java.base/sun.nio.ch.Net.connect(Net.java:589)
+	at java.base/sun.nio.ch.Net.connect(Net.java:578)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:583)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:751)
+	at org.postgresql.core.PGStream.<init>(PGStream.java:81)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:92)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:196)
+	... 111 common frames omitted
+
+Ran 1 tests containing 8 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][load_shape] bitool.ingest-runtime-test/cleanup-ingest-retention-manifest-aware-sweeps-discovered-api-targets
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-runtime-test/cleanup-ingest-retention-manifest-aware-sweeps-discovered-api-targets]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline18336477757634735245.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline6757288904423905287.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-runtime-test
+
+Ran 1 tests containing 10 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][load_shape] bitool.ingest-execution-test/enqueue-api-request-reuses-all-endpoints-run-for-overlapping-specific-endpoint
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-execution-test/enqueue-api-request-reuses-all-endpoints-run-for-overlapping-specific-endpoint]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline4051299042400572165.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline13889937584853508903.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-execution-test
+
+Ran 1 tests containing 1 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][load_shape] bitool.ingest-execution-test/claim-next-request-filters-inactive-workspaces
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-execution-test/claim-next-request-filters-inactive-workspaces]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline12516553731503937986.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline11148296314639207747.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-execution-test
+
+Ran 1 tests containing 1 assertions.
+0 failures, 0 errors.
+[api-bronze-proof] Phase 2/3: Failure-injection coverage
+[api-bronze-proof][test][failure_injection] bitool.ingest-runtime-test/run-api-node-does-not-advance-zero-row-checkpoint-before-run-detail
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-runtime-test/run-api-node-does-not-advance-zero-row-checkpoint-before-run-detail]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline16750200563935678429.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline15414464360474732719.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-runtime-test
+
+Ran 1 tests containing 2 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][failure_injection] bitool.ingest-runtime-test/abort-preparing-batches-fails-closed-when-reconciliation-query-errors
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-runtime-test/abort-preparing-batches-fails-closed-when-reconciliation-query-errors]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline12042263629123013977.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline7424489483837322837.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-runtime-test
+
+Ran 1 tests containing 2 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][failure_injection] bitool.ingest-runtime-test/checkpoint-row-for-failure-preserves-last-successful-batch-identity
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-runtime-test/checkpoint-row-for-failure-preserves-last-successful-batch-identity]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline4411238988833112818.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline9914082640709963700.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-runtime-test
+
+Ran 1 tests containing 2 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][failure_injection] bitool.ingest-runtime-test/run-api-node-drains-errors-when-post-fetch-validation-throws-early
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-runtime-test/run-api-node-drains-errors-when-post-fetch-validation-throws-early]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline8959101131559906866.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline9559046186702460654.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-runtime-test
+
+Ran 1 tests containing 3 assertions.
+0 failures, 0 errors.
+[api-bronze-proof] Phase 3/3: Soak loop (1 iterations)
+[api-bronze-proof][soak] iteration 1/1
+[api-bronze-proof][test][soak] bitool.ingest-runtime-test/run-api-node-resumes-from-checkpoint-cursor-and-persists-last-cursor
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-runtime-test/run-api-node-resumes-from-checkpoint-cursor-and-persists-last-cursor]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline16756267366511557706.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline3145275333933888913.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-runtime-test
+2026-03-16 12:13:32,953 [main] WARN  bitool.ingest.runtime - Skipping workspace-context lookup for endpoint freshness {:graph_id 99, :api_node_id 2} 
+org.postgresql.util.PSQLException: The connection attempt failed.
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:296)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:49)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:211)
+	at org.postgresql.Driver.makeConnection(Driver.java:459)
+	at org.postgresql.Driver.connect(Driver.java:261)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:683)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:191)
+	at next.jdbc.connection$get_driver_connection.invokeStatic(connection.clj:410)
+	at next.jdbc.connection$get_driver_connection.invoke(connection.clj:404)
+	at next.jdbc.connection$url_PLUS_etc$reify__3031.getConnection(connection.clj:427)
+	at next.jdbc.connection$make_connection.invokeStatic(connection.clj:453)
+	at next.jdbc.connection$make_connection.invoke(connection.clj:437)
+	at next.jdbc.connection$eval3052$fn__3053.invoke(connection.clj:482)
+	at next.jdbc.protocols$eval2782$fn__2783$G__2773__2790.invoke(protocols.clj:25)
+	at next.jdbc.result_set$eval3755$fn__3763.invoke(result_set.clj:933)
+	at next.jdbc.protocols$eval2814$fn__2830$G__2805__2839.invoke(protocols.clj:34)
+	at next.jdbc$execute_BANG_.invokeStatic(jdbc.clj:254)
+	at next.jdbc$execute_BANG_.invoke(jdbc.clj:241)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_$fn__8134.invoke(control_plane.clj:205)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_.invokeStatic(control_plane.clj:138)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_.invoke(control_plane.clj:135)
+	at bitool.control_plane$graph_workspace_context.invokeStatic(control_plane.clj:378)
+	at bitool.control_plane$graph_workspace_context.invoke(control_plane.clj:376)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564$fn__48572$fn__48573.invoke(runtime.clj:3042)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564$fn__48572.invoke(runtime.clj:3041)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564.invoke(runtime.clj:3040)
+	at clojure.core$mapv$fn__8565.invoke(core.clj:7059)
+	at clojure.lang.ArrayChunk.reduce(ArrayChunk.java:60)
+	at clojure.core.protocols$fn__8270.invokeStatic(protocols.clj:135)
+	at clojure.core.protocols$fn__8270.invoke(protocols.clj:123)
+	at clojure.core.protocols$fn__8229$G__8224__8238.invoke(protocols.clj:19)
+	at clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:31)
+	at clojure.core.protocols$fn__8262.invokeStatic(protocols.clj:74)
+	at clojure.core.protocols$fn__8262.invoke(protocols.clj:74)
+	at clojure.core.protocols$fn__8203$G__8198__8216.invoke(protocols.clj:13)
+	at clojure.core$reduce.invokeStatic(core.clj:6965)
+	at clojure.core$mapv.invokeStatic(core.clj:7050)
+	at clojure.core$mapv.invoke(core.clj:7050)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2865)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2826)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest_runtime_test$fn__55690$fn__55715.invoke(ingest_runtime_test.clj:594)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$fn__55690.invokeStatic(ingest_runtime_test.clj:571)
+	at bitool.ingest_runtime_test$fn__55690.invoke(ingest_runtime_test.clj:555)
+	at clojure.test$test_var$fn__9894.invoke(test.clj:717)
+	at clojure.test$test_var.invokeStatic(test.clj:717)
+	at clojure.test$test_var.invoke(test.clj:708)
+	at clojure.test$test_vars$fn__9920$fn__9925.invoke(test.clj:735)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$eval55158$fn__55159.invoke(ingest_runtime_test.clj:32)
+	at clojure.test$compose_fixtures$fn__9888$fn__9889.invoke(test.clj:694)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$compose_fixtures$fn__9888.invoke(test.clj:694)
+	at clojure.test$test_vars$fn__9920.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars.invokeStatic(test.clj:731)
+	at clojure.test$test_all_vars.invokeStatic(test.clj:737)
+	at clojure.test$test_ns.invokeStatic(test.clj:758)
+	at clojure.test$test_ns.invoke(test.clj:743)
+	at user$eval54951$fn__55074.invoke(form-init13887878023977060710.clj:1)
+	at clojure.lang.AFn.applyToHelper(AFn.java:156)
+	at clojure.lang.AFn.applyTo(AFn.java:144)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$compose_hooks$fn__54778.doInvoke(form-init13887878023977060710.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$run_hooks.invokeStatic(form-init13887878023977060710.clj:1)
+	at leiningen.core.injected$run_hooks.invoke(form-init13887878023977060710.clj:1)
+	at leiningen.core.injected$prepare_for_hooks$fn__54783$fn__54784.doInvoke(form-init13887878023977060710.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.AFunction$1.doInvoke(AFunction.java:33)
+	at clojure.lang.RestFn.invoke(RestFn.java:411)
+	at clojure.core$map$fn__5954.invoke(core.clj:2772)
+	at clojure.lang.LazySeq.force(LazySeq.java:50)
+	at clojure.lang.LazySeq.realize(LazySeq.java:89)
+	at clojure.lang.LazySeq.seq(LazySeq.java:106)
+	at clojure.lang.Cons.next(Cons.java:41)
+	at clojure.lang.RT.boundedLength(RT.java:1810)
+	at clojure.lang.RestFn.applyTo(RestFn.java:133)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.test$run_tests.invokeStatic(test.clj:768)
+	at clojure.test$run_tests.doInvoke(test.clj:768)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at user$eval54951$fn__55084$fn__55137.invoke(form-init13887878023977060710.clj:1)
+	at user$eval54951$fn__55084$fn__55085.invoke(form-init13887878023977060710.clj:1)
+	at user$eval54951$fn__55084.invoke(form-init13887878023977060710.clj:1)
+	at user$eval54951.invokeStatic(form-init13887878023977060710.clj:1)
+	at user$eval54951.invoke(form-init13887878023977060710.clj:1)
+	at clojure.lang.Compiler.eval(Compiler.java:7700)
+	at clojure.lang.Compiler.eval(Compiler.java:7690)
+	at clojure.lang.Compiler.load(Compiler.java:8165)
+	at clojure.lang.Compiler.loadFile(Compiler.java:8103)
+	at clojure.main$load_script.invokeStatic(main.clj:476)
+	at clojure.main$init_opt.invokeStatic(main.clj:478)
+	at clojure.main$init_opt.invoke(main.clj:478)
+	at clojure.main$initialize.invokeStatic(main.clj:509)
+	at clojure.main$null_opt.invokeStatic(main.clj:543)
+	at clojure.main$null_opt.invoke(main.clj:540)
+	at clojure.main$main.invokeStatic(main.clj:665)
+	at clojure.main$main.doInvoke(main.clj:617)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.main.main(main.java:40)
+Caused by: java.net.SocketException: Operation not permitted
+	at java.base/sun.nio.ch.Net.connect0(Native Method)
+	at java.base/sun.nio.ch.Net.connect(Net.java:589)
+	at java.base/sun.nio.ch.Net.connect(Net.java:578)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:583)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:751)
+	at org.postgresql.core.PGStream.<init>(PGStream.java:81)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:92)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:196)
+	... 112 common frames omitted
+2026-03-16 12:13:32,962 [main] WARN  bitool.ingest.runtime - Failed to record endpoint freshness metadata {:graph_id 99, :api_node_id 2, :endpoint_name trips, :run_id 7edc1054-813e-474f-833b-8f70288ecfc7, :status success} 
+org.postgresql.util.PSQLException: The connection attempt failed.
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:296)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:49)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:211)
+	at org.postgresql.Driver.makeConnection(Driver.java:459)
+	at org.postgresql.Driver.connect(Driver.java:261)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:683)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:191)
+	at next.jdbc.connection$get_driver_connection.invokeStatic(connection.clj:410)
+	at next.jdbc.connection$get_driver_connection.invoke(connection.clj:404)
+	at next.jdbc.connection$url_PLUS_etc$reify__3031.getConnection(connection.clj:427)
+	at next.jdbc.connection$make_connection.invokeStatic(connection.clj:453)
+	at next.jdbc.connection$make_connection.invoke(connection.clj:437)
+	at next.jdbc.connection$eval3052$fn__3053.invoke(connection.clj:482)
+	at next.jdbc.protocols$eval2782$fn__2783$G__2773__2790.invoke(protocols.clj:25)
+	at next.jdbc.result_set$eval3755$fn__3763.invoke(result_set.clj:933)
+	at next.jdbc.protocols$eval2814$fn__2830$G__2805__2839.invoke(protocols.clj:34)
+	at next.jdbc$execute_BANG_.invokeStatic(jdbc.clj:254)
+	at next.jdbc$execute_BANG_.invoke(jdbc.clj:241)
+	at bitool.operations$ensure_operations_tables_BANG_$fn__47799.invoke(operations.clj:54)
+	at bitool.operations$ensure_operations_tables_BANG_.invokeStatic(operations.clj:52)
+	at bitool.operations$ensure_operations_tables_BANG_.invoke(operations.clj:49)
+	at bitool.operations$record_endpoint_freshness_BANG_.invokeStatic(operations.clj:103)
+	at bitool.operations$record_endpoint_freshness_BANG_.invoke(operations.clj:100)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564$fn__48572.invoke(runtime.clj:3048)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564.invoke(runtime.clj:3040)
+	at clojure.core$mapv$fn__8565.invoke(core.clj:7059)
+	at clojure.lang.ArrayChunk.reduce(ArrayChunk.java:60)
+	at clojure.core.protocols$fn__8270.invokeStatic(protocols.clj:135)
+	at clojure.core.protocols$fn__8270.invoke(protocols.clj:123)
+	at clojure.core.protocols$fn__8229$G__8224__8238.invoke(protocols.clj:19)
+	at clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:31)
+	at clojure.core.protocols$fn__8262.invokeStatic(protocols.clj:74)
+	at clojure.core.protocols$fn__8262.invoke(protocols.clj:74)
+	at clojure.core.protocols$fn__8203$G__8198__8216.invoke(protocols.clj:13)
+	at clojure.core$reduce.invokeStatic(core.clj:6965)
+	at clojure.core$mapv.invokeStatic(core.clj:7050)
+	at clojure.core$mapv.invoke(core.clj:7050)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2865)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2826)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest_runtime_test$fn__55690$fn__55715.invoke(ingest_runtime_test.clj:594)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$fn__55690.invokeStatic(ingest_runtime_test.clj:571)
+	at bitool.ingest_runtime_test$fn__55690.invoke(ingest_runtime_test.clj:555)
+	at clojure.test$test_var$fn__9894.invoke(test.clj:717)
+	at clojure.test$test_var.invokeStatic(test.clj:717)
+	at clojure.test$test_var.invoke(test.clj:708)
+	at clojure.test$test_vars$fn__9920$fn__9925.invoke(test.clj:735)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$eval55158$fn__55159.invoke(ingest_runtime_test.clj:32)
+	at clojure.test$compose_fixtures$fn__9888$fn__9889.invoke(test.clj:694)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$compose_fixtures$fn__9888.invoke(test.clj:694)
+	at clojure.test$test_vars$fn__9920.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars.invokeStatic(test.clj:731)
+	at clojure.test$test_all_vars.invokeStatic(test.clj:737)
+	at clojure.test$test_ns.invokeStatic(test.clj:758)
+	at clojure.test$test_ns.invoke(test.clj:743)
+	at user$eval54951$fn__55074.invoke(form-init13887878023977060710.clj:1)
+	at clojure.lang.AFn.applyToHelper(AFn.java:156)
+	at clojure.lang.AFn.applyTo(AFn.java:144)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$compose_hooks$fn__54778.doInvoke(form-init13887878023977060710.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$run_hooks.invokeStatic(form-init13887878023977060710.clj:1)
+	at leiningen.core.injected$run_hooks.invoke(form-init13887878023977060710.clj:1)
+	at leiningen.core.injected$prepare_for_hooks$fn__54783$fn__54784.doInvoke(form-init13887878023977060710.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.AFunction$1.doInvoke(AFunction.java:33)
+	at clojure.lang.RestFn.invoke(RestFn.java:411)
+	at clojure.core$map$fn__5954.invoke(core.clj:2772)
+	at clojure.lang.LazySeq.force(LazySeq.java:50)
+	at clojure.lang.LazySeq.realize(LazySeq.java:89)
+	at clojure.lang.LazySeq.seq(LazySeq.java:106)
+	at clojure.lang.Cons.next(Cons.java:41)
+	at clojure.lang.RT.boundedLength(RT.java:1810)
+	at clojure.lang.RestFn.applyTo(RestFn.java:133)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.test$run_tests.invokeStatic(test.clj:768)
+	at clojure.test$run_tests.doInvoke(test.clj:768)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at user$eval54951$fn__55084$fn__55137.invoke(form-init13887878023977060710.clj:1)
+	at user$eval54951$fn__55084$fn__55085.invoke(form-init13887878023977060710.clj:1)
+	at user$eval54951$fn__55084.invoke(form-init13887878023977060710.clj:1)
+	at user$eval54951.invokeStatic(form-init13887878023977060710.clj:1)
+	at user$eval54951.invoke(form-init13887878023977060710.clj:1)
+	at clojure.lang.Compiler.eval(Compiler.java:7700)
+	at clojure.lang.Compiler.eval(Compiler.java:7690)
+	at clojure.lang.Compiler.load(Compiler.java:8165)
+	at clojure.lang.Compiler.loadFile(Compiler.java:8103)
+	at clojure.main$load_script.invokeStatic(main.clj:476)
+	at clojure.main$init_opt.invokeStatic(main.clj:478)
+	at clojure.main$init_opt.invoke(main.clj:478)
+	at clojure.main$initialize.invokeStatic(main.clj:509)
+	at clojure.main$null_opt.invokeStatic(main.clj:543)
+	at clojure.main$null_opt.invoke(main.clj:540)
+	at clojure.main$main.invokeStatic(main.clj:665)
+	at clojure.main$main.doInvoke(main.clj:617)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.main.main(main.java:40)
+Caused by: java.net.SocketException: Operation not permitted
+	at java.base/sun.nio.ch.Net.connect0(Native Method)
+	at java.base/sun.nio.ch.Net.connect(Net.java:589)
+	at java.base/sun.nio.ch.Net.connect(Net.java:578)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:583)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:751)
+	at org.postgresql.core.PGStream.<init>(PGStream.java:81)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:92)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:196)
+	... 111 common frames omitted
+
+Ran 1 tests containing 4 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][soak] bitool.ingest-runtime-test/run-api-node-replays-deterministically-from-stored-batch-artifacts
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-runtime-test/run-api-node-replays-deterministically-from-stored-batch-artifacts]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline9643127016090864387.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline1448221412120914204.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-runtime-test
+2026-03-16 12:14:07,380 [main] WARN  bitool.ingest.runtime - Replaying API endpoint with stored endpoint config snapshot instead of current graph endpoint config {:endpoint_name trips, :replay_source_run_id run-old} 
+2026-03-16 12:14:07,451 [main] WARN  bitool.ingest.runtime - Skipping workspace-context lookup for endpoint freshness {:graph_id 99, :api_node_id 2} 
+org.postgresql.util.PSQLException: The connection attempt failed.
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:296)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:49)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:211)
+	at org.postgresql.Driver.makeConnection(Driver.java:459)
+	at org.postgresql.Driver.connect(Driver.java:261)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:683)
+	at java.sql/java.sql.DriverManager.getConnection(DriverManager.java:191)
+	at next.jdbc.connection$get_driver_connection.invokeStatic(connection.clj:410)
+	at next.jdbc.connection$get_driver_connection.invoke(connection.clj:404)
+	at next.jdbc.connection$url_PLUS_etc$reify__3031.getConnection(connection.clj:427)
+	at next.jdbc.connection$make_connection.invokeStatic(connection.clj:453)
+	at next.jdbc.connection$make_connection.invoke(connection.clj:437)
+	at next.jdbc.connection$eval3052$fn__3053.invoke(connection.clj:482)
+	at next.jdbc.protocols$eval2782$fn__2783$G__2773__2790.invoke(protocols.clj:25)
+	at next.jdbc.result_set$eval3755$fn__3763.invoke(result_set.clj:933)
+	at next.jdbc.protocols$eval2814$fn__2830$G__2805__2839.invoke(protocols.clj:34)
+	at next.jdbc$execute_BANG_.invokeStatic(jdbc.clj:254)
+	at next.jdbc$execute_BANG_.invoke(jdbc.clj:241)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_$fn__8134.invoke(control_plane.clj:205)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_.invokeStatic(control_plane.clj:138)
+	at bitool.control_plane$ensure_control_plane_tables_BANG_.invoke(control_plane.clj:135)
+	at bitool.control_plane$graph_workspace_context.invokeStatic(control_plane.clj:378)
+	at bitool.control_plane$graph_workspace_context.invoke(control_plane.clj:376)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564$fn__48572$fn__48573.invoke(runtime.clj:3042)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564$fn__48572.invoke(runtime.clj:3041)
+	at bitool.ingest.runtime$run_api_node_BANG_$fn__48564.invoke(runtime.clj:3040)
+	at clojure.core$mapv$fn__8565.invoke(core.clj:7059)
+	at clojure.lang.ArrayChunk.reduce(ArrayChunk.java:60)
+	at clojure.core.protocols$fn__8270.invokeStatic(protocols.clj:135)
+	at clojure.core.protocols$fn__8270.invoke(protocols.clj:123)
+	at clojure.core.protocols$fn__8229$G__8224__8238.invoke(protocols.clj:19)
+	at clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:31)
+	at clojure.core.protocols$fn__8262.invokeStatic(protocols.clj:74)
+	at clojure.core.protocols$fn__8262.invoke(protocols.clj:74)
+	at clojure.core.protocols$fn__8203$G__8198__8216.invoke(protocols.clj:13)
+	at clojure.core$reduce.invokeStatic(core.clj:6965)
+	at clojure.core$mapv.invokeStatic(core.clj:7050)
+	at clojure.core$mapv.invoke(core.clj:7050)
+	at bitool.ingest.runtime$run_api_node_BANG_.invokeStatic(runtime.clj:2865)
+	at bitool.ingest.runtime$run_api_node_BANG_.invoke(runtime.clj:2825)
+	at bitool.ingest_runtime_test$fn__56814$fn__56876.invoke(ingest_runtime_test.clj:1759)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$fn__56814.invokeStatic(ingest_runtime_test.clj:1693)
+	at bitool.ingest_runtime_test$fn__56814.invoke(ingest_runtime_test.clj:1665)
+	at clojure.test$test_var$fn__9894.invoke(test.clj:717)
+	at clojure.test$test_var.invokeStatic(test.clj:717)
+	at clojure.test$test_var.invoke(test.clj:708)
+	at clojure.test$test_vars$fn__9920$fn__9925.invoke(test.clj:735)
+	at clojure.core$with_redefs_fn.invokeStatic(core.clj:7706)
+	at clojure.core$with_redefs_fn.invoke(core.clj:7690)
+	at bitool.ingest_runtime_test$eval55158$fn__55159.invoke(ingest_runtime_test.clj:32)
+	at clojure.test$compose_fixtures$fn__9888$fn__9889.invoke(test.clj:694)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$compose_fixtures$fn__9888.invoke(test.clj:694)
+	at clojure.test$test_vars$fn__9920.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars.invokeStatic(test.clj:731)
+	at clojure.test$test_all_vars.invokeStatic(test.clj:737)
+	at clojure.test$test_ns.invokeStatic(test.clj:758)
+	at clojure.test$test_ns.invoke(test.clj:743)
+	at user$eval54951$fn__55074.invoke(form-init13012072684169288147.clj:1)
+	at clojure.lang.AFn.applyToHelper(AFn.java:156)
+	at clojure.lang.AFn.applyTo(AFn.java:144)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$compose_hooks$fn__54778.doInvoke(form-init13012072684169288147.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at leiningen.core.injected$run_hooks.invokeStatic(form-init13012072684169288147.clj:1)
+	at leiningen.core.injected$run_hooks.invoke(form-init13012072684169288147.clj:1)
+	at leiningen.core.injected$prepare_for_hooks$fn__54783$fn__54784.doInvoke(form-init13012072684169288147.clj:1)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.AFunction$1.doInvoke(AFunction.java:33)
+	at clojure.lang.RestFn.invoke(RestFn.java:411)
+	at clojure.core$map$fn__5954.invoke(core.clj:2772)
+	at clojure.lang.LazySeq.force(LazySeq.java:50)
+	at clojure.lang.LazySeq.realize(LazySeq.java:89)
+	at clojure.lang.LazySeq.seq(LazySeq.java:106)
+	at clojure.lang.Cons.next(Cons.java:41)
+	at clojure.lang.RT.boundedLength(RT.java:1810)
+	at clojure.lang.RestFn.applyTo(RestFn.java:133)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.test$run_tests.invokeStatic(test.clj:768)
+	at clojure.test$run_tests.doInvoke(test.clj:768)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at user$eval54951$fn__55084$fn__55137.invoke(form-init13012072684169288147.clj:1)
+	at user$eval54951$fn__55084$fn__55085.invoke(form-init13012072684169288147.clj:1)
+	at user$eval54951$fn__55084.invoke(form-init13012072684169288147.clj:1)
+	at user$eval54951.invokeStatic(form-init13012072684169288147.clj:1)
+	at user$eval54951.invoke(form-init13012072684169288147.clj:1)
+	at clojure.lang.Compiler.eval(Compiler.java:7700)
+	at clojure.lang.Compiler.eval(Compiler.java:7690)
+	at clojure.lang.Compiler.load(Compiler.java:8165)
+	at clojure.lang.Compiler.loadFile(Compiler.java:8103)
+	at clojure.main$load_script.invokeStatic(main.clj:476)
+	at clojure.main$init_opt.invokeStatic(main.clj:478)
+	at clojure.main$init_opt.invoke(main.clj:478)
+	at clojure.main$initialize.invokeStatic(main.clj:509)
+	at clojure.main$null_opt.invokeStatic(main.clj:543)
+	at clojure.main$null_opt.invoke(main.clj:540)
+	at clojure.main$main.invokeStatic(main.clj:665)
+	at clojure.main$main.doInvoke(main.clj:617)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.main.main(main.java:40)
+Caused by: java.net.SocketException: Operation not permitted
+	at java.base/sun.nio.ch.Net.connect0(Native Method)
+	at java.base/sun.nio.ch.Net.connect(Net.java:589)
+	at java.base/sun.nio.ch.Net.connect(Net.java:578)
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:583)
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+	at java.base/java.net.Socket.connect(Socket.java:751)
+	at org.postgresql.core.PGStream.<init>(PGStream.java:81)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:92)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:196)
+	... 110 common frames omitted
+
+Ran 1 tests containing 12 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][soak] bitool.ingest-execution-test/retry-decision-and-backoff-follow-request-budget
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-execution-test/retry-decision-and-backoff-follow-request-budget]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline8112675670087049409.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline6566736275605515441.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-execution-test
+
+Ran 1 tests containing 4 assertions.
+0 failures, 0 errors.
+[api-bronze-proof][test][soak] bitool.ingest-execution-test/sweep-expired-leases-claims-each-orphan-before-processing
+Leiningen's classpath: /usr/local/Cellar/leiningen/2.12.0/libexec/leiningen-2.12.0-standalone.jar
+Applying task test to [:only bitool.ingest-execution-test/sweep-expired-leases-claims-each-orphan-before-processing]
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline12005929220620311335.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+Applying task javac to nil
+Running javac with [@/var/folders/xy/1643kmmx6958bhb0n4mf2byc0000gn/T/.leiningen-cmdline9968015651180362859.tmp]
+Applying task compile to nil
+All namespaces already AOT compiled.
+WARNING: name already refers to: #'clojure.core/name in namespace: bitool.db, being replaced by: #'bitool.db/name
+WARNING: wrap-params already refers to: #'muuntaja.middleware/wrap-params in namespace: bitool.middleware, being replaced by: #'ring.middleware.params/wrap-params
+WARNING: parents already refers to: #'clojure.core/parents in namespace: bitool.graph2, being replaced by: #'bitool.graph2/parents
+WARNING: parse-boolean already refers to: #'clojure.core/parse-boolean in namespace: bitool.ingest.bronze, being replaced by: #'bitool.ingest.bronze/parse-boolean
+WARNING: key already refers to: #'clojure.core/key in namespace: bitool.routes.home, being replaced by: #'bitool.routes.home/key
+
+lein test bitool.ingest-execution-test
+2026-03-16 12:15:01,710 [main] WARN  bitool.ingest.execution - Claimed expired execution lease for orphan recovery {:request-id req-1, :run-id req-1-run, :graph-id 9, :node-id 5} 
+2026-03-16 12:15:01,713 [main] INFO  bitool.ingest.execution - Completed orphan recovery decision {:request-id req-1, :run-id req-1-run, :status timed_out, :failure-class worker_orphaned} 
+2026-03-16 12:15:01,713 [main] WARN  bitool.ingest.execution - Claimed expired execution lease for orphan recovery {:request-id req-2, :run-id req-2-run, :graph-id 9, :node-id 6} 
+2026-03-16 12:15:01,714 [main] INFO  bitool.ingest.execution - Completed orphan recovery decision {:request-id req-2, :run-id req-2-run, :status queued, :failure-class worker_orphaned} 
+
+Ran 1 tests containing 2 assertions.
+0 failures, 0 errors.
+[api-bronze-proof] summary_file=tmp/api-bronze-proof-test/20260316T190727Z/summary.json
+[api-bronze-proof] complete

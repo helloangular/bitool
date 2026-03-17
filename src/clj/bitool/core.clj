@@ -1,6 +1,12 @@
 (ns bitool.core
   (:require
+    [bitool.config :as config]
+    [bitool.control-plane]
     [bitool.handler :as handler]
+    [bitool.ingest.execution]
+    [bitool.ingest.scheduler]
+    [bitool.modeling.automation]
+    [bitool.operations]
     [bitool.nrepl :as nrepl]
     [luminus.http-server :as http]
     [bitool.config :refer [env]]
@@ -23,20 +29,22 @@
 
 (mount/defstate ^{:on-reload :noop} http-server
   :start
-  (http/start
-    (-> env
-        (update :io-threads #(or % (* 2 (.availableProcessors (Runtime/getRuntime))))) 
-        (assoc  :handler (handler/app))
-        (update :port #(or (-> env :options :port) %))
-        (select-keys [:io-threads :handler :host :port :async?])))
+  (when (config/enabled-role? :api)
+    (http/start
+      (-> env
+          (update :io-threads #(or % (* 2 (.availableProcessors (Runtime/getRuntime))))) 
+          (assoc  :handler (handler/app))
+          (update :port #(or (-> env :options :port) %))
+          (select-keys [:io-threads :handler :host :port :async?]))))
   :stop
-  (http/stop http-server))
+  (when http-server
+    (http/stop http-server)))
 
 (mount/defstate ^{:on-reload :noop} repl-server
   :start
-  (when (env :nrepl-port)
-    (nrepl/start {:bind (env :nrepl-bind)
-                  :port (env :nrepl-port)}))
+  (when (:nrepl-port env)
+    (nrepl/start {:bind (:nrepl-bind env)
+                  :port (:nrepl-port env)}))
   :stop
   (when repl-server
     (nrepl/stop repl-server)))

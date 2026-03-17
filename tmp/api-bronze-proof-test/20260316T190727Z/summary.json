@@ -1,0 +1,10 @@
+{
+  "run_timestamp_utc": "20260316T190727Z",
+  "output_dir": "tmp/api-bronze-proof-test/20260316T190727Z",
+  "soak_iterations": 1,
+  "total_tests": 12,
+  "failed_tests": 0,
+  "status": "passed",
+  "results_file": "tmp/api-bronze-proof-test/20260316T190727Z/results.ndjson",
+  "log_file": "tmp/api-bronze-proof-test/20260316T190727Z/suite.log"
+}

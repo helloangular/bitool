@@ -37,7 +37,9 @@ class SchedulerComponent extends HTMLElement {
   bindElements() {
     const sr = this.shadowRoot;
     this.saveButton = sr.querySelector("#saveButton");
+    this.runNowButton = sr.querySelector("#runNowButton");
     this.closeButton = sr.querySelector("#closeButton");
+    this.enabledInput = sr.querySelector("#enabled");
     this.cronInput = sr.querySelector("#cronExpression");
     this.cronPreview = sr.querySelector("#cronPreview");
     this.timezoneSelect = sr.querySelector("#timezone");
@@ -73,6 +75,7 @@ class SchedulerComponent extends HTMLElement {
   initializeState() {
     const rect = this.selectedRectangle || {};
     this.state = new StateManager({
+      enabled: rect.enabled !== false,
       cron_expression: rect.cron_expression || "",
       timezone: rect.timezone || "UTC",
       params: rect.params || [],
@@ -82,6 +85,7 @@ class SchedulerComponent extends HTMLElement {
   populateFields() {
     if (!this.cronInput) return;
     const rect = this.selectedRectangle || {};
+    this.enabledInput.checked = rect.enabled !== false;
     this.cronInput.value = rect.cron_expression || "";
     this.timezoneSelect.value = rect.timezone || "UTC";
     this.updateCronPreview(rect.cron_expression || "");
@@ -91,8 +95,13 @@ class SchedulerComponent extends HTMLElement {
 
   setupEventListeners() {
     EventHandler.on(this.saveButton, "click", () => this.save(), false, "Scheduler");
+    EventHandler.on(this.runNowButton, "click", () => this.runNow(), false, "Scheduler");
     EventHandler.on(this.closeButton, "click", () => {
       this.setAttribute("visibility", "close");
+    }, false, "Scheduler");
+    EventHandler.on(this.enabledInput, "change", () => {
+      this.state.updateField("enabled", this.enabledInput.checked);
+      this.saveButton.disabled = !this.state.isDirty();
     }, false, "Scheduler");
     EventHandler.on(this.cronInput, "input", () => {
       this.state.updateField("cron_expression", this.cronInput.value);
@@ -214,6 +223,7 @@ class SchedulerComponent extends HTMLElement {
     try {
       const values = {
         id: this.selectedRectangle.id,
+        enabled: this.state.current.enabled,
         cron_expression: this.state.current.cron_expression,
         timezone: this.state.current.timezone,
         params: this.state.current.params,
@@ -228,6 +238,19 @@ class SchedulerComponent extends HTMLElement {
       this.saveButton.disabled = true;
     } catch (err) {
       console.error("SchedulerComponent: save failed", err);
+    }
+  }
+
+  async runNow() {
+    if (!this.selectedRectangle) return;
+    try {
+      await request("/runSchedulerIngestion", {
+        method: "POST",
+        body: { id: this.selectedRectangle.id },
+      });
+      console.log("SchedulerComponent: run submitted");
+    } catch (err) {
+      console.error("SchedulerComponent: run failed", err);
     }
   }
 }

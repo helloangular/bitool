@@ -18,6 +18,10 @@
 6. **Fail fast, fail clear** — Validation errors are human-readable and fed back to the LLM for self-correction.
 7. **Dry-run is truly read-only** — The `/gil/compile` endpoint validates and plans mutations without touching the database. Only `/gil/apply` persists.
 
+Related extension:
+
+- `GIL-for-Medallion-Modeling-Tech-Design.md` defines the domain-specific GIL layer for Bronze/Silver/Gold schema and mapping intents.
+
 ---
 
 ## 1. Architecture Overview

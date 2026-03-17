@@ -1,0 +1,1 @@
+{"batch_id":"dff68523-2c7d-44ed-94e2-8dd9c5e7a56a-b000001","run_id":"dff68523-2c7d-44ed-94e2-8dd9c5e7a56a","endpoint_name":"trips","source_system":"samara","pages":[{"page":null,"state":null,"response":{"status":200,"retry_count":null},"body":{"data":[{"id":"t1","vehicle":{"id":"v1"}}]}}]}

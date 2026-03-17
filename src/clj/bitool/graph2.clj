@@ -23,6 +23,8 @@
 	    "V"  ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
 	    "P"  ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
 	    "Ap" ["T" "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
+	    "Kf" ["T" "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
+	    "Fs" ["T" "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "O"]
 	    "J"  ["T" "V" "P" "A" "S" "Fi" "Fu" "J" "U" "C" "O"]
 	    "U"  ["T" "V" "P" "A" "S" "Fi" "Fu" "J" "U" "C" "O"]
 	    "Ep" ["Au" "Vd" "Rl" "Cr" "Lg" "Ci" "Cq" "Dx"
@@ -66,6 +68,8 @@
   "projection" "P",
   "target" "Tg",
   "api-connection" "Ap",
+  "kafka-source" "Kf",
+  "file-source" "Fs",
   "graphql-builder" "Gq",
   "conditionals" "C",
   "endpoint" "Ep",
@@ -187,6 +191,9 @@
 (defn tmap[g node] (get-in g [:n node :na]))
 
 (def node-keys {"filter" [:sql], "calculated" [:returntype :length :description :sql :datadef] , "aggregation" [:groupby :having],
+                 "api-connection" [:source_system :specification_url :base_url :auth_ref :endpoint_configs]
+                 "kafka-source" [:source_system :connection_id :bootstrap_servers :security_protocol :consumer_group_id :topic_configs]
+                 "file-source" [:source_system :connection_id :base_path :transport :file_configs]
                  "endpoint" [:http_method :route_path :path_params :query_params :body_schema :response_format :description]
                  "response-builder" [:status_code :response_type :headers :template]
                  "validator" [:rules]
@@ -198,7 +205,10 @@
                  "cache" [:cache_key :ttl_seconds :strategy]
                  "event-emitter" [:event_name :payload_template]
                  "circuit-breaker" [:failure_threshold :reset_timeout :fallback_response]
-                 "scheduler" [:cron_expression :timezone :params]
+                 "scheduler" [:cron_expression :timezone :params :enabled]
+                 "target" [:target_kind :connection_id :catalog :schema :write_mode :table_format :partition_columns :merge_keys :cluster_by :options
+                           :silver_job_id :gold_job_id :silver_job_params :gold_job_params :trigger_gold_on_success
+                           :sf_load_method :sf_stage_name :sf_warehouse :sf_file_format :sf_on_error :sf_purge]
                  "webhook"   [:webhook_path :secret_header :secret_value :payload_format]
                  "conditionals" [:cond_type :branches :default_branch]
                  "function" [:fn_name :fn_params :fn_lets :fn_return :fn_outputs]})
@@ -412,9 +422,7 @@
 (defn successors [ g node ] (if (= node (getFinalNode g)) [] (tail  (top-sort g) (parent g node))))
 
 (defn getTcols[g id]
-        (let [tid (first (filter #(not (some #{(btype % g)} ["filter" "sorter" "lookup" "association" "conditionals"] )) (predecessors g id)))
-              _ (println (str "------TID : " tid))
-             ]
+        (let [tid (first (filter #(not (some #{(btype % g)} ["filter" "sorter" "lookup" "association" "conditionals"] )) (predecessors g id)))]
              (tcols g tid)))
 
 (defn remove-by-value [v elem]
@@ -662,6 +670,527 @@
       	(-> g
             (update-node id params)))
 
+(def ^:private api-load-types #{"full" "incremental" "snapshot"})
+(def ^:private api-pagination-strategies #{"none" "offset" "page" "cursor" "token" "time" "link-header"})
+(def ^:private api-schema-modes #{"manual" "infer" "hybrid"})
+(def ^:private api-schema-evolution-modes #{"none" "advisory" "additive"})
+(def ^:private api-schema-enforcement-modes #{"strict" "additive" "permissive"})
+(def ^:private api-inferred-types #{"STRING" "INT" "BIGINT" "BOOLEAN" "DATE" "TIMESTAMP" "DOUBLE"})
+(def ^:private api-column-name-pattern #"^[A-Za-z_][A-Za-z0-9_]*$")
+
+(declare api-endpoint-configs-from-params)
+
+(defn- trim-str [v]
+  (some-> v str string/trim))
+
+(defn- non-blank-str [v default]
+  (let [s (trim-str v)]
+    (if (seq s) s default)))
+
+(defn- parse-bool [v]
+  (cond
+    (boolean? v) v
+    (string? v) (#{"true" "1" "yes" "on"} (string/lower-case (string/trim v)))
+    :else (boolean v)))
+
+(defn- safe-int-default [v default]
+  (try
+    (Integer/parseInt (str v))
+    (catch Exception _ default)))
+
+(defn- kw-map [m]
+  (walk/keywordize-keys (or m {})))
+
+(defn- kw-maps [coll]
+  (mapv kw-map (or coll [])))
+
+(defn- split-csv [v]
+  (cond
+    (nil? v) []
+    (sequential? v) (->> v
+                         (map trim-str)
+                         (remove string/blank?)
+                         vec)
+    :else (->> (string/split (str v) #",")
+               (map trim-str)
+               (remove string/blank?)
+               vec)))
+
+(defn- parse-jsonish-map [v]
+  (cond
+    (map? v) (kw-map v)
+    (string/blank? (str v)) {}
+    :else (try
+            (-> v cheshire.core/parse-string walk/keywordize-keys)
+            (catch Exception _
+              {}))))
+
+(defn- parse-jsonish-coll [v field-name]
+  (cond
+    (sequential? v) (kw-maps v)
+    (string/blank? (str v)) []
+    :else (try
+            (let [parsed (cheshire.core/parse-string v true)]
+              (when-not (sequential? parsed)
+                (throw (ex-info (str (name field-name) " must be a JSON array")
+                                {:field field-name})))
+              (kw-maps parsed))
+            (catch clojure.lang.ExceptionInfo e
+              (throw e))
+            (catch Exception _
+              (throw (ex-info (str "Invalid JSON array for " (name field-name))
+                              {:field field-name}))))))
+
+(defn- normalize-field-type [v]
+  (some-> (non-blank-str v nil) str string/upper-case))
+
+(defn- normalize-inferred-field [field]
+  (let [field (kw-map field)]
+    {:path (non-blank-str (:path field) "")
+     :column_name (non-blank-str (:column_name field)
+                                 (some-> (:path field) (non-blank-str nil) path->name))
+     :source_kind (non-blank-str (:source_kind field) "inferred")
+     :enabled (if (contains? field :enabled) (parse-bool (:enabled field)) true)
+     :type (or (normalize-field-type (:type field)) "STRING")
+     :observed_types (vec (or (:observed_types field) []))
+     :nullable (if (contains? field :nullable) (parse-bool (:nullable field)) true)
+     :confidence (double (or (:confidence field) 0.0))
+     :sample_coverage (double (or (:sample_coverage field) 0.0))
+     :depth (safe-int-default (:depth field) 0)
+     :array_mode (non-blank-str (:array_mode field) "scalar")
+     :override_type (or (normalize-field-type (:override_type field)) "")
+     :notes (non-blank-str (:notes field) "")}))
+
+(defn- default-schema-enforcement-mode
+  [schema-evolution-mode explicit-mode]
+  (or (non-blank-str explicit-mode nil)
+      (case (non-blank-str schema-evolution-mode "advisory")
+        "additive" "additive"
+        "strict" "strict"
+        "permissive" "permissive"
+        "advisory" "permissive"
+        "none" "permissive"
+        "permissive")))
+
+(defn normalize-api-endpoint-config [cfg]
+  (let [cfg                    (kw-map cfg)
+        retry-policy           (kw-map (:retry_policy cfg))
+        json-explode-rules     (kw-maps (:json_explode_rules cfg))
+        primary-key-fields     (split-csv (:primary_key_fields cfg))
+        selected-nodes         (split-csv (:selected_nodes cfg))
+        inferred-fields        (mapv normalize-inferred-field (parse-jsonish-coll (:inferred_fields cfg) :inferred_fields))
+        load-type              (non-blank-str (:load_type cfg) "full")
+        pagination-strategy    (non-blank-str (:pagination_strategy cfg) "none")
+        pagination-location    (non-blank-str (:pagination_location cfg) "query")
+        schema-mode            (non-blank-str (:schema_mode cfg) "manual")
+        schema-evolution-mode  (non-blank-str (:schema_evolution_mode cfg) "advisory")
+        schema-enforcement-mode (default-schema-enforcement-mode (:schema_evolution_mode cfg)
+                                                                 (:schema_enforcement_mode cfg))
+        schema-review-state     (non-blank-str (:schema_review_state cfg) "optional")
+        endpoint-url           (non-blank-str (:endpoint_url cfg) "")
+        endpoint-name          (non-blank-str (:endpoint_name cfg) endpoint-url)
+        bronze-table-name      (non-blank-str (:bronze_table_name cfg) (or (:table_name cfg) ""))
+        silver-table-name      (non-blank-str (:silver_table_name cfg) "")
+        watermark-column       (non-blank-str (:watermark_column cfg) "")
+        cursor-field           (non-blank-str (:cursor_field cfg) "")
+        cursor-param           (non-blank-str (:cursor_param cfg) "cursor")
+        page-size              (safe-int-default (:page_size cfg) 100)
+        overlap-minutes        (safe-int-default (:watermark_overlap_minutes cfg) 0)
+        sample-records         (safe-int-default (:sample_records cfg) 100)
+        max-inferred-columns   (safe-int-default (:max_inferred_columns cfg) 100)
+        rate-limit-per-page-ms (safe-int-default (:rate_limit_per_page_ms cfg) 0)
+        source-max-concurrency (safe-int-default (:source_max_concurrency cfg) nil)
+        credential-max-concurrency (safe-int-default (:credential_max_concurrency cfg) nil)
+        circuit-breaker-failure-threshold (safe-int-default (:circuit_breaker_failure_threshold cfg) nil)
+        circuit-breaker-window-seconds (safe-int-default (:circuit_breaker_window_seconds cfg) nil)
+        circuit-breaker-reset-timeout-seconds (safe-int-default (:circuit_breaker_reset_timeout_seconds cfg) nil)
+        circuit-breaker-half-open-max-requests (safe-int-default (:circuit_breaker_half_open_max_requests cfg) nil)
+        checkpoint-alert-seconds (safe-int-default (:checkpoint_alert_seconds cfg) nil)
+        retry-volume-alert-24h (safe-int-default (:retry_volume_alert_24h cfg) nil)
+        replay-failure-alert-7d (safe-int-default (:replay_failure_alert_7d cfg) nil)
+        bad-record-alert-ratio (when (contains? cfg :bad_record_alert_ratio)
+                                 (try
+                                   (Double/parseDouble (str (:bad_record_alert_ratio cfg)))
+                                   (catch Exception _
+                                     ::invalid-double)))]
+    {:endpoint_name endpoint-name
+     :endpoint_url endpoint-url
+     :http_method (-> (non-blank-str (:http_method cfg) "GET") string/upper-case)
+     :selected_nodes selected-nodes
+     :schema_mode schema-mode
+     :sample_records sample-records
+     :max_inferred_columns max-inferred-columns
+     :type_inference_enabled (if (contains? cfg :type_inference_enabled) (parse-bool (:type_inference_enabled cfg)) true)
+     :schema_evolution_mode schema-evolution-mode
+     :schema_enforcement_mode schema-enforcement-mode
+     :schema_review_state schema-review-state
+     :require_schema_approval (parse-bool (:require_schema_approval cfg))
+     :inferred_fields inferred-fields
+     :load_type load-type
+     :pagination_strategy pagination-strategy
+     :pagination_location pagination-location
+     :cursor_field cursor-field
+     :cursor_param cursor-param
+     :offset_param (non-blank-str (:offset_param cfg) "offset")
+     :limit_param (non-blank-str (:limit_param cfg) "limit")
+     :offset_field (non-blank-str (:offset_field cfg) "offset")
+     :limit_field (non-blank-str (:limit_field cfg) "limit")
+     :total_field (non-blank-str (:total_field cfg) "total")
+     :is_last_field (non-blank-str (:is_last_field cfg) "isLast")
+     :page_param (non-blank-str (:page_param cfg) "page")
+     :size_param (non-blank-str (:size_param cfg) "page_size")
+     :page_field (non-blank-str (:page_field cfg) "page")
+     :total_pages_field (non-blank-str (:total_pages_field cfg) "total_pages")
+     :token_param (non-blank-str (:token_param cfg) "page_token")
+     :token_field (non-blank-str (:token_field cfg) "nextPageToken")
+     :time_param (non-blank-str (:time_param cfg) "updated_since")
+     :time_field (non-blank-str (:time_field cfg) watermark-column)
+     :window_size_param (non-blank-str (:window_size_param cfg) "window_size")
+     :time_window_minutes (safe-int-default (:time_window_minutes cfg) 60)
+     :link_header_name (non-blank-str (:link_header_name cfg) "link")
+     :watermark_column watermark-column
+     :watermark_overlap_minutes overlap-minutes
+     :rate_limit_per_page_ms (max 0 (long (or rate-limit-per-page-ms 0)))
+     :source_max_concurrency (when (some? source-max-concurrency) (max 1 (long source-max-concurrency)))
+     :credential_max_concurrency (when (some? credential-max-concurrency) (max 1 (long credential-max-concurrency)))
+     :circuit_breaker_enabled (if (contains? cfg :circuit_breaker_enabled)
+                                (parse-bool (:circuit_breaker_enabled cfg))
+                                nil)
+     :circuit_breaker_failure_threshold (when (some? circuit-breaker-failure-threshold)
+                                          (max 1 (long circuit-breaker-failure-threshold)))
+     :circuit_breaker_window_seconds (when (some? circuit-breaker-window-seconds)
+                                       (max 1 (long circuit-breaker-window-seconds)))
+     :circuit_breaker_reset_timeout_seconds (when (some? circuit-breaker-reset-timeout-seconds)
+                                              (max 1 (long circuit-breaker-reset-timeout-seconds)))
+     :circuit_breaker_half_open_max_requests (when (some? circuit-breaker-half-open-max-requests)
+                                               (max 1 (long circuit-breaker-half-open-max-requests)))
+     :checkpoint_alert_seconds (when (some? checkpoint-alert-seconds)
+                                 (max 1 (long checkpoint-alert-seconds)))
+     :bad_record_alert_ratio bad-record-alert-ratio
+     :retry_volume_alert_24h (when (some? retry-volume-alert-24h)
+                               (max 1 (long retry-volume-alert-24h)))
+     :replay_failure_alert_7d (when (some? replay-failure-alert-7d)
+                                (max 0 (long replay-failure-alert-7d)))
+     :primary_key_fields primary-key-fields
+     :bronze_table_name bronze-table-name
+     :silver_table_name silver-table-name
+     :retry_policy {:max_retries (safe-int-default (:max_retries retry-policy) 3)
+                    :base_backoff_ms (safe-int-default (:base_backoff_ms retry-policy) 1000)}
+     :json_explode_rules json-explode-rules
+     :query_params (parse-jsonish-map (:query_params cfg))
+     :request_headers (parse-jsonish-map (:request_headers cfg))
+     :body_params (parse-jsonish-map (:body_params cfg))
+     :page_size page-size
+     :enabled (if (contains? cfg :enabled) (parse-bool (:enabled cfg)) true)
+     ;; backward-compatible fields used by current UI
+     :table_name bronze-table-name
+     :create_table (parse-bool (:create_table cfg))
+     :truncate (parse-bool (:truncate cfg))}))
+
+(defn validate-api-endpoint-config [cfg]
+  (let [endpoint-url         (:endpoint_url cfg)
+        load-type            (:load_type cfg)
+        pagination-strategy  (:pagination_strategy cfg)
+        inferred-fields      (vec (or (:inferred_fields cfg) []))]
+    (when (string/blank? endpoint-url)
+      (throw (ex-info "API endpoint_url must not be blank" {:field :endpoint_url})))
+    (when-not (contains? api-load-types load-type)
+      (throw (ex-info (str "Unsupported load_type '" load-type "'")
+                      {:field :load_type :value load-type})))
+    (when-not (contains? api-pagination-strategies pagination-strategy)
+      (throw (ex-info (str "Unsupported pagination_strategy '" pagination-strategy "'")
+                      {:field :pagination_strategy :value pagination-strategy})))
+    (when-not (#{"query" "body"} (:pagination_location cfg))
+      (throw (ex-info "pagination_location must be 'query' or 'body'"
+                      {:field :pagination_location :value (:pagination_location cfg)})))
+    (when-not (contains? api-schema-modes (:schema_mode cfg))
+      (throw (ex-info (str "Unsupported schema_mode '" (:schema_mode cfg) "'")
+                      {:field :schema_mode :value (:schema_mode cfg)})))
+    (when-not (contains? api-schema-evolution-modes (:schema_evolution_mode cfg))
+      (throw (ex-info (str "Unsupported schema_evolution_mode '" (:schema_evolution_mode cfg) "'")
+                      {:field :schema_evolution_mode :value (:schema_evolution_mode cfg)})))
+    (when-not (contains? api-schema-enforcement-modes (:schema_enforcement_mode cfg))
+      (throw (ex-info (str "Unsupported schema_enforcement_mode '" (:schema_enforcement_mode cfg) "'")
+                      {:field :schema_enforcement_mode :value (:schema_enforcement_mode cfg)})))
+    (when-not (#{"optional" "required"} (:schema_review_state cfg))
+      (throw (ex-info "schema_review_state must be optional or required"
+                      {:field :schema_review_state
+                       :value (:schema_review_state cfg)})))
+    (when (and (not= load-type "full")
+               (string/blank? (:watermark_column cfg)))
+      (throw (ex-info "watermark_column is required for incremental and snapshot loads"
+                      {:field :watermark_column})))
+    (when (and (= pagination-strategy "cursor")
+               (string/blank? (:cursor_field cfg)))
+      (throw (ex-info "cursor_field is required for cursor pagination"
+                      {:field :cursor_field})))
+    (when (and (= pagination-strategy "token")
+               (string/blank? (:token_field cfg)))
+      (throw (ex-info "token_field is required for token pagination"
+                      {:field :token_field})))
+    (when (and (= pagination-strategy "time")
+               (string/blank? (:time_field cfg)))
+      (throw (ex-info "time_field is required for time pagination"
+                      {:field :time_field})))
+    (when (empty? (:primary_key_fields cfg))
+      (throw (ex-info "primary_key_fields must contain at least one field"
+                      {:field :primary_key_fields})))
+    (when (<= (long (or (:sample_records cfg) 0)) 0)
+      (throw (ex-info "sample_records must be greater than 0"
+                      {:field :sample_records :value (:sample_records cfg)})))
+    (when (<= (long (or (:max_inferred_columns cfg) 0)) 0)
+      (throw (ex-info "max_inferred_columns must be greater than 0"
+                      {:field :max_inferred_columns :value (:max_inferred_columns cfg)})))
+    (when (and (some? (:source_max_concurrency cfg))
+               (<= (long (:source_max_concurrency cfg)) 0))
+      (throw (ex-info "source_max_concurrency must be greater than 0"
+                      {:field :source_max_concurrency :value (:source_max_concurrency cfg)})))
+    (when (and (some? (:credential_max_concurrency cfg))
+               (<= (long (:credential_max_concurrency cfg)) 0))
+      (throw (ex-info "credential_max_concurrency must be greater than 0"
+                      {:field :credential_max_concurrency :value (:credential_max_concurrency cfg)})))
+    (doseq [[field value]
+            [[:circuit_breaker_failure_threshold (:circuit_breaker_failure_threshold cfg)]
+             [:circuit_breaker_window_seconds (:circuit_breaker_window_seconds cfg)]
+             [:circuit_breaker_reset_timeout_seconds (:circuit_breaker_reset_timeout_seconds cfg)]
+             [:circuit_breaker_half_open_max_requests (:circuit_breaker_half_open_max_requests cfg)]
+             [:checkpoint_alert_seconds (:checkpoint_alert_seconds cfg)]
+             [:retry_volume_alert_24h (:retry_volume_alert_24h cfg)]]]
+      (when (and (some? value) (<= (long value) 0))
+        (throw (ex-info (str (name field) " must be greater than 0")
+                        {:field field :value value}))))
+    (when (and (some? (:replay_failure_alert_7d cfg))
+               (neg? (long (:replay_failure_alert_7d cfg))))
+      (throw (ex-info "replay_failure_alert_7d must be greater than or equal to 0"
+                      {:field :replay_failure_alert_7d
+                       :value (:replay_failure_alert_7d cfg)})))
+    (when (= ::invalid-double (:bad_record_alert_ratio cfg))
+      (throw (ex-info "bad_record_alert_ratio must be a valid decimal"
+                      {:field :bad_record_alert_ratio
+                       :value (:bad_record_alert_ratio cfg)})))
+    (when (and (some? (:bad_record_alert_ratio cfg))
+               (or (neg? (double (:bad_record_alert_ratio cfg)))
+                   (> (double (:bad_record_alert_ratio cfg)) 1.0)))
+      (throw (ex-info "bad_record_alert_ratio must be between 0.0 and 1.0"
+                      {:field :bad_record_alert_ratio
+                       :value (:bad_record_alert_ratio cfg)})))
+    (doseq [field inferred-fields]
+      (when (string/blank? (:path field))
+        (throw (ex-info "inferred_fields.path must not be blank"
+                        {:field :inferred_fields :value field})))
+      (when (or (string/blank? (:column_name field))
+                (not (re-matches api-column-name-pattern (:column_name field))))
+        (throw (ex-info "inferred_fields.column_name must be a valid identifier"
+                        {:field :inferred_fields :value field})))
+      (when-not (contains? api-inferred-types (:type field))
+        (throw (ex-info (str "Unsupported inferred field type '" (:type field) "'")
+                        {:field :inferred_fields :value field})))
+      (when (and (seq (:override_type field))
+                 (not (contains? api-inferred-types (:override_type field))))
+        (throw (ex-info (str "Unsupported inferred field override_type '" (:override_type field) "'")
+                        {:field :inferred_fields :value field}))))
+    (let [enabled-columns (->> inferred-fields
+                               (filter #(not= false (:enabled %)))
+                               (map :column_name)
+                               frequencies
+                               (keep (fn [[column-name n]]
+                                       (when (> n 1) column-name)))
+                               vec)]
+      (when (seq enabled-columns)
+        (throw (ex-info "inferred_fields contains duplicate enabled column_name values"
+                        {:field :inferred_fields :columns enabled-columns}))))
+    cfg))
+
+(defn normalize-api-node-params [params]
+  (let [params            (kw-map params)
+        endpoint-configs  (api-endpoint-configs-from-params params)]
+    {:api_name          (:api_name params)
+     :source_system     (non-blank-str (:source_system params) "samara")
+     :specification_url (:specification_url params)
+     :base_url          (:base_url params)
+     :auth_ref          (kw-map (:auth_ref params))
+     :endpoint_configs  endpoint-configs
+     :endpoints         endpoint-configs}))
+
+(def ^:private kafka-deserializers
+  #{"string" "json" "avro" "protobuf" "bytes"})
+
+(def ^:private file-formats
+  #{"csv" "jsonl" "parquet" "fixed_width"})
+
+(def ^:private file-transports
+  #{"local" "s3" "sftp" "azure_blob"})
+
+(defn- infer-file-format
+  [path]
+  (let [path (some-> path str string/lower-case)]
+    (cond
+      (string/ends-with? path ".csv") "csv"
+      (or (string/ends-with? path ".jsonl")
+          (string/ends-with? path ".ndjson")) "jsonl"
+      (string/ends-with? path ".parquet") "parquet"
+      :else "fixed_width")))
+
+(defn- normalize-kafka-topic-config
+  [cfg]
+  (let [cfg         (kw-map cfg)
+        topic-name  (non-blank-str (:topic_name cfg) "")
+        endpoint    (non-blank-str (:endpoint_name cfg) topic-name)]
+    {:endpoint_name endpoint
+     :topic_name topic-name
+     :enabled (if (contains? cfg :enabled) (parse-bool (:enabled cfg)) true)
+     :key_deserializer (non-blank-str (:key_deserializer cfg) "string")
+     :value_deserializer (non-blank-str (:value_deserializer cfg) "json")
+     :schema_registry_url (non-blank-str (:schema_registry_url cfg) "")
+     :schema_registry_auth_ref (kw-map (:schema_registry_auth_ref cfg))
+     :json_explode_rules (vec (or (:json_explode_rules cfg) []))
+     :primary_key_fields (cond
+                           (sequential? (:primary_key_fields cfg)) (vec (map str (:primary_key_fields cfg)))
+                           :else (split-csv (:primary_key_fields cfg)))
+     :watermark_column (non-blank-str (:watermark_column cfg) "")
+     :bronze_table_name (non-blank-str (:bronze_table_name cfg) "")
+     :schema_mode (non-blank-str (:schema_mode cfg) "manual")
+     :inferred_fields (vec (or (:inferred_fields cfg) []))
+     :max_poll_records (safe-int-default (:max_poll_records cfg) 500)
+     :max_poll_interval_ms (safe-int-default (:max_poll_interval_ms cfg) 300000)
+     :auto_offset_reset (non-blank-str (:auto_offset_reset cfg) "earliest")
+     :batch_flush_rows (safe-int-default (:batch_flush_rows cfg) 1000)
+     :batch_flush_bytes (safe-int-default (:batch_flush_bytes cfg) 52428800)
+     :rate_limit_per_poll_ms (safe-int-default (:rate_limit_per_poll_ms cfg) 0)
+     :options (parse-jsonish-map (:options cfg))}))
+
+(defn- validate-kafka-topic-config
+  [cfg]
+  (when (string/blank? (:topic_name cfg))
+    (throw (ex-info "topic_name is required"
+                    {:field :topic_name :value (:topic_name cfg)})))
+  (when-not (contains? kafka-deserializers (:key_deserializer cfg))
+    (throw (ex-info "Unsupported key_deserializer"
+                    {:field :key_deserializer :value (:key_deserializer cfg)})))
+  (when-not (contains? kafka-deserializers (:value_deserializer cfg))
+    (throw (ex-info "Unsupported value_deserializer"
+                    {:field :value_deserializer :value (:value_deserializer cfg)})))
+  (when-not (#{"earliest" "latest"} (:auto_offset_reset cfg))
+    (throw (ex-info "auto_offset_reset must be earliest or latest"
+                    {:field :auto_offset_reset :value (:auto_offset_reset cfg)})))
+  cfg)
+
+(defn- normalize-kafka-node-params
+  [params]
+  (let [params        (kw-map params)
+        topic-configs (->> (:topic_configs params)
+                           (map normalize-kafka-topic-config)
+                           (map validate-kafka-topic-config)
+                           vec)]
+    {:source_system (non-blank-str (:source_system params) "kafka")
+     :connection_id (when-let [conn-id (some-> (:connection_id params) str trim-str not-empty)]
+                      (safe-int-default conn-id nil))
+     :bootstrap_servers (non-blank-str (:bootstrap_servers params) "")
+     :security_protocol (non-blank-str (:security_protocol params) "PLAINTEXT")
+     :consumer_group_id (non-blank-str (:consumer_group_id params) "")
+     :topic_configs topic-configs}))
+
+(defn save-kafka-source
+  [g id params]
+  (update-node g id (normalize-kafka-node-params params)))
+
+(defn- normalize-field-spec
+  [spec]
+  (let [spec (kw-map spec)]
+    {:name (non-blank-str (:name spec) "")
+     :start (safe-int-default (:start spec) 1)
+     :length (safe-int-default (:length spec) 0)
+     :type (non-blank-str (:type spec) "string")}))
+
+(defn- normalize-file-config
+  [cfg]
+  (let [cfg        (kw-map cfg)
+        paths      (cond
+                     (sequential? (:paths cfg)) (vec (map str (:paths cfg)))
+                     (seq (non-blank-str (:path cfg) "")) [(str (:path cfg))]
+                     :else [])
+        first-path (first paths)
+        endpoint   (non-blank-str (:endpoint_name cfg)
+                                  (some-> first-path java.io.File. .getName))]
+    {:endpoint_name endpoint
+     :enabled (if (contains? cfg :enabled) (parse-bool (:enabled cfg)) true)
+     :transport (non-blank-str (:transport cfg) "local")
+     :path first-path
+     :paths paths
+     :format (non-blank-str (:format cfg) (infer-file-format first-path))
+     :delimiter (non-blank-str (:delimiter cfg) ",")
+     :has_header (if (contains? cfg :has_header) (parse-bool (:has_header cfg)) true)
+     :encoding (non-blank-str (:encoding cfg) "UTF-8")
+     :primary_key_fields (cond
+                           (sequential? (:primary_key_fields cfg)) (vec (map str (:primary_key_fields cfg)))
+                           :else (split-csv (:primary_key_fields cfg)))
+     :watermark_column (non-blank-str (:watermark_column cfg) "")
+     :bronze_table_name (non-blank-str (:bronze_table_name cfg) "")
+     :json_explode_rules (vec (or (:json_explode_rules cfg) []))
+     :schema_mode (non-blank-str (:schema_mode cfg) "manual")
+     :inferred_fields (vec (or (:inferred_fields cfg) []))
+     :field_specs (->> (:field_specs cfg) (map normalize-field-spec) vec)
+     :copybook (non-blank-str (:copybook cfg) "")
+     :batch_flush_rows (safe-int-default (:batch_flush_rows cfg) 1000)
+     :batch_flush_bytes (safe-int-default (:batch_flush_bytes cfg) 52428800)
+     :options (parse-jsonish-map (:options cfg))}))
+
+(defn- validate-file-config
+  [cfg]
+  (when-not (seq (:paths cfg))
+    (throw (ex-info "file source config requires path or paths"
+                    {:field :path :value cfg})))
+  (when-not (= 1 (count (str (:delimiter cfg))))
+    (throw (ex-info "file source delimiter must be a single character"
+                    {:field :delimiter
+                     :value (:delimiter cfg)})))
+  (when-not (contains? file-transports (:transport cfg))
+    (throw (ex-info "Unsupported file transport"
+                    {:field :transport :value (:transport cfg)})))
+  (when-not (contains? file-formats (:format cfg))
+    (throw (ex-info "Unsupported file format"
+                    {:field :format :value (:format cfg)})))
+  cfg)
+
+(defn- normalize-file-node-params
+  [params]
+  (let [params       (kw-map params)
+        file-configs (->> (:file_configs params)
+                          (map normalize-file-config)
+                          (map validate-file-config)
+                          vec)]
+    {:source_system (non-blank-str (:source_system params) "file")
+     :connection_id (when-let [conn-id (some-> (:connection_id params) str trim-str not-empty)]
+                      (safe-int-default conn-id nil))
+     :base_path (non-blank-str (:base_path params) "")
+     :transport (non-blank-str (:transport params) "local")
+     :file_configs file-configs}))
+
+(defn save-file-source
+  [g id params]
+  (update-node g id (normalize-file-node-params params)))
+
+(defn- api-endpoint-configs-from-params [params]
+  (let [params (kw-map params)
+        endpoint-configs (:endpoint_configs params)
+        current-endpoint (:endpoint_url params)]
+    (cond
+      (seq endpoint-configs)
+      (mapv #(validate-api-endpoint-config (normalize-api-endpoint-config %)) endpoint-configs)
+
+      (sequential? current-endpoint)
+      (mapv #(validate-api-endpoint-config
+               (normalize-api-endpoint-config
+                 (if (map? %) %
+                     {:endpoint_url %})))
+            current-endpoint)
+
+      (seq (trim-str current-endpoint))
+      [(validate-api-endpoint-config
+         (normalize-api-endpoint-config params))]
+
+      :else [])))
+
 (defn link-mapping[g id params]
         (let [
 		mid (nodecount g)
@@ -695,25 +1224,23 @@
          edges)))
 
 (defn upsert-edge [g id endpoint_url params]
-      (let [
-		edge-id (endpoint-target-exists g id endpoint_url)
-                _ (prn-v edge-id)
-                _ (prn-v endpoint_url)
-                _ (prn-v params)
-           ]
+      (let [edge-id (endpoint-target-exists g id endpoint_url)]
            (if edge-id
            	(sp/transform [:n id :e edge-id] #(merge % params) g)
                 (create-target g id endpoint_url params))))
 
 (defn save-api[g id params]
-        (let [
-		_ (println "==========save-api============")
-                _ (prn-v params)
-             ]
-      	(-> g
-            (update-or-add-tcol id (:endpoint_url params) (select-keys params [:endpoint_url :selected_nodes :table_name :create_table :truncate]))
-            (update-node id (select-keys params [:specification_url :api_name :truncate :create_table]))
-            (upsert-edge id (:endpoint_url params) params))))
+        (let [params            (kw-map params)
+              endpoint-configs  (api-endpoint-configs-from-params params)
+              node-params       (normalize-api-node-params params)
+              legacy-endpoint   (when (seq endpoint-configs) (first endpoint-configs))
+              g1                (update-node g id node-params)]
+      	(if legacy-endpoint
+          (-> g1
+              (update-or-add-tcol id (:endpoint_url legacy-endpoint)
+                                  (select-keys legacy-endpoint [:endpoint_url :selected_nodes :table_name :create_table :truncate]))
+              (upsert-edge id (:endpoint_url legacy-endpoint) legacy-endpoint))
+          g1)))
 
 
 (defn convert-col[col]
@@ -750,6 +1277,42 @@
 
 (defn update-target[g id params]
       (update-in g [:n id :na] merge params))
+
+(defn- normalize-target-params [params]
+  (let [params (kw-map params)]
+    {:connection_id (when-let [conn-id (some-> (:connection_id params) str trim-str not-empty)]
+                      (safe-int-default conn-id nil))
+     :connection (non-blank-str (:connection params) "")
+     :target_kind (non-blank-str (:target_kind params) "databricks")
+     :catalog (non-blank-str (:catalog params) "")
+     :schema (non-blank-str (:schema params) "")
+     :table_name (non-blank-str (:table_name params) "")
+     :write_mode (non-blank-str (:write_mode params) "append")
+     :table_format (non-blank-str (:table_format params) "delta")
+     :partition_columns (split-csv (:partition_columns params))
+     :merge_keys (split-csv (:merge_keys params))
+     :cluster_by (split-csv (:cluster_by params))
+     :options (parse-jsonish-map (:options params))
+     :silver_job_id (non-blank-str (:silver_job_id params) "")
+     :gold_job_id (non-blank-str (:gold_job_id params) "")
+     :silver_job_params (parse-jsonish-map (:silver_job_params params))
+     :gold_job_params (parse-jsonish-map (:gold_job_params params))
+     :trigger_gold_on_success (parse-bool (:trigger_gold_on_success params))
+     :create_table (parse-bool (:create_table params))
+     :truncate (parse-bool (:truncate params))
+     :sf_load_method (non-blank-str (:sf_load_method params) "jdbc")
+     :sf_stage_name (non-blank-str (:sf_stage_name params) "")
+     :sf_warehouse (non-blank-str (:sf_warehouse params) "")
+     :sf_file_format (non-blank-str (:sf_file_format params) "")
+     :sf_on_error (non-blank-str (:sf_on_error params) "ABORT_STATEMENT")
+     :sf_purge (parse-bool (:sf_purge params))
+     :c (or (when-let [conn-id (some-> (:connection_id params) str trim-str not-empty)]
+              (safe-int-default conn-id nil))
+            (:c params))}))
+
+(defn save-target [g id params]
+  (let [node-params (normalize-target-params params)]
+    (update-node g id node-params)))
 
 (defn update-table-cols [ g 
                           start-node 
@@ -913,14 +1476,6 @@
 	   (if (and (not-empty-string? af) (not= af "None")) (assoc colmap "af" af) colmap)))
 
 (defn column_row_details [g table_id table_prefix row]
-    (let
-         [
-                _ (println "-------------------My ROW ------------")
-		_ (pp/pprint row)
-                _ (println "-------------------End ROW ------------")
-                _ (prn-v table_id)
-                _ (prn-v table_prefix)
-         ]
     {
      "tid" table_id
      "business_name"  (str table_prefix "." (:column_name row))
@@ -938,18 +1493,12 @@
      "af"             (:af row)
      "excluded"       (:excluded row)
      "alias"          (:alias row)
-               }))
+               })
 
 (defn column_details[g row]
-    (let [
-          _ (prn-v row)
-	  newrow (second row)
+    (let [newrow (second row)
           table_id (first row)
-          _ (println (str "table_prefix" table_id))
-          _ (println (str "node-name" (node-name table_id g)))          
-          table_prefix (node-name table_id g) 
-          _ (println (str "table_prefix" table_prefix))
-         ]
+          table_prefix (node-name table_id g)]
     (column_row_details g table_id table_prefix newrow)))
 
 (defn item_master[id alias btype tmap]
@@ -962,9 +1511,12 @@
         		"btype" btype	}
            ]
            (case btype
-  		 "A" (assoc item "having" (:having tmap))
-  		 "Fi" (assoc item "expression" (:sql tmap))
-  		 "Tg" (merge item (select-keys tmap [:truncate :create_table :c :connection :table_name]))
+ 		 "A" (assoc item "having" (:having tmap))
+ 		 "Fi" (assoc item "expression" (:sql tmap))
+  		 "Tg" (merge item (select-keys tmap [:truncate :create_table :c :connection :table_name :target_kind :connection_id :catalog :schema :write_mode :table_format :partition_columns :merge_keys :cluster_by :options]))
+  		 "Ap" (merge item (select-keys tmap [:api_name :source_system :specification_url :base_url :auth_ref :endpoint_configs]))
+       "Kf" (merge item (select-keys tmap [:source_system :connection_id :bootstrap_servers :security_protocol :consumer_group_id :topic_configs]))
+       "Fs" (merge item (select-keys tmap [:source_system :connection_id :base_path :transport :file_configs]))
   		 "Ep" (merge item (select-keys tmap [:http_method :route_path :path_params
                                                       :query_params :body_schema :response_format :description]))
   		 "Rb" (merge item (select-keys tmap [:status_code :response_type :headers :template]))
@@ -1044,51 +1596,91 @@ mapping node 7
 (defmulti getData (fn [g item] (class g)))
 
 (defmethod getData java.lang.String [g item]
-	(let [
-               _ ( println "CAlling M1")
-             ](get-in (db/getGraph (Integer. g)) [:n item :na])))
+		(get-in (db/getGraph (Integer. g)) [:n item :na]))
 
 (defmethod getData clojure.lang.PersistentArrayMap [g item]
-	(let [
-               _ ( println "CAlling M2")
-             ]
-	(get-in g [:n item :na])))
+		(get-in g [:n item :na]))
 
 (defn get-item [id g]
-     (let [
-            _ (println (str "id " (class id) " g " (class g)))
-            _ (println (pp/pprint g))
-            tmap (getData g id) 
-            _ (println "TMAP")
-            _ (pp/pprint tmap)
-            columns (:tcols tmap)
-            _ (println "COLUMNS")
-            _ (pp/pprint columns)
-            name (:name tmap)
-            alias (if (= name "O") "Output" name)
-            btype (:btype tmap)
-            _ (println columns) 
-          ]
+     (let [tmap (getData g id)
+           columns (:tcols tmap)
+           name (:name tmap)
+           alias (if (= name "O") "Output" name)
+           btype (:btype tmap)]
         (assoc (item_master id alias btype tmap) "items" (item_columns g columns))))
 
 
 (defn get-target-item [id g]
-     (let [
-            _ (println (str "id " (class id) " g " (class g)))
-            _ (println (pp/pprint g))
-            tmap (getData g id) 
-            _ (println "TMAP")
-            _ (pp/pprint tmap)
-            columns (:tcols tmap)
-            _ (println "COLUMNS")
-            _ (pp/pprint columns)
-            name (:name tmap)
-            alias name
-            btype (:btype tmap)
-            _ (println columns) 
-          ]
-        (assoc (item_master id alias btype  tmap) "items" (item_columns g columns))))
+     (let [tmap    (getData g id)
+           columns (:tcols tmap)
+           name    (:name tmap)
+           btype   (:btype tmap)]
+        (assoc (item_master id name btype tmap)
+               "connection_id" (:connection_id tmap)
+               "target_kind" (:target_kind tmap)
+               "catalog" (:catalog tmap)
+               "schema" (:schema tmap)
+               "table_name" (:table_name tmap)
+               "write_mode" (:write_mode tmap)
+               "table_format" (:table_format tmap)
+               "partition_columns" (:partition_columns tmap)
+               "merge_keys" (:merge_keys tmap)
+               "cluster_by" (:cluster_by tmap)
+               "options" (:options tmap)
+               "silver_job_id" (:silver_job_id tmap)
+               "gold_job_id" (:gold_job_id tmap)
+               "silver_job_params" (:silver_job_params tmap)
+               "gold_job_params" (:gold_job_params tmap)
+               "trigger_gold_on_success" (:trigger_gold_on_success tmap)
+               "sf_load_method" (:sf_load_method tmap)
+               "sf_stage_name" (:sf_stage_name tmap)
+               "sf_warehouse" (:sf_warehouse tmap)
+               "sf_file_format" (:sf_file_format tmap)
+               "sf_on_error" (:sf_on_error tmap)
+               "sf_purge" (:sf_purge tmap)
+               "items" (item_columns g columns))))
         ;; (assoc (item_master id alias btype  tmap) "items" (item_columns g columns id (:table tmap)))))
+
+(defn get-api-item [id g]
+     (let [tmap    (getData g id)
+           name    (:name tmap)
+           btype   (:btype tmap)
+           columns (:tcols tmap)]
+       (assoc (item_master id name btype tmap)
+              "items"            (item_columns g columns)
+              "api_name"         (:api_name tmap)
+              "source_system"    (:source_system tmap)
+              "specification_url" (:specification_url tmap)
+              "base_url"         (:base_url tmap)
+              "auth_ref"         (:auth_ref tmap)
+              "endpoint_configs" (:endpoint_configs tmap))))
+
+(defn get-kafka-source-item [id g]
+     (let [tmap    (getData g id)
+           name    (:name tmap)
+           btype   (:btype tmap)
+           columns (:tcols tmap)]
+       (assoc (item_master id name btype tmap)
+              "items" (item_columns g columns)
+              "source_system" (:source_system tmap)
+              "connection_id" (:connection_id tmap)
+              "bootstrap_servers" (:bootstrap_servers tmap)
+              "security_protocol" (:security_protocol tmap)
+              "consumer_group_id" (:consumer_group_id tmap)
+              "topic_configs" (:topic_configs tmap))))
+
+(defn get-file-source-item [id g]
+     (let [tmap    (getData g id)
+           name    (:name tmap)
+           btype   (:btype tmap)
+           columns (:tcols tmap)]
+       (assoc (item_master id name btype tmap)
+              "items" (item_columns g columns)
+              "source_system" (:source_system tmap)
+              "connection_id" (:connection_id tmap)
+              "base_path" (:base_path tmap)
+              "transport" (:transport tmap)
+              "file_configs" (:file_configs tmap))))
 
 ;; ---- Endpoint (Ep) node functions ----
 
@@ -1300,11 +1892,11 @@ mapping node 7
 (defn save-sc [g id params]
   (let [cron-expr (validate-sc-cron (:cron_expression params))
         timezone  (validate-sc-timezone (:timezone params))
-        kw-maps   (fn [coll] (mapv #(into {} (map (fn [[k v]] [(keyword k) v]) %)) coll))
-        sc-params (kw-maps (or (:params params) []))
+        sc-params (kw-maps (:params params))
         tcols     (sc-params->tcols id sc-params)
         node-params {:cron_expression cron-expr
                      :timezone        timezone
+                     :enabled         (if (contains? params :enabled) (parse-bool (:enabled params)) true)
                      :params          sc-params
                      :tcols           tcols}
         g         (update-node g id node-params)
@@ -1318,6 +1910,7 @@ mapping node 7
     (assoc (item_master id name btype tmap)
            "cron_expression" (:cron_expression tmap)
            "timezone"        (:timezone tmap)
+           "enabled"         (:enabled tmap)
            "params"          (:params tmap)
            "items"           (item_columns g (:tcols tmap)))))
 

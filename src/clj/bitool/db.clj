@@ -10,7 +10,8 @@
         [clojure.edn :as edn]
         [clojure.pprint :as pp]
         [clojure.java.io :as io])
-(:import [java.util.zip GZIPOutputStream GZIPInputStream]
+(:import [java.util UUID]
+         [java.util.zip GZIPOutputStream GZIPInputStream]
            [java.io ByteArrayOutputStream ByteArrayInputStream]
            [java.util Base64]))
        
@@ -120,10 +121,15 @@
 (defn insert-data [obj json-params]
     (sql/insert! ds obj json-params))
 
-(defn seq-next-val[name] 
-     (let [query (str "SELECT nextval('" name "') AS next_val")]
-    (-> (jdbc/execute-one! ds [query])
-        :next_val))) 
+(defn seq-next-val*
+  [conn name]
+  (let [query (str "SELECT nextval('" name "') AS next_val")]
+    (-> (jdbc/execute-one! conn [query])
+        :next_val)))
+
+(defn seq-next-val
+  [name]
+  (seq-next-val* ds name))
 
 (defn getGraph[gid] (read-string (:graph/definition (jdbc/execute-one! ds ["select definition from graph where id = ? and version = (select max(version) from graph where id = ?)" gid gid]))))
 
@@ -134,14 +140,23 @@
 
 (defn version+[g] (update-in g [:a :v] inc))
 
-(defn insertGraph [ g ] 
-    (let [
-           _ (pp/pprint g)
-           g (version+ g) 
-	   id (id g) 
-           gid (if (= 0 id) (seq-next-val "sqlgraph_id_seq") id) 
-           definition (pr-str (assoc-in g [:a :id] gid)) ]
-    	(read-string (:graph/definition (sql/insert! ds :graph { :id gid :version (version g) :name (name g) :definition definition })))))
+(defn insert-graph!
+  [conn g]
+  (let [_          (pp/pprint g)
+        g          (version+ g)
+        id         (id g)
+        gid        (if (= 0 id) (seq-next-val* conn "sqlgraph_id_seq") id)
+        definition (pr-str (assoc-in g [:a :id] gid))]
+    (read-string
+     (:graph/definition
+      (sql/insert! conn :graph {:id gid
+                                :version (version g)
+                                :name (name g)
+                                :definition definition})))))
+
+(defn insertGraph
+  [g]
+  (insert-graph! ds g))
    
 ;; (defn updateGraph[g]
 ;;    (sql/update! ds :graph {:version (version g) :name (name g) :definition (definition g)} {:id (id g)})) 
@@ -211,6 +226,36 @@
                                 :user username
                                 :password password}
                          dbname  (assoc :database-name dbname))
+          "databricks" (let [host       (or host "")
+                             port       (or port 443)
+                             http-path  (or (:http_path connection) "")
+                             token      (or (:token connection) password "")
+                             catalog    (or (:catalog connection) dbname)
+                             schema     (or schema (:schema connection) "default")
+                             jdbc-url   (format "jdbc:databricks://%s:%s/default;transportMode=http;ssl=1;AuthMech=3;httpPath=%s;UID=token;PWD=%s;ConnCatalog=%s;ConnSchema=%s"
+                                                host port http-path token catalog schema)]
+                         {:jdbcUrl jdbc-url
+                          :dbtype "databricks"})
+          "snowflake"  (let [account-host (or host "")
+                             warehouse    (or (:warehouse connection) service)
+                             role         (or (:role connection) sid)
+                             params       (remove str/blank?
+                                                  [(when dbname (str "db=" dbname))
+                                                   (when schema (str "schema=" schema))
+                                                   (when warehouse (str "warehouse=" warehouse))
+                                                   (when role (str "role=" role))])
+                             jdbc-url     (str "jdbc:snowflake://" account-host "/"
+                                               (when (seq params)
+                                                 (str "?" (str/join "&" params))))]
+                         (cond-> {:jdbcUrl jdbc-url
+                                  :dbtype "snowflake"
+                                  :catalog dbname
+                                  :user username
+                                  :password password}
+                           warehouse (assoc :warehouse warehouse)
+                           dbname (assoc :dbname dbname)
+                           schema (assoc :schema schema)
+                           role (assoc :role role)))
           ;; Add other db types if needed
           (throw (ex-info "Unsupported database type" {:dbtype dbtype})))))))
 
@@ -370,19 +415,33 @@
         sql     (format "select %s from %s" col-str (clojure.core/name table))]
     (jdbc/execute! ds [sql] {:builder-fn rs/as-unqualified-lower-maps})))
 
+(defn- snowflake-variant-column?
+  [column]
+  (#{"payload_json" "row_json"} (str/lower-case (str (:column_name column)))))
+
+(defn- make-insert-sql-for-dbtype
+  [dbtype table-name columns n-rows]
+  (let [col-names        (map :column_name columns)
+        cols-str         (str/join ", " col-names)
+        row-placeholders (str/join ", "
+                                   (map (fn [column]
+                                          (if (and (= "snowflake" dbtype)
+                                                   (snowflake-variant-column? column))
+                                            "PARSE_JSON(?)"
+                                            "?"))
+                                        columns))
+        all-placeholders (->> (repeat n-rows (str "(" row-placeholders ")"))
+                              (str/join ", "))]
+    (format "INSERT INTO %s (%s) VALUES %s"
+            table-name cols-str all-placeholders)))
+
 (defn make-insert-sql
   "Build INSERT ... VALUES ... SQL.
    Supports multiple rows by repeating the VALUES tuple N times:
    n-rows = 1  -> VALUES (?, ?, ?)
    n-rows = 2  -> VALUES (?, ?, ?), (?, ?, ?)"
   [table-name columns n-rows]
-  (let [col-names      (map :column_name columns)
-        cols-str       (str/join ", " col-names)
-        row-placeholders (str/join ", " (repeat (count col-names) "?"))
-        all-placeholders (->> (repeat n-rows (str "(" row-placeholders ")"))
-                              (str/join ", "))]
-    (format "INSERT INTO %s (%s) VALUES %s"
-            table-name cols-str all-placeholders)))
+  (make-insert-sql-for-dbtype nil table-name columns n-rows))
 
 (defn- assert-row-shape! [columns rows']
   (let [col-count (count columns)]
@@ -401,6 +460,7 @@
    - or a seq of row vectors: [[v1 v2 v3] [v1' v2' v3'] ...]"
   [conn-id db-name table-name columns rows]
   (let [opts (get-opts conn-id db-name)
+        dbtype (:dbtype (create-dbspec-from-id conn-id))
         ;; normalize rows to a seq of row-vectors
         rows' (cond
                 ;; seq-of-rows
@@ -419,9 +479,18 @@
 	(assert-row-shape! columns rows')
 
     	(let [n-rows      (count rows')
-        	  sql         (make-insert-sql table-name columns n-rows)
+        	  sql         (make-insert-sql-for-dbtype dbtype table-name columns n-rows)
                   _ (prn-v sql)
-          	flat-params (vec (mapcat identity rows'))]
+          	flat-params (vec (mapcat (fn [row]
+                                        (map (fn [column value]
+                                               (if (and (= "snowflake" dbtype)
+                                                        (snowflake-variant-column? column)
+                                                        (or (map? value) (vector? value)))
+                                                 (json/generate-string value)
+                                                 value))
+                                             columns
+                                             row))
+                                      rows'))]
       	(jdbc/execute! opts (into [sql] flat-params)))))
 
 (defn insert-row!
@@ -443,6 +512,22 @@
                                   {:value x})))]
     (format "\"%s\"" s)))
 
+(defn- pg-qualified-ident [x]
+  (->> (str/split (str x) #"\.")
+       (map pg-ident)
+       (str/join ".")))
+
+(defn- postgres-type [data-type]
+  (let [t (-> (or data-type "varchar(300)") str str/upper-case)]
+    (case t
+      "STRING" "TEXT"
+      "INT" "INTEGER"
+      "BIGINT" "BIGINT"
+      "BOOLEAN" "BOOLEAN"
+      "DATE" "DATE"
+      "TIMESTAMP" "TIMESTAMPTZ"
+      t)))
+
 ;; ---------- column DDL ----------
 
 (defn make-column-ddl
@@ -456,7 +541,7 @@
   (when (nil? column_name)
     (throw (ex-info ":column_name is mandatory in column spec" {})))
   (str (pg-ident column_name)
-       " " data_type
+       " " (postgres-type data_type)
        " "
        (if (= is_nullable "NO") "NOT NULL" "NULL")))
 
@@ -478,9 +563,94 @@
              (map make-column-ddl)
              (str/join ", "))]
     (format "CREATE TABLE IF NOT EXISTS %s (%s%s%s);"
-            (pg-ident table-name)
+            (pg-qualified-ident table-name)
             audit-ddl
             (when (seq columns) ", ")
+            cols-ddl)))
+
+(defn- dbx-ident [x]
+  (when (nil? x)
+    (throw (ex-info "Identifier cannot be nil" {})))
+  (let [s (cond
+            (keyword? x) (name x)
+            (string? x) x
+            :else (str x))]
+    (format "`%s`" s)))
+
+(defn fully-qualified-table-name
+  [{:keys [catalog schema]} table-name]
+  (let [table-name (cond
+                     (keyword? table-name) (name table-name)
+                     :else (str table-name))]
+    (cond
+      (re-find #"\." table-name) table-name
+      (and (seq catalog) (seq schema)) (str catalog "." schema "." table-name)
+      (seq schema) (str schema "." table-name)
+      :else table-name)))
+
+(defn make-create-table-sql-databricks
+  [table-name columns {:keys [partition-columns]}]
+  (when (nil? table-name)
+    (throw (ex-info "table-name cannot be nil" {})))
+  (let [cols-ddl (->> columns
+                      (map (fn [{:keys [column_name data_type is_nullable]
+                                 :or {data_type "STRING" is_nullable "YES"}}]
+                             (str (dbx-ident column_name)
+                                  " "
+                                  (str/upper-case (str data_type))
+                                  (when (= is_nullable "NO") " NOT NULL"))))
+                      (str/join ", "))
+        partition-ddl (when (seq partition-columns)
+                        (str " PARTITIONED BY ("
+                             (str/join ", " partition-columns)
+                             ")"))]
+    (format "CREATE TABLE IF NOT EXISTS %s (%s) USING DELTA%s"
+            table-name
+            cols-ddl
+            (or partition-ddl ""))))
+
+(defn- snowflake-ident [x]
+  (when (nil? x)
+    (throw (ex-info "Identifier cannot be nil" {})))
+  (let [s (cond
+            (keyword? x) (name x)
+            (string? x) x
+            :else (str x))]
+    (format "\"%s\"" s)))
+
+(defn- snowflake-qualified-ident [x]
+  (->> (str x)
+       (str/split #"\.")
+       (map snowflake-ident)
+       (str/join ".")))
+
+(defn- snowflake-column-type
+  [{:keys [column_name data_type]}]
+  (if (#{"payload_json" "row_json"} (str/lower-case (str column_name)))
+    "VARIANT"
+    (case (-> (or data_type "STRING") str str/upper-case)
+      "STRING" "STRING"
+      "INT" "NUMBER"
+      "BIGINT" "NUMBER"
+      "DOUBLE" "DOUBLE"
+      "BOOLEAN" "BOOLEAN"
+      "DATE" "DATE"
+      "TIMESTAMP" "TIMESTAMP_TZ"
+      (str/upper-case (str data_type)))))
+
+(defn make-create-table-sql-snowflake
+  [table-name columns]
+  (when (nil? table-name)
+    (throw (ex-info "table-name cannot be nil" {})))
+  (let [cols-ddl (->> columns
+                      (map (fn [{:keys [column_name is_nullable] :as col}]
+                             (str (snowflake-ident column_name)
+                                  " "
+                                  (snowflake-column-type col)
+                                  (when (= is_nullable "NO") " NOT NULL"))))
+                      (str/join ", "))]
+    (format "CREATE TABLE IF NOT EXISTS %s (%s)"
+            (snowflake-qualified-ident table-name)
             cols-ddl)))
 
 ;; ---------------------------
@@ -497,9 +667,20 @@
 ;; ---------------------------
 
 (defn create-table!
-  [conn-id db-name table-name columns]
-  (let [ddl (make-create-table-sql-postgres table-name columns)]
-    (run-ddl! conn-id db-name ddl)))
+  ([conn-id db-name table-name columns]
+   (create-table! conn-id db-name table-name columns {}))
+  ([conn-id db-name table-name columns opts]
+   (let [db-spec (create-dbspec-from-id conn-id)
+         ddl     (case (:dbtype db-spec)
+                   "databricks" (make-create-table-sql-databricks
+                                  (fully-qualified-table-name db-spec table-name)
+                                  columns
+                                  opts)
+                   "snowflake" (make-create-table-sql-snowflake
+                                 (fully-qualified-table-name db-spec table-name)
+                                 columns)
+                   (make-create-table-sql-postgres table-name columns))]
+     (run-ddl! conn-id db-name ddl))))
 
 ;; ... all your existing code ...
 
@@ -553,4 +734,94 @@
                           rows)]
       ;; delegate to your existing bulk insert
       (insert-rows! conn-id db-name table-name columns row-vals))))
+
+(def ^:private snowflake-stage-name-pattern #"^@?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
+
+(defn- csv-cell
+  [value]
+  (let [value (cond
+                (nil? value) "__BITOOL_NULL__"
+                (map? value) (json/generate-string value)
+                (vector? value) (json/generate-string value)
+                :else (str value))
+        escaped (-> value
+                    (str/replace "\"" "\"\"")
+                    (str/replace "\r\n" "\n")
+                    (str/replace "\r" "\n"))]
+    (str "\"" escaped "\"")))
+
+(defn- normalize-snowflake-stage-ref
+  [stage-name]
+  (let [stage-name (or (some-> stage-name str str/trim not-empty)
+                       (str "BITOOL_STAGE_" (str/replace (str (UUID/randomUUID)) "-" "_")))]
+    (when-not (re-matches snowflake-stage-name-pattern stage-name)
+      (throw (ex-info "Snowflake stage name must be a valid identifier"
+                      {:stage_name stage-name})))
+    {:stage-ref (if (str/starts-with? stage-name "@") stage-name (str "@" stage-name))
+     :stage-ident (str/replace stage-name #"^@" "")}))
+
+(defn- snowflake-copy-value-expr
+  [column idx]
+  (let [raw-expr  (str "$" idx)
+        value-expr (str "IFF(" raw-expr " = '__BITOOL_NULL__', NULL, " raw-expr ")")]
+    (if (snowflake-variant-column? column)
+      (str "PARSE_JSON(" value-expr ")")
+      value-expr)))
+
+(defn- write-snowflake-stage-csv!
+  [columns rows]
+  (let [file (java.io.File/createTempFile "bitool-sf-stage-" ".csv")
+        row-keys (mapv :row-key columns)]
+    (.deleteOnExit file)
+    (with-open [writer (io/writer file)]
+      (.write writer (str (str/join "," (map #(csv-cell (:column_name %)) columns)) "\n"))
+      (doseq [row rows]
+        (.write writer
+                (str (str/join ","
+                               (map (fn [k]
+                                      (csv-cell (get row k)))
+                                    row-keys))
+                     "\n"))))
+    file))
+
+(defn load-rows-snowflake-stage-copy!
+  [conn-id db-name table-name rows key->col {:keys [sf_stage_name sf_on_error sf_purge]}]
+  (if (or (nil? rows) (empty? rows))
+    {:status :no-op
+     :reason :empty-rows}
+    (let [col-keys      (vec (keys key->col))
+          columns       (mapv (fn [k]
+                                {:row-key k
+                                 :column_name (let [col-name (get key->col k)]
+                                                (cond
+                                                  (keyword? col-name) (name col-name)
+                                                  (string? col-name) col-name
+                                                  :else (str col-name)))})
+                              col-keys)
+          file          (write-snowflake-stage-csv! columns rows)
+          {:keys [stage-ref stage-ident]} (normalize-snowflake-stage-ref sf_stage_name)
+          generated-stage? (str/blank? (str sf_stage_name))
+          put-path      (str "file://" (.getAbsolutePath file))
+          table-ident   (snowflake-qualified-ident table-name)
+          column-idents (mapv (comp snowflake-ident :column_name) columns)
+          select-exprs  (map-indexed (fn [idx column]
+                                       (snowflake-copy-value-expr column (inc idx)))
+                                     columns)
+          put-sql       (str "PUT '" put-path "' " stage-ref " AUTO_COMPRESS=TRUE OVERWRITE=TRUE")
+          copy-sql      (str "COPY INTO " table-ident
+                             " (" (str/join ", " column-idents) ") "
+                             "FROM (SELECT " (str/join ", " select-exprs) " FROM " stage-ref ") "
+                             "FILE_FORMAT = (TYPE = CSV FIELD_OPTIONALLY_ENCLOSED_BY = '\"' SKIP_HEADER = 1 NULL_IF = ('__BITOOL_NULL__')) "
+                             "ON_ERROR = '" (or (some-> sf_on_error str str/trim not-empty) "ABORT_STATEMENT") "' "
+                             "PURGE = " (if (false? sf_purge) "FALSE" "TRUE"))
+          create-stage-sql (str "CREATE OR REPLACE TEMP STAGE " (snowflake-ident stage-ident))]
+      (with-open [conn (jdbc/get-connection (get-ds conn-id db-name))]
+        (when generated-stage?
+          (jdbc/execute! conn [create-stage-sql]))
+        (jdbc/execute! conn [put-sql])
+        (jdbc/execute! conn [copy-sql]))
+      {:status :ok
+       :load_method :snowflake_stage_copy
+       :row_count (count rows)
+       :table_name table-name})))
 	

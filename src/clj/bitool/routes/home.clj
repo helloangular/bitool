@@ -27,8 +27,15 @@
    [clojure.pprint :as pp]
    [clojure.walk :as walk]
    [taoensso.telemere :as tel]
+   [bitool.config :as config :refer [env]]
    [bitool.endpoint :as endpoint]
    [bitool.api.openapi :as openapi]
+   [bitool.control-plane :as control-plane]
+   [bitool.ingest.execution :as ingest-execution]
+   [bitool.ingest.runtime :as ingest-runtime]
+   [bitool.ingest.scheduler :as ingest-scheduler]
+   [bitool.modeling.automation :as modeling-automation]
+   [bitool.operations :as operations]
    [bitool.gil.api :as gil-api]
    ))
 
@@ -54,6 +61,8 @@
              sp (g2/unconnected-graph g)
            ]
            {:cp cp :sp sp}))
+
+(declare persist-graph! graph-save-error-response)
 
 (defn mapCoordinates[g]
       (let [
@@ -97,7 +106,7 @@
       (http-response/ok (g2/getDBTree (Integer. conn-id-str))))))
 
 (defn get-btype[alias]
-      (if (some #{"join" "union" "projection" "aggregation" "sorter" "filter" "function" "target" "output" "api-connection" "graphql-builder" "mapping" "conditionals" "endpoint" "response-builder" "validator" "auth" "db-execute" "rate-limiter" "cors" "logger" "cache" "event-emitter" "circuit-breaker" "scheduler" "webhook"} [alias])
+      (if (some #{"join" "union" "projection" "aggregation" "sorter" "filter" "function" "target" "output" "api-connection" "kafka-source" "file-source" "graphql-builder" "mapping" "conditionals" "endpoint" "response-builder" "validator" "auth" "db-execute" "rate-limiter" "cors" "logger" "cache" "event-emitter" "circuit-breaker" "scheduler" "webhook"} [alias])
           alias
           "T"))
 
@@ -280,7 +289,9 @@
 		("J" "association" "U") (partial g2/get-unijoin-item btype)
                 "Mp" g2/get-mapping-item
                 "Tg" g2/get-target-item
-                "Ap" g2/get-target-item
+                "Ap" g2/get-api-item
+                "Kf" g2/get-kafka-source-item
+                "Fs" g2/get-file-source-item
                 "Ep" g2/get-endpoint-item
                 "Rb" g2/get-response-builder-item
                 "Vd" g2/get-validator-item
@@ -357,9 +368,7 @@
            (http-response/ok (sc/endpoint-nodes-from-url specurl url (keyword (string/lower-case method))))))
 
 (defn get-function [request] 
-  (let [function (:function (:params request))
-        _ (println "function------")
-        _ (println function) ]
+  (let [function (:function (:params request))]
   (layout/render request (getFunctionHtml function)  )))
 
 (defn add-filter [request]
@@ -374,125 +383,1471 @@
     (reduce max (map #(Integer/parseInt %) (map #(first (clojure.string/split (subs % 5)  #"_")) (map str (filter #(clojure.string/starts-with? % ":join") (keys params)))))))
 
 (defn save-aggregation [request]
-  (let [params (:params request)
-        id (:id params)
-         _ (println params)
-       ]
-       (http-response/ok (g2/get-item id (db/insertGraph (g2/update-agg (db/getGraph (:gid (:session request)))  (Integer. (:id params)) params))))))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          cp      (persist-graph! request (g2/update-agg g id params))]
+      (http-response/ok (g2/get-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 
 (defn save-union [request]
-  (let [params (:params request)
-        id (:id params)
-         _ (println params)
-       ]
-       (http-response/ok (g2/get-item id (db/insertGraph (g2/update-agg (db/getGraph (:gid (:session request)))  (Integer. (:id params)) params))))))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          cp      (persist-graph! request (g2/update-agg g id params))]
+      (http-response/ok (g2/get-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-function [request]
-  (let [params (:params request)
-        id (:id params)
-         _ (println params)
-       ]
-       (http-response/ok (g2/get-item id (db/insertGraph (g2/update-projections (db/getGraph (:gid (:session request)))  (Integer. (:id params)) params))))))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          cp      (persist-graph! request (g2/update-projections g id params))]
+      (http-response/ok (g2/get-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-mapping [request]
-  (let [params (:params request)
-        g (db/getGraph (:gid (:session request)))
-        id (Integer. (anil? (:id params) (first (first (filter (fn [[k,v]] (= "mapping" (get-in v [:na :btype]))) (:n g))))))
-         _ (println params)
-       ]
-       (http-response/ok (g2/get-mapping-item id (db/insertGraph (g2/update-mapping g id (:mapping params)))))))
+  (try
+    (let [params  (:params request)
+          g       (db/getGraph (:gid (:session request)))
+          id      (Integer. (anil? (:id params) (first (first (filter (fn [[k,v]] (= "mapping" (get-in v [:na :btype]))) (:n g))))))
+          cp      (persist-graph! request (g2/update-mapping g id (:mapping params)))]
+      (http-response/ok (g2/get-mapping-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 
 (defn save-target [request]
-  (let [params (:params request)
-        g (db/getGraph (:gid (:session request)))
-        id (:id params)
-         _ (println params)
-       ]
-       (http-response/ok (g2/get-target-item id (db/insertGraph (g2/update-target g id params))))))
+  (try
+    (let [params (:params request)
+          g      (db/getGraph (:gid (:session request)))
+          id     (Integer. (str (:id params)))
+          cp     (persist-graph! request (g2/save-target g id params))]
+      (http-response/ok (g2/get-target-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn run-target [request]
   (let [params (:params request)
         g (db/getGraph (:gid params))
-        tid (:tid params)
-         _ (println params)
-       ]
+        tid (:tid params)]
        ;; (http-response/ok (g2/run-target g tid))))
         (http-response/ok (g2/get-target-item g tid))))
 
 (defn save-column [request]
-  (let [params (:params request)
-        id (:id params)
-        _ (println "==================================== PARAMS ========================================")
-                                                     _ (println params)
-                                                     ]
-                                                     (http-response/ok (g2/get-item id (db/insertGraph (g2/append-nodes-tcols (db/getGraph (:gid (:session request)))  (conj [] (Integer. (:id params))) (conj '() (g2/create-column params))))))))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          cp      (persist-graph! request (g2/append-nodes-tcols g (conj [] id) (conj '() (g2/create-column params))))]
+      (http-response/ok (g2/get-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 
 (defn save-join [request]
-  (let [
-					     params (:params request)
-                                                     _ (println "PRINTING PARAMS")
-                                                     _ (println params)
-                                                     id (Integer. (:id params))
- 						     g (db/getGraph (:gid (:session request)))
-                                                     cp (db/insertGraph (g2/save-join g (Integer. id) params))
-						     rp (g2/get-item id g) 
-						    ]
-							(http-response/ok rp)))
+  (try
+    (let [params (:params request)
+          id     (Integer. (:id params))
+          g      (db/getGraph (:gid (:session request)))
+          cp     (persist-graph! request (g2/save-join g id params))]
+      (http-response/ok (g2/get-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-filter [request]
-  (let [
-					     params (:params request)
-                                                     _ (println "PRINTING PARAMS")
-                                                     _ (println params)
-                                                     id (Integer. (:id params))
- 						     g (db/getGraph (:gid (:session request)))
-                                                     cp (db/insertGraph (g2/save-filter g (Integer. id) (set/rename-keys params {:having :where})))
-						     rp (g2/get-item id g) 
-						    ]
-							(http-response/ok rp)))
+  (try
+    (let [params (:params request)
+          id     (Integer. (:id params))
+          g      (db/getGraph (:gid (:session request)))
+          cp     (persist-graph! request (g2/save-filter g id (set/rename-keys params {:having :where})))]
+      (http-response/ok (g2/get-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 
 (defn save-sorter [request]
-  (let [
-                                             params (:params request)
-                                                     _ (println params)
-                                                     _ (println "PRINTING PARAMS")
-                                                     sorters (:sorters params)
-                                                     t (:name params)
-                                                     id (Integer. (:id params))
-                                                     g (db/getGraph (:gid (:session request)))
-                                                     cp (db/insertGraph (g2/save-sorter g (Integer. id) params))
-                                                     rp (g2/get-item id g)
-                                                    ]
-                                                        (http-response/ok rp)))
+  (try
+    (let [params (:params request)
+          id     (Integer. (:id params))
+          g      (db/getGraph (:gid (:session request)))
+          cp     (persist-graph! request (g2/save-sorter g id params))]
+      (http-response/ok (g2/get-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-api [request]
-  (let [
-                                             params (:params request)
-                                                     _ (println "PRINTING PARAMS")
-                                                     _ (println params)
-                                                     id (Integer. (:id params))
-                				     _ (prn-v id)
-                                                     g (db/getGraph (:gid (:session request)))
-                                                     cp (db/insertGraph (g2/save-api g (Integer. id) params))
-                                                     rp (g2/get-item id g)
-                                                    ]
-                                                        (http-response/ok (mapCoordinates cp))))
+  (try
+    (let [params (:params request)
+          id     (Integer. (:id params))
+          g      (db/getGraph (:gid (:session request)))
+          cp     (persist-graph! request (g2/save-api g id params))]
+      (http-response/ok (mapCoordinates cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
+
+(defn save-kafka-source [request]
+  (try
+    (let [params (:params request)
+          id     (Integer. (:id params))
+          g      (db/getGraph (:gid (:session request)))
+          cp     (persist-graph! request (g2/save-kafka-source g id params))]
+      (http-response/ok (g2/get-kafka-source-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
+
+(defn save-file-source [request]
+  (try
+    (let [params (:params request)
+          id     (Integer. (:id params))
+          g      (db/getGraph (:gid (:session request)))
+          cp     (persist-graph! request (g2/save-file-source g id params))]
+      (http-response/ok (g2/get-file-source-item id cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
+
+(defn- parse-required-int
+  [value field]
+  (try
+    (Integer/parseInt (str value))
+    (catch Exception _
+      (throw (ex-info (str "Invalid or missing " (name field))
+                      {:field field :value value})))))
+
+(defn- parse-optional-int
+  [value field]
+  (when (some? value)
+    (parse-required-int value field)))
+
+(defn- parse-optional-bool
+  [value]
+  (cond
+    (nil? value) nil
+    (instance? Boolean value) value
+    :else
+    (let [normalized (some-> value str string/trim string/lower-case)]
+      (cond
+        (#{"true" "1" "yes" "on"} normalized) true
+        (#{"false" "0" "no" "off"} normalized) false
+        :else (throw (ex-info "Invalid boolean value" {:value value}))))))
+
+(defn- rbac-enabled?
+  []
+  (let [raw (get env :bitool-rbac-enabled)]
+    (if (nil? raw)
+      false
+      (contains? #{"1" "true" "yes" "on"}
+                 (some-> raw str string/trim string/lower-case)))))
+
+(defn- request-roles
+  [request]
+  (let [session-roles (or (get-in request [:session :roles])
+                          (some-> (get-in request [:session :role]) vector)
+                          (some-> (get-in request [:params :role]) vector))]
+    (->> (if (sequential? session-roles) session-roles [session-roles])
+         (map #(some-> % str string/trim string/lower-case))
+         (remove string/blank?)
+         set)))
+
+(defn- ensure-authorized!
+  [request required-role]
+  (when (rbac-enabled?)
+    (let [required-role (some-> required-role name string/lower-case)
+          admin-role    (or (some-> (get env :bitool-admin-role) str string/trim string/lower-case)
+                            "admin")
+          roles         (request-roles request)]
+      (when-not (or (contains? roles admin-role)
+                    (contains? roles required-role))
+        (throw (ex-info "Forbidden"
+                        {:status 403
+                         :required_role required-role
+                         :roles (vec roles)}))))))
+
+(defn- record-audit-event!
+  [request event-type details]
+  (try
+    (control-plane/record-audit-event!
+     {:event_type event-type
+      :actor (or (get-in request [:session :user])
+                 (get-in request [:params :updated_by])
+                 "system")
+      :graph_id (or (parse-optional-int (or (get-in request [:params :gid])
+                                            (get-in request [:params :graph_id]))
+                                        :gid)
+                    (parse-optional-int (get-in request [:session :gid]) :gid))
+      :node_id (or (parse-optional-int (or (get-in request [:params :id])
+                                           (get-in request [:params :api_node_id]))
+                                       :id)
+                   nil)
+      :details details})
+    (catch Exception e
+      (tel/log! {:level :warn
+                 :msg "failed to persist audit event"
+                 :error (.getMessage e)
+                 :event_type event-type}))))
+
+(defn- request-graph-save-context
+  [request]
+  (let [params (:params request)]
+    {:expected-version (parse-optional-int (or (:expected_version params)
+                                               (get-in request [:session :graph_expected_version]))
+                                           :expected_version)
+     :workspace-key (:workspace_key params)
+     :updated-by (or (:updated_by params)
+                     (get-in request [:session :user])
+                     "system")}))
+
+(defn- persist-graph!
+  [request graph]
+  (control-plane/persist-graph! graph (request-graph-save-context request)))
+
+(defn- graph-save-error-response
+  [e]
+  ((if (= 409 (:status (ex-data e)))
+     http-response/conflict
+     http-response/bad-request)
+   {:error (ex-message e) :field (:field (ex-data e)) :data (ex-data e)}))
+
+(defn- queue-response
+  [result]
+  (-> ((if (:created? result)
+         http-response/accepted
+         http-response/ok)
+       result)
+      (assoc-in [:headers "Location"] (str "/executionRuns/" (:run_id result)))))
+
+(defn run-api-ingestion [request]
+  (try
+    (ensure-authorized! request :api.execute)
+    (let [params         (:params request)
+          gid            (parse-required-int (or (:gid params) (:gid (:session request))) :gid)
+          node-id        (parse-required-int (:id params) :id)
+          endpoint-name  (:endpoint_name params)
+          result         (ingest-execution/enqueue-api-request! gid node-id {:endpoint-name endpoint-name
+                                                                             :trigger-type "manual"})]
+      (record-audit-event! request
+                           "api.enqueue"
+                           {:graph_id gid
+                            :api_node_id node-id
+                            :endpoint_name endpoint-name
+                            :request_id (:request_id result)
+                            :run_id (:run_id result)})
+      (queue-response result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn run-kafka-ingestion [request]
+  (try
+    (ensure-authorized! request :api.execute)
+    (let [params        (:params request)
+          gid           (parse-required-int (or (:gid params) (:gid (:session request))) :gid)
+          node-id       (parse-required-int (:id params) :id)
+          endpoint-name (:endpoint_name params)
+          result        (ingest-execution/enqueue-kafka-request! gid node-id {:endpoint-name endpoint-name
+                                                                              :trigger-type "manual"})]
+      (record-audit-event! request
+                           "kafka.enqueue"
+                           {:graph_id gid
+                            :kafka_node_id node-id
+                            :endpoint_name endpoint-name
+                            :request_id (:request_id result)
+                            :run_id (:run_id result)})
+      (queue-response result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn run-file-ingestion [request]
+  (try
+    (ensure-authorized! request :api.execute)
+    (let [params        (:params request)
+          gid           (parse-required-int (or (:gid params) (:gid (:session request))) :gid)
+          node-id       (parse-required-int (:id params) :id)
+          endpoint-name (:endpoint_name params)
+          result        (ingest-execution/enqueue-file-request! gid node-id {:endpoint-name endpoint-name
+                                                                             :trigger-type "manual"})]
+      (record-audit-event! request
+                           "file.enqueue"
+                           {:graph_id gid
+                            :file_node_id node-id
+                            :endpoint_name endpoint-name
+                            :request_id (:request_id result)
+                            :run_id (:run_id result)})
+      (queue-response result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn preview-api-schema-inference [request]
+  (try
+    (let [params (:params request)
+          api-node {:base_url (:base_url params)
+                    :auth_ref (:auth_ref params)}
+          endpoint (:endpoint_config params)
+          result (ingest-runtime/preview-endpoint-schema! api-node endpoint)]
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn propose-silver-schema [request]
+  (try
+    (let [params (:params request)
+          gid (parse-required-int (or (:gid params) (:gid (:session request))) :gid)
+          node-id (parse-required-int (:id params) :id)
+          result (modeling-automation/propose-silver-schema!
+                  {:graph-id gid
+                   :api-node-id node-id
+                   :endpoint-name (:endpoint_name params)
+                   :created-by (or (:created_by params)
+                                   (get-in request [:session :user])
+                                   "system")})]
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((if (= 409 (:status (ex-data e)))
+         http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-silver-proposals [request]
+  (try
+    (let [params (:params request)]
+      (http-response/ok
+       (modeling-automation/list-silver-proposals
+        {:graph-id (parse-optional-int (or (:gid params) (:graph_id params)) :gid)
+         :status (:status params)
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn get-silver-proposal [request]
+  (try
+    (let [proposal-id (parse-required-int (or (get-in request [:path-params :proposal_id])
+                                              (get-in request [:params :proposal_id]))
+                                          :proposal_id)
+          proposal    (modeling-automation/get-silver-proposal proposal-id)]
+      (if proposal
+        (http-response/ok proposal)
+        (http-response/not-found {:error "Silver proposal not found" :proposal_id proposal-id})))
+    (catch clojure.lang.ExceptionInfo e
+      ((if (= 404 (:status (ex-data e)))
+         http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn update-silver-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/update-silver-proposal!
+        proposal-id
+        {:proposal (:proposal params)
+         :created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn compile-silver-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok (modeling-automation/compile-silver-proposal! proposal-id)))
+    (catch clojure.lang.ExceptionInfo e
+      ((if (= 404 (:status (ex-data e)))
+         http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn synthesize-silver-graph [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/synthesize-silver-graph!
+        proposal-id
+        {:created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn validate-silver-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/validate-silver-proposal!
+        proposal-id
+        {:sample_limit (parse-optional-int (:sample_limit params) :sample_limit)
+         :created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((if (= 404 (:status (ex-data e)))
+         http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn publish-silver-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/publish-silver-proposal!
+        proposal-id
+        {:sample_limit (parse-optional-int (:sample_limit params) :sample_limit)
+         :created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn execute-silver-release [request]
+  (try
+    (let [params (:params request)
+          release-id (parse-required-int (:release_id params) :release_id)]
+      (http-response/ok
+       (modeling-automation/execute-silver-release!
+        release-id
+        {:created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn review-silver-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/review-silver-proposal!
+        proposal-id
+        {:review_state (:review_state params)
+         :review_notes (:review_notes params)
+         :reviewed_by (or (:reviewed_by params)
+                          (get-in request [:session :user])
+                          "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn validate-silver-proposal-warehouse [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/validate-silver-proposal-warehouse!
+        proposal-id
+        {:created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn poll-silver-model-run [request]
+  (try
+    (let [params (:params request)
+          model-run-id (parse-required-int (:model_run_id params) :model_run_id)]
+      (http-response/ok
+       (modeling-automation/poll-silver-model-run! model-run-id)))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn propose-gold-schema [request]
+  (try
+    (let [params (:params request)
+          silver-proposal-id (parse-required-int (:silver_proposal_id params) :silver_proposal_id)
+          result (modeling-automation/propose-gold-schema!
+                  {:silver_proposal_id silver-proposal-id
+                   :created_by (or (:created_by params)
+                                   (get-in request [:session :user])
+                                   "system")})]
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((if (= 409 (:status (ex-data e)))
+         http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-gold-proposals [request]
+  (try
+    (let [params (:params request)]
+      (http-response/ok
+       (modeling-automation/list-gold-proposals
+        {:graph-id (parse-optional-int (or (:gid params) (:graph_id params)) :gid)
+         :status (:status params)
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn get-gold-proposal [request]
+  (try
+    (let [proposal-id (parse-required-int (or (get-in request [:path-params :proposal_id])
+                                              (get-in request [:params :proposal_id]))
+                                          :proposal_id)
+          proposal    (modeling-automation/get-gold-proposal proposal-id)]
+      (if proposal
+        (http-response/ok proposal)
+        (http-response/not-found {:error "Gold proposal not found" :proposal_id proposal-id})))
+    (catch clojure.lang.ExceptionInfo e
+      ((if (= 404 (:status (ex-data e)))
+         http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn update-gold-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/update-gold-proposal!
+        proposal-id
+        {:proposal (:proposal params)
+         :created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn compile-gold-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok (modeling-automation/compile-gold-proposal! proposal-id)))
+    (catch clojure.lang.ExceptionInfo e
+      ((if (= 404 (:status (ex-data e)))
+         http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn synthesize-gold-graph [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/synthesize-gold-graph!
+        proposal-id
+        {:created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn validate-gold-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/validate-gold-proposal!
+        proposal-id
+        {:sample_limit (parse-optional-int (:sample_limit params) :sample_limit)
+         :created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((if (= 404 (:status (ex-data e)))
+         http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn publish-gold-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/publish-gold-proposal!
+        proposal-id
+        {:sample_limit (parse-optional-int (:sample_limit params) :sample_limit)
+         :created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn execute-gold-release [request]
+  (try
+    (let [params (:params request)
+          release-id (parse-required-int (:release_id params) :release_id)]
+      (http-response/ok
+       (modeling-automation/execute-gold-release!
+        release-id
+        {:created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn review-gold-proposal [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/review-gold-proposal!
+        proposal-id
+        {:review_state (:review_state params)
+         :review_notes (:review_notes params)
+         :reviewed_by (or (:reviewed_by params)
+                          (get-in request [:session :user])
+                          "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn validate-gold-proposal-warehouse [request]
+  (try
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (modeling-automation/validate-gold-proposal-warehouse!
+        proposal-id
+        {:created_by (or (:created_by params)
+                         (get-in request [:session :user])
+                         "system")})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn poll-gold-model-run [request]
+  (try
+    (let [params (:params request)
+          model-run-id (parse-required-int (:model_run_id params) :model_run_id)]
+      (http-response/ok
+       (modeling-automation/poll-gold-model-run! model-run-id)))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn rollback-api-batch [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)
+          batch-id (:batch_id params)]
+      (let [result (ingest-runtime/rollback-api-batch!
+                    graph-id
+                    api-node-id
+                    batch-id
+                    {:endpoint-name (:endpoint_name params)
+                     :rollback-reason (:rollback_reason params)
+                     :rolled-back-by (or (:rolled_back_by params)
+                                         (get-in request [:session :user])
+                                         "system")})]
+        (record-audit-event! request
+                             "api.rollback_batch"
+                             {:graph_id graph-id
+                              :api_node_id api-node-id
+                              :batch_id batch-id
+                              :endpoint_name (:endpoint_name params)})
+        (http-response/ok result)))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-api-batches [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)]
+      (http-response/ok
+       (ingest-runtime/list-api-batches
+        graph-id
+        api-node-id
+        {:endpoint-name (:endpoint_name params)
+         :run-id (:run_id params)
+         :status (:status params)
+         :active-only (parse-optional-bool (:active_only params))
+         :replayable-only (parse-optional-bool (:replayable_only params))
+         :archived-only (parse-optional-bool (:archived_only params))
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-api-bad-records-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)]
+      (http-response/ok
+       (ingest-runtime/list-api-bad-records
+        graph-id
+        api-node-id
+        {:endpoint-name (:endpoint_name params)
+         :run-id (:run_id params)
+         :batch-id (:batch_id params)
+         :include-succeeded (parse-optional-bool (:include_succeeded params))
+         :include-payloads (parse-optional-bool (:include_payloads params))
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn archive-api-batch [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)
+          batch-id (:batch_id params)]
+      (let [result (ingest-runtime/archive-api-batch!
+                    graph-id
+                    api-node-id
+                    batch-id
+                    {:endpoint-name (:endpoint_name params)
+                     :archived-by (or (:archived_by params)
+                                      (get-in request [:session :user])
+                                      "system")})]
+        (record-audit-event! request
+                             "api.archive_batch"
+                             {:graph_id graph-id
+                              :api_node_id api-node-id
+                              :batch_id batch-id
+                              :endpoint_name (:endpoint_name params)})
+        (http-response/ok result)))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn apply-api-retention [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)]
+      (let [result (ingest-runtime/apply-api-retention!
+                    graph-id
+                    api-node-id
+                    {:endpoint-name (:endpoint_name params)
+                     :archive-days (parse-optional-int (:archive_days params) :archive_days)
+                     :retention-days (parse-optional-int (:retention_days params) :retention_days)
+                     :bad-record-payload-archive-days (parse-optional-int (:bad_record_payload_archive_days params)
+                                                                          :bad_record_payload_archive_days)
+                     :bad-record-retention-days (parse-optional-int (:bad_record_retention_days params)
+                                                                    :bad_record_retention_days)
+                     :dry-run (parse-optional-bool (:dry_run params))
+                     :limit (parse-optional-int (:limit params) :limit)
+                     :archived-by (or (:archived_by params)
+                                      (get-in request [:session :user])
+                                      "system")})]
+        (record-audit-event! request
+                             "api.apply_retention"
+                             {:graph_id graph-id
+                              :api_node_id api-node-id
+                              :endpoint_name (:endpoint_name params)
+                              :archive_days (parse-optional-int (:archive_days params) :archive_days)
+                              :retention_days (parse-optional-int (:retention_days params) :retention_days)
+                              :bad_record_payload_archive_days (parse-optional-int (:bad_record_payload_archive_days params)
+                                                                 :bad_record_payload_archive_days)
+                              :bad_record_retention_days (parse-optional-int (:bad_record_retention_days params)
+                                                                              :bad_record_retention_days)
+                              :dry_run (parse-optional-bool (:dry_run params))
+                              :result (select-keys result [:archived_count
+                                                           :deleted_count
+                                                           :bad_record_payload_archived_count
+                                                           :bad_record_metadata_deleted_count])})
+        (http-response/ok result)))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn replay-api-bad-records [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)
+          result (ingest-runtime/replay-api-bad-records!
+                  graph-id
+                  api-node-id
+                  {:endpoint-name (:endpoint_name params)
+                   :batch-id (:batch_id params)
+                   :source-run-id (:run_id params)
+                   :limit (parse-optional-int (:limit params) :limit)
+                   :include-succeeded? (parse-optional-bool (:include_succeeded params))
+                   :replayed-by (or (:replayed_by params)
+                                    (get-in request [:session :user])
+                                    "system")})]
+      (record-audit-event! request
+                           "api.replay_bad_records"
+                           {:graph_id graph-id
+                            :api_node_id api-node-id
+                            :endpoint_name (:endpoint_name params)
+                            :batch_id (:batch_id params)
+                            :source_run_id (:run_id params)
+                            :replay_run_id (:run_id result)})
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-api-schema-approvals-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)]
+      (http-response/ok
+       (ingest-runtime/list-api-schema-approvals
+        graph-id
+        api-node-id
+        {:endpoint-name (:endpoint_name params)
+         :include-snapshots (parse-optional-bool (:include_snapshots params))
+         :promoted-only (parse-optional-bool (:promoted_only params))
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn review-api-schema-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)
+          result (ingest-runtime/review-api-schema!
+                  graph-id
+                  api-node-id
+                  {:endpoint-name (:endpoint_name params)
+                   :schema-hash (:schema_hash params)
+                   :review-state (:review_state params)
+                   :review-notes (:review_notes params)
+                   :promote? (parse-optional-bool (:promote params))
+                   :reviewed-by (or (:reviewed_by params)
+                                    (get-in request [:session :user])
+                                    "system")})]
+      (record-audit-event! request
+                           "api.review_schema"
+                           {:graph_id graph-id
+                            :api_node_id api-node-id
+                            :endpoint_name (:endpoint_name params)
+                            :schema_hash (:schema_hash result)
+                            :review_state (:review_state result)
+                            :promoted (:promoted result)})
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn promote-api-schema-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)
+          result (ingest-runtime/promote-api-schema!
+                  graph-id
+                  api-node-id
+                  {:endpoint-name (:endpoint_name params)
+                   :schema-hash (:schema_hash params)
+                   :review-notes (:review_notes params)
+                   :reviewed-by (or (:reviewed_by params)
+                                    (get-in request [:session :user])
+                                    "system")})]
+      (record-audit-event! request
+                           "api.promote_schema"
+                           {:graph_id graph-id
+                            :api_node_id api-node-id
+                            :endpoint_name (:endpoint_name params)
+                            :schema_hash (:schema_hash result)})
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn verify-api-commit-closure-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)]
+      (http-response/ok
+       (ingest-runtime/verify-api-commit-closure
+        graph-id
+        api-node-id
+        {:endpoint-name (:endpoint_name params)
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn reset-api-checkpoint-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)
+          result (ingest-runtime/reset-api-checkpoint!
+                  graph-id
+                  api-node-id
+                  {:endpoint-name (:endpoint_name params)
+                   :reset-to-cursor (:reset_to_cursor params)
+                   :reset-to-watermark (:reset_to_watermark params)
+                   :reason (:reason params)
+                   :requested-by (or (:requested_by params)
+                                     (get-in request [:session :user])
+                                     "system")})]
+      (record-audit-event! request
+                           "api.reset_checkpoint"
+                           {:graph_id graph-id
+                            :api_node_id api-node-id
+                            :endpoint_name (:endpoint_name result)
+                            :reason (:reason params)
+                            :reset_to_cursor (:reset_to_cursor params)
+                            :reset_to_watermark (:reset_to_watermark params)})
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn api-observability-summary-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)]
+      (http-response/ok
+       (ingest-runtime/api-observability-summary
+        graph-id
+        api-node-id
+        {:endpoint-name (:endpoint_name params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn api-observability-alerts-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          api-node-id (parse-required-int (:api_node_id params) :api_node_id)]
+      (http-response/ok
+       (ingest-runtime/api-observability-alerts
+        graph-id
+        api-node-id
+        {:endpoint-name (:endpoint_name params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn record-api-bronze-proof-signoff [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          result (control-plane/record-api-bronze-signoff!
+                  {:release_tag (:release_tag params)
+                   :environment (:environment params)
+                   :commit_sha (:commit_sha params)
+                   :proof_summary_path (:proof_summary_path params)
+                   :proof_results_path (:proof_results_path params)
+                   :proof_log_path (:proof_log_path params)
+                   :proof_status (:proof_status params)
+                   :soak_iterations (parse-optional-int (:soak_iterations params) :soak_iterations)
+                   :operator_name (or (:operator_name params)
+                                      (get-in request [:session :user])
+                                      "system")
+                   :reviewer_name (:reviewer_name params)
+                   :operator_notes (:operator_notes params)
+                   :created_by (or (:created_by params)
+                                   (get-in request [:session :user])
+                                   "system")})]
+      (record-audit-event! request
+                           "api.proof_signoff"
+                           {:release_tag (:release_tag params)
+                            :environment (:environment params)
+                            :proof_status (:proof_status params)})
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-api-bronze-proof-signoffs [request]
+  (try
+    (ensure-authorized! request :api.audit)
+    (let [params (:params request)]
+      (http-response/ok
+       (control-plane/list-api-bronze-signoffs
+        {:environment (:environment params)
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn run-scheduler-ingestion [request]
+  (try
+    (let [params        (:params request)
+          gid           (parse-required-int (or (:gid params) (:gid (:session request))) :gid)
+          scheduler-id  (parse-required-int (:id params) :id)
+          result        (ingest-execution/enqueue-scheduler-request! gid scheduler-id {:trigger-type "manual"})]
+      (queue-response result))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-execution-runs [request]
+  (try
+    (let [params (:params request)
+          result (ingest-execution/list-execution-runs
+                  {:graph-id (parse-optional-int (or (:gid params) (:graph_id params)) :gid)
+                   :status (:status params)
+                   :workspace-key (:workspace_key params)
+                   :tenant-key (:tenant_key params)
+                   :endpoint-name (:endpoint_name params)
+                   :request-kind (:request_kind params)
+                   :workload-class (:workload_class params)
+                   :queue-partition (:queue_partition params)
+                   :limit (parse-optional-int (:limit params) :limit)})]
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn get-execution-run [request]
+  (try
+    (let [run-id (or (get-in request [:path-params :run_id])
+                     (get-in request [:params :run_id]))
+          run    (ingest-execution/get-execution-run run-id)]
+      (if run
+        (http-response/ok run)
+        (http-response/not-found {:error "Execution run not found"
+                                  :run_id run-id})))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch IllegalArgumentException e
+      (http-response/bad-request {:error (.getMessage e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn replay-execution-run [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [run-id (or (get-in request [:path-params :run_id])
+                     (get-in request [:params :run_id]))
+          result (operations/replay-execution-run! run-id)]
+      (record-audit-event! request
+                           "execution.replay_run"
+                           {:source_run_id run-id
+                            :request_id (:request_id result)
+                            :run_id (:run_id result)})
+      (queue-response result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-workspaces [request]
+  (try
+    (let [workspaces (control-plane/list-workspaces)]
+      (http-response/ok workspaces))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-tenants [request]
+  (try
+    (http-response/ok (control-plane/list-tenants))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn save-tenant [request]
+  (try
+    (let [params (:params request)
+          tenant (control-plane/upsert-tenant!
+                  {:tenant_key (:tenant_key params)
+                   :tenant_name (:tenant_name params)
+                   :max_concurrent_requests (or (parse-optional-int (:max_concurrent_requests params) :max_concurrent_requests) 10)
+                   :max_queued_requests (or (parse-optional-int (:max_queued_requests params) :max_queued_requests) 1000)
+                   :weight (or (parse-optional-int (:weight params) :weight) 1)
+                   :metering_enabled (if (contains? params :metering_enabled)
+                                       (parse-optional-bool (:metering_enabled params))
+                                       true)
+                   :active (if (contains? params :active)
+                             (parse-optional-bool (:active params))
+                             true)})]
+      (http-response/ok tenant))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn save-workspace [request]
+  (try
+    (let [params (:params request)
+          workspace (control-plane/upsert-workspace!
+                     {:workspace_key (:workspace_key params)
+                      :tenant_key (:tenant_key params)
+                      :workspace_name (:workspace_name params)
+                      :max_concurrent_requests (or (parse-optional-int (:max_concurrent_requests params) :max_concurrent_requests) 2)
+                      :max_queued_requests (or (parse-optional-int (:max_queued_requests params) :max_queued_requests) 100)
+                      :weight (or (parse-optional-int (:weight params) :weight) 1)
+                      :active (if (contains? params :active)
+                                (parse-optional-bool (:active params))
+                                true)})]
+      (http-response/ok workspace))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn save-managed-secret [request]
+  (try
+    (ensure-authorized! request :secrets.write)
+    (let [params (:params request)
+          result (control-plane/put-secret!
+                  {:secret_ref (:secret_ref params)
+                   :secret_value (:secret_value params)
+                   :updated_by (or (:updated_by params)
+                                   (get-in request [:session :user])
+                                   "system")})]
+      (record-audit-event! request
+                           "secret.write"
+                           {:secret_ref (:secret_ref params)})
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn list-audit-events [request]
+  (try
+    (ensure-authorized! request :api.audit)
+    (let [params (:params request)]
+      (http-response/ok
+       (control-plane/list-audit-events
+        {:event_type (:event_type params)
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn assign-graph-workspace [request]
+  (try
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :gid)
+          workspace-key (:workspace_key params)
+          result (control-plane/assign-graph-workspace! graph-id workspace-key (:updated_by params))]
+      (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn save-graph-dependencies [request]
+  (try
+    (let [params (:params request)
+          downstream-graph-id (parse-required-int (or (:gid params) (:downstream_graph_id params)) :gid)
+          upstream-graph-ids  (or (:upstream_graph_ids params) [])
+          freshness-window    (parse-optional-int (:freshness_window_seconds params) :freshness_window_seconds)
+          deps                (mapv (fn [upstream-graph-id]
+                                      {:upstream_graph_id (parse-required-int upstream-graph-id :upstream_graph_id)
+                                       :freshness_window_seconds freshness-window})
+                                    upstream-graph-ids)]
+      (http-response/ok (control-plane/set-graph-dependencies! downstream-graph-id deps)))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn graph-lineage [request]
+  (try
+    (let [params (:params request)
+          graph-id (parse-required-int (or (:gid params) (:graph_id params)) :gid)]
+      (http-response/ok (operations/graph-lineage graph-id)))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn freshness-dashboard [request]
+  (try
+    (let [params (:params request)]
+      (http-response/ok
+       (operations/freshness-dashboard
+        {:graph-id (parse-optional-int (or (:gid params) (:graph_id params)) :gid)
+         :workspace-key (:workspace_key params)
+         :tenant-key (:tenant_key params)
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn freshness-alerts [request]
+  (try
+    (let [params (:params request)]
+      (http-response/ok
+       (operations/freshness-alerts
+        {:graph-id (parse-optional-int (or (:gid params) (:graph_id params)) :gid)
+         :workspace-key (:workspace_key params)
+         :tenant-key (:tenant_key params)
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn usage-dashboard [request]
+  (try
+    (let [params (:params request)]
+      (http-response/ok
+       (operations/usage-dashboard
+        {:tenant-key (:tenant_key params)
+         :workspace-key (:workspace_key params)
+         :request-kind (:request_kind params)
+         :workload-class (:workload_class params)
+         :usage-date (:usage_date params)
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn execution-demand [request]
+  (try
+    (http-response/ok (ingest-execution/execution-demand-snapshot))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
 
 (defn save-endpoint [request]
-  (let [params  (:params request)
-        id      (Integer. (:id params))
-        gid     (:gid (:session request))
-        g       (db/getGraph gid)
-        updated (g2/save-endpoint g id params)
-        cp      (db/insertGraph updated)
-        ep-cfg  (g2/getData cp id)
-        _       (endpoint/register-endpoint! gid id ep-cfg)
-        rp      (g2/get-endpoint-item id cp)]
-    (http-response/ok rp)))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          gid     (:gid (:session request))
+          g       (db/getGraph gid)
+          updated (g2/save-endpoint g id params)
+          cp      (persist-graph! request updated)
+          ep-cfg  (g2/getData cp id)
+          _       (endpoint/register-endpoint! gid id ep-cfg)
+          rp      (g2/get-endpoint-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-response-builder [request]
   (try
@@ -500,11 +1855,11 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-response-builder g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-response-builder-item id cp)]
       (http-response/ok rp))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+      (graph-save-error-response e))))
 
 (defn save-validator [request]
   (try
@@ -512,11 +1867,14 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-validator g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-validator-item id cp)]
       (http-response/ok rp))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+      ((if (= 409 (:status (ex-data e)))
+         http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :field (:field (ex-data e)) :data (ex-data e)}))))
 
 (defn save-sc [request]
   (try
@@ -524,29 +1882,38 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-sc g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-sc-item id cp)]
       (http-response/ok rp))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+      ((if (= 409 (:status (ex-data e)))
+         http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :field (:field (ex-data e)) :data (ex-data e)}))))
 
 (defn save-wh [request]
-  (let [params  (:params request)
-        id      (Integer. (:id params))
-        g       (db/getGraph (:gid (:session request)))
-        updated (g2/save-wh g id params)
-        cp      (db/insertGraph updated)
-        rp      (g2/get-wh-item id cp)]
-    (http-response/ok rp)))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-wh g id params)
+          cp      (persist-graph! request updated)
+          rp      (g2/get-wh-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-conditional [request]
-  (let [params  (:params request)
-        id      (Integer. (:id params))
-        g       (db/getGraph (:gid (:session request)))
-        updated (g2/save-conditional g id params)
-        cp      (db/insertGraph updated)
-        rp      (g2/get-conditional-item id cp)]
-    (http-response/ok rp)))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-conditional g id params)
+          cp      (persist-graph! request updated)
+          rp      (g2/get-conditional-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-logic [request]
   (try
@@ -554,20 +1921,25 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-logic g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-logic-item id cp)]
       (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))
     (catch Exception e
       (http-response/bad-request {:error (.getMessage e)}))))
 
 (defn save-auth [request]
-  (let [params  (:params request)
-        id      (Integer. (:id params))
-        g       (db/getGraph (:gid (:session request)))
-        updated (g2/save-auth g id params)
-        cp      (db/insertGraph updated)
-        rp      (g2/get-auth-item id cp)]
-    (http-response/ok rp)))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-auth g id params)
+          cp      (persist-graph! request updated)
+          rp      (g2/get-auth-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-dx [request]
   (try
@@ -575,11 +1947,11 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-dx g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-dx-item id cp)]
       (http-response/ok rp))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+      (graph-save-error-response e))))
 
 (defn save-rl [request]
   (try
@@ -587,11 +1959,11 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-rl g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-rl-item id cp)]
       (http-response/ok rp))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+      (graph-save-error-response e))))
 
 (defn save-cr [request]
   (try
@@ -599,20 +1971,23 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-cr g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-cr-item id cp)]
       (http-response/ok rp))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+      (graph-save-error-response e))))
 
 (defn save-lg [request]
-  (let [params  (:params request)
-        id      (Integer. (:id params))
-        g       (db/getGraph (:gid (:session request)))
-        updated (g2/save-lg g id params)
-        cp      (db/insertGraph updated)
-        rp      (g2/get-lg-item id cp)]
-    (http-response/ok rp)))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-lg g id params)
+          cp      (persist-graph! request updated)
+          rp      (g2/get-lg-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-cq [request]
   (try
@@ -620,20 +1995,23 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-cq g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-cq-item id cp)]
       (http-response/ok rp))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+      (graph-save-error-response e))))
 
 (defn save-ev [request]
-  (let [params  (:params request)
-        id      (Integer. (:id params))
-        g       (db/getGraph (:gid (:session request)))
-        updated (g2/save-ev g id params)
-        cp      (db/insertGraph updated)
-        rp      (g2/get-ev-item id cp)]
-    (http-response/ok rp)))
+  (try
+    (let [params  (:params request)
+          id      (Integer. (:id params))
+          g       (db/getGraph (:gid (:session request)))
+          updated (g2/save-ev g id params)
+          cp      (persist-graph! request updated)
+          rp      (g2/get-ev-item id cp)]
+      (http-response/ok rp))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn save-ci [request]
   (try
@@ -641,11 +2019,11 @@
           id      (Integer. (:id params))
           g       (db/getGraph (:gid (:session request)))
           updated (g2/save-ci g id params)
-          cp      (db/insertGraph updated)
+          cp      (persist-graph! request updated)
           rp      (g2/get-ci-item id cp)]
       (http-response/ok rp))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :field (:field (ex-data e))}))))
+      (graph-save-error-response e))))
 
 (defn test-endpoint [request]
   (let [params (:params request)
@@ -701,11 +2079,13 @@
           x      (:x rect)
           y      (:y rect)
           g      (db/getGraph gid)
-          g2     (-> g
-                     (assoc-in [:n id :na :x] x)
-                     (assoc-in [:n id :na :y] y)
-                     (db/insertGraph))]
+          updated (-> g
+                      (assoc-in [:n id :na :x] x)
+                      (assoc-in [:n id :na :y] y))
+          g2     (persist-graph! request updated)]
       (http-response/ok (mapCoordinates g2)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))
     (catch Exception e
       (println "move-single error:" (.getMessage e))
       (http-response/internal-server-error {:error (str "Failed to move node: " (.getMessage e))}))))
@@ -717,15 +2097,18 @@
   (http-response/ok (mapCoordinates (deleteTable request))))
 
 (defn remove-node [request]
-  (let [params (walk/keywordize-keys (:params request))
-        id     (Integer. (:id params))
-        gid    (:gid (:session request))
-        g      (db/getGraph gid)
-        btype  (:btype (g2/getData g id))
-        _      (when (some #{btype} ["Ep" "Wh"])
-                 (endpoint/unregister-endpoint! gid id))
-        cp     (db/insertGraph (g2/remove-node g id))]
-    (http-response/ok (mapCoordinates cp))))
+  (try
+    (let [params (walk/keywordize-keys (:params request))
+          id     (Integer. (:id params))
+          gid    (:gid (:session request))
+          g      (db/getGraph gid)
+          btype  (:btype (g2/getData g id))
+          _      (when (some #{btype} ["Ep" "Wh"])
+                   (endpoint/unregister-endpoint! gid id))
+          cp     (persist-graph! request (g2/remove-node g id))]
+      (http-response/ok (mapCoordinates cp)))
+    (catch clojure.lang.ExceptionInfo e
+      (graph-save-error-response e))))
 
 (defn- rebase-nodes
   "Shift all node IDs in imported-g upward by offset, remapping edge targets too.
@@ -753,7 +2136,7 @@
           merged-g   (if base-g
                        (update base-g :n merge (rebase-nodes (:n imported-g) offset))
                        imported-g)
-          cp         (db/insertGraph merged-g)
+          cp         (persist-graph! request merged-g)
           new-gid    (get-in cp [:a :id])
           new-ver    (get-in cp [:a :v])
           session    (:session request)
@@ -858,6 +2241,65 @@
    ["/moveSingle" {:post move-single}]
    ["/connectSingle" {:post connect-single}]
    ["/saveApi" {:post save-api}]
+   ["/saveKafkaSource" {:post save-kafka-source}]
+   ["/saveFileSource" {:post save-file-source}]
+   ["/previewApiSchemaInference" {:post preview-api-schema-inference}]
+   ["/proposeSilverSchema" {:post propose-silver-schema}]
+   ["/silverProposals" {:get list-silver-proposals}]
+   ["/silverProposals/:proposal_id" {:get get-silver-proposal}]
+   ["/updateSilverProposal" {:post update-silver-proposal}]
+   ["/compileSilverProposal" {:post compile-silver-proposal}]
+   ["/synthesizeSilverGraph" {:post synthesize-silver-graph}]
+   ["/validateSilverProposal" {:post validate-silver-proposal}]
+   ["/validateSilverProposalWarehouse" {:post validate-silver-proposal-warehouse}]
+   ["/reviewSilverProposal" {:post review-silver-proposal}]
+   ["/publishSilverProposal" {:post publish-silver-proposal}]
+   ["/executeSilverRelease" {:post execute-silver-release}]
+   ["/pollSilverModelRun" {:post poll-silver-model-run}]
+   ["/proposeGoldSchema" {:post propose-gold-schema}]
+   ["/goldProposals" {:get list-gold-proposals}]
+   ["/goldProposals/:proposal_id" {:get get-gold-proposal}]
+   ["/updateGoldProposal" {:post update-gold-proposal}]
+   ["/compileGoldProposal" {:post compile-gold-proposal}]
+   ["/synthesizeGoldGraph" {:post synthesize-gold-graph}]
+   ["/validateGoldProposal" {:post validate-gold-proposal}]
+   ["/validateGoldProposalWarehouse" {:post validate-gold-proposal-warehouse}]
+   ["/reviewGoldProposal" {:post review-gold-proposal}]
+   ["/publishGoldProposal" {:post publish-gold-proposal}]
+   ["/executeGoldRelease" {:post execute-gold-release}]
+   ["/pollGoldModelRun" {:post poll-gold-model-run}]
+   ["/runApiIngestion" {:post run-api-ingestion}]
+   ["/runKafkaIngestion" {:post run-kafka-ingestion}]
+   ["/runFileIngestion" {:post run-file-ingestion}]
+   ["/apiBatches" {:get list-api-batches}]
+   ["/apiBadRecords" {:get list-api-bad-records-route}]
+   ["/apiSchemaApprovals" {:get list-api-schema-approvals-route}]
+   ["/reviewApiSchema" {:post review-api-schema-route}]
+   ["/promoteApiSchema" {:post promote-api-schema-route}]
+   ["/rollbackApiBatch" {:post rollback-api-batch}]
+   ["/archiveApiBatch" {:post archive-api-batch}]
+   ["/applyApiRetention" {:post apply-api-retention}]
+   ["/replayApiBadRecords" {:post replay-api-bad-records}]
+   ["/verifyApiCommitClosure" {:get verify-api-commit-closure-route}]
+   ["/resetApiCheckpoint" {:post reset-api-checkpoint-route}]
+   ["/apiObservabilitySummary" {:get api-observability-summary-route}]
+   ["/apiObservabilityAlerts" {:get api-observability-alerts-route}]
+   ["/apiBronzeProofSignoff" {:post record-api-bronze-proof-signoff :get list-api-bronze-proof-signoffs}]
+   ["/runSchedulerIngestion" {:post run-scheduler-ingestion}]
+   ["/executionRuns" {:get list-execution-runs}]
+   ["/executionDemand" {:get execution-demand}]
+   ["/executionRuns/:run_id" {:get get-execution-run}]
+   ["/executionRuns/:run_id/replay" {:post replay-execution-run}]
+   ["/controlPlane/tenants" {:get list-tenants :post save-tenant}]
+   ["/controlPlane/workspaces" {:get list-workspaces :post save-workspace}]
+   ["/controlPlane/secrets" {:post save-managed-secret}]
+   ["/controlPlane/auditEvents" {:get list-audit-events}]
+   ["/controlPlane/graphAssignment" {:post assign-graph-workspace}]
+   ["/controlPlane/graphDependencies" {:post save-graph-dependencies}]
+   ["/graphLineage" {:get graph-lineage}]
+   ["/freshnessDashboard" {:get freshness-dashboard}]
+   ["/freshnessAlerts" {:get freshness-alerts}]
+   ["/usageDashboard" {:get usage-dashboard}]
    ["/saveJoin" {:post save-join}]
    ["/saveRectJoin" {:post save-rect-join}]
    ["/saveColumn" {:post save-column}]

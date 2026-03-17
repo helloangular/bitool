@@ -1,6 +1,5 @@
 (ns bitool.api.jsontf 
-  (:require [clojure.string :as str]
-            [taoensso.timbre :as log]))
+  (:require [clojure.string :as str]))
 
 ;; ---------- Path parsing ----------
 
@@ -60,7 +59,6 @@
   [data spine]
   (reduce
     (fn [vals seg]
-      (log/debug "SPINE step" seg "on" (count vals) "vals")
       (if (= seg "[]")
         ;; Flatten arrays, including arrays-of-arrays
         (let [result (mapcat (fn [v]
@@ -84,7 +82,6 @@
     [ctx]
     (reduce
       (fn [vals seg]
-        (log/debug "  TAIL step" seg "vals-in" (count vals))
         (let [out (if (= seg "[]")
                     ;; Flatten arrays
                     (mapcat (fn [v]
@@ -96,7 +93,6 @@
                             vals)
                     ;; Navigate into property
                     (keep #(prop-get % seg) vals))]
-          (log/debug "  -> vals-out" (count out) "sample:" (take 4 out))
           out))
       [ctx]
       segs)))
@@ -119,9 +115,6 @@
                            join-arrays? true
                            join-delim ","
                            filter-nils-before-join? true}}]
-   (log/debug "\n=== rows-from-json3-debug ===")
-   (log/debug "row-mode =" row-mode "explode-key =" explode-key)
-
    (let [;; Helper to join or take first value
          join-or-first (fn [vals]
                          (let [vals* (if filter-nils-before-join?
@@ -144,15 +137,8 @@
          tails    (mapv #(vec (drop (count spine) %)) segs)
          
          ;; Walk the spine to get contexts
-         contexts (do
-                    (log/debug "\nSPINE =" spine)
-                    (log/debug "TAILS =" tails)
-                    (let [raw (walk-spine data spine)
-                          ctxs (if (empty? raw) [data] (vec raw))]
-                      (log/debug "CONTEXTS =" (count ctxs))
-                      (doseq [i (range (min 3 (count ctxs)))]
-                        (log/debug " ctx" i ":") (with-out-str (clojure.pprint/pprint (nth ctxs i))))
-                      ctxs))]
+         contexts (let [raw (walk-spine data spine)]
+                    (if (empty? raw) [data] (vec raw)))]
 
      (if (= row-mode :explode-by)
        ;; :explode-by mode

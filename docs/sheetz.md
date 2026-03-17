@@ -172,15 +172,19 @@ Business-facing tables:
 
 ### audit
 
-Pipeline metadata:
+Minimal pipeline-control metadata that is not handled by Unity Catalog:
 
+* ingestion config
 * ingestion checkpoints
 * API watermarks
-* run history
-* record counts
-* failures / retry logs
-* schema drift logs
+* endpoint-level run history
 * DQ rule results
+* bad-record quarantine
+
+Use Unity Catalog and Databricks system tables for governance metadata such as
+permissions, lineage, and platform audit events. Use `audit.*` tables only for
+pipeline state and operational facts that Databricks does not know, such as
+Samara watermarks, retry state, bad records, and endpoint freshness.
 
 ### sandbox
 
@@ -678,6 +682,9 @@ Tasks:
 
 Create `audit.ingestion_checkpoint`
 
+This is a custom pipeline-state table. Unity Catalog does not track the last
+successful Samara cursor or event-time watermark for you.
+
 Suggested columns:
 
 * source_system
@@ -769,13 +776,34 @@ For telematics, DQ matters a lot because GPS/event data is noisy.
 
 * `audit.data_quality_results`
 * `audit.bad_records`
-* `audit.reconciliation_results`
+* optional later: `audit.reconciliation_results`
 
 ---
 
 # 16. Security and Unity Catalog design
 
 Unity Catalog is not automatic. You need one-time setup, then pipelines write into governed objects.
+
+## What Unity Catalog does handle
+
+Use Unity Catalog and Databricks-native metadata for:
+
+* catalog / schema / table governance
+* permissions and grants
+* lineage across Unity Catalog objects
+* platform audit and system tables
+* job and workspace operational metadata already available in Databricks
+
+## What Unity Catalog does not replace
+
+Keep a small custom `audit.*` layer only for pipeline-control data such as:
+
+* ingestion configuration by endpoint
+* checkpoint / watermark state
+* endpoint-level run status and counts
+* DQ results tied to your business rules
+* bad-record quarantine
+* schema drift decisions when source payloads change
 
 ## Access model
 
@@ -853,15 +881,26 @@ Prefer:
 
 # 18. Observability and audit design
 
-Create a strong audit model from the start.
+Create a minimal audit model from the start. Do not duplicate metadata that
+Unity Catalog or Databricks system tables already provide.
 
 ## Audit tables
 
-* `audit.pipeline_run`
-* `audit.endpoint_run_detail`
+Required:
+
+* `audit.ingestion_config`
 * `audit.ingestion_checkpoint`
+* `audit.endpoint_run_detail`
 * `audit.data_quality_results`
+* `audit.bad_records`
+
+Recommended once source change volume justifies it:
+
 * `audit.schema_drift_log`
+
+Optional later:
+
+* `audit.pipeline_run`
 * `audit.api_error_log`
 
 ## Key operational metrics
@@ -909,9 +948,11 @@ Create a strong audit model from the start.
 
 ## Audit
 
-* `audit.pipeline_run`
+* `audit.ingestion_config`
 * `audit.ingestion_checkpoint`
-* `audit.api_error_log`
+* `audit.endpoint_run_detail`
+* `audit.data_quality_results`
+* `audit.bad_records`
 
 ---
 
@@ -1403,4 +1444,3 @@ The only thing I would avoid is making your tool do **everything**, including al
 * Databricks transforms and governs it
 
 The next step is to design the exact **end-to-end reference architecture using your ELT tool as the ingestion layer**, including control tables, Bronze schemas, checkpoint design, and job flow.
-

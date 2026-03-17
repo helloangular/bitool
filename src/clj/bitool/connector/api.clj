@@ -88,57 +88,101 @@
    :follow-redirects   true
    :ignore-unknown-host? false})
 
+(defn- normalize-method [method]
+  (-> (or method :get)
+      name
+      str
+      clojure.string/lower-case
+      keyword))
 
-(defn do-request
-  "Blocking HTTP GET using pooled connections + gzip compression.
-   Safe for async threads. Handles 401/403 refresh once if auth has :refresh-fn."
-  [{:keys [url base-headers query-params auth] :as ctx}]
+(defn- request->opts
+  [{:keys [method url headers query body]}]
+  (cond-> (merge pooled-http-opts
+                 {:method normalize-method
+                  :url url
+                  :headers headers
+                  :query-params query
+                  :as :string
+                  :cookie-store cookie-store})
+    true (update :method (constantly (normalize-method method)))
+    (and (map? body) (not (#{:get :delete :head} (normalize-method method))))
+    (assoc :body (json/generate-string body)
+           :content-type :json)))
+
+(defn- parse-response [resp]
+  {:status  (:status resp)
+   :headers (:headers resp)
+   :body    (try-parse-json (:headers resp) (:body resp))})
+
+(defn- retryable-error? [resp]
+  (contains? #{nil 429 500 502 503 504} (:status resp)))
+
+(defn- retry-delay-ms [{:keys [base-backoff-ms]} attempt resp]
+  (let [retry-after (or (get-in resp [:headers "retry-after"])
+                        (get-in resp [:headers :retry-after]))]
+    (cond
+      retry-after (try (* 1000 (Long/parseLong (str retry-after)))
+                       (catch Exception _ 0))
+      :else (* (long (max 1 (or base-backoff-ms 1000)))
+               (long (Math/pow 2 (max 0 (dec attempt))))))))
+
+(defn- do-request-once
+  [{:keys [method url headers query body auth] :as ctx}]
   (let [auth-param auth
         {:keys [auth source]} (resolve-auth auth-param)
-        {:keys [headers query]} (merge-auth
-                                 (merge default-headers (or base-headers {}))
-                                 (or query-params {})
-                                 auth ctx)
-        base-opts (merge
-                    pooled-http-opts
-                    {:headers headers
-                     :query-params query
-                     :as :string
-                     :cookie-store cookie-store})
+        {:keys [headers query]} (merge-auth headers query auth ctx)
+        base-opts (request->opts {:method method
+                                  :url url
+                                  :headers (merge default-headers (or headers {}))
+                                  :query query
+                                  :body body})
         http-> (fn [opts]
                  (try
-                   (http/get url opts)
+                   (http/request opts)
                    (catch Exception e
                      (log/error e "HTTP request failed (transport)")
                      {:status nil :headers {} :body (str e)})))]
-
     (let [resp1 (http-> base-opts)
-          status1 (:status resp1)
-          headers1 (:headers resp1)
-          body1 (:body resp1)]
+          status1 (:status resp1)]
       (if (and (#{401 403} status1) (:refresh-fn auth))
-        ;; refresh once
         (let [new-auth (try ((:refresh-fn auth))
                             (catch Throwable e
                               (log/error e "auth refresh-fn failed")
                               nil))]
-          ;; Only reset! if caller passed an atom
           (when (and new-auth (instance? clojure.lang.IAtom auth-param))
             (reset! auth-param new-auth))
           (let [{:keys [headers query]} (merge-auth
-                                         (merge default-headers (or base-headers {}))
-                                         (or query-params {})
-                                         new-auth ctx)
-                resp2 (http-> (assoc base-opts
-                                :headers headers
-                                :query-params query))]
-            {:status  (:status resp2)
-             :headers (:headers resp2)
-             :body    (try-parse-json (:headers resp2) (:body resp2))}))
-        ;; normal path
-        {:status  status1
-         :headers headers1
-         :body    (try-parse-json headers1 body1)}))))
+                                         (merge default-headers (or headers {}))
+                                         (or query {})
+                                         new-auth ctx)]
+            (parse-response
+              (http-> (request->opts {:method method
+                                      :url url
+                                      :headers headers
+                                      :query query
+                                      :body body})))))
+        (parse-response resp1)))))
+
+(defn do-request
+  "Blocking HTTP request using pooled connections + gzip compression.
+   Safe for async threads. Handles auth refresh once and retry/backoff for transient failures."
+  [{:keys [url base-headers query-params body-params auth retry-policy method]
+    :or {method :get retry-policy {:max-retries 0 :base-backoff-ms 1000}}
+    :as ctx}]
+  (loop [attempt 0]
+    (let [resp (do-request-once {:method method
+                                 :url url
+                                 :headers base-headers
+                                 :query query-params
+                                 :body body-params
+                                 :auth auth})
+          next-attempt (inc attempt)]
+      (if (and (retryable-error? resp)
+               (< attempt (long (or (:max-retries retry-policy) 0))))
+        (do
+          (Thread/sleep (retry-delay-ms retry-policy next-attempt resp))
+          (recur next-attempt))
+        (assoc resp :retry-count attempt)))))
 
 ;; =============================================================================
 ;;                     Small Pure Helpers (modular producer)
@@ -211,10 +255,17 @@
 ;;                     Side-effect helpers
 ;; =============================================================================
 
-(defn- do-get!
+(defn- do-request!
   "Run do-request on a real thread; returns a channel of response."
-  [{:keys [url headers auth query]}]
-  (thread (do-request {:url url :base-headers headers :query-params query :auth auth})))
+  [{:keys [method url headers auth query body retry-policy]}]
+  (thread
+    (do-request {:method method
+                 :url url
+                 :base-headers headers
+                 :query-params query
+                 :body-params body
+                 :auth auth
+                 :retry-policy retry-policy})))
 
 (defn- emit-page! [{:keys [pages-ch envelope body page->items-fn]}]
   (let [env* (if page->items-fn
@@ -243,15 +294,28 @@
 ;;                     Producer (modular go-loop)
 ;; =============================================================================
 
-(defn- next-url+query
-  "Decide the next request URL and query from current state."
-  [{:keys [base-url endpoint state first? pagination query-builder out-key-map]}]
+(defn- request-params-from-state [state out-key-map base-params]
+  (reduce (fn [params [internal-k req-k]]
+            (if (contains? state internal-k)
+              (assoc params req-k (get state internal-k))
+              params))
+          (or base-params {})
+          out-key-map))
+
+(defn- next-url+request
+  "Decide the next request URL, query, and body from current state."
+  [{:keys [base-url endpoint state first? pagination query-builder body-builder out-key-map pagination-location]}]
   (let [url   (or (:next-url state) (str base-url endpoint))
-        query (cond
-                first? (or query-builder {})
-                (= pagination :link-header) {}
-                :else (api-query-from-state state out-key-map query-builder))]
-    {:url url :query query}))
+        paged-params (cond
+                       first? nil
+                       (= pagination :link-header) {}
+                       :else (request-params-from-state state out-key-map {}))
+        [query body] (case pagination-location
+                       :body [(or query-builder {})
+                              (merge (or body-builder {}) (or paged-params {}))]
+                       [(merge (or query-builder {}) (or paged-params {}))
+                        (or body-builder {})])]
+    {:url url :query query :body body}))
 
 (defn- compute-state'
   "Update internal state using API body (state-key-map) and attach metrics for :offset."
@@ -273,7 +337,8 @@
   (let [msg {:stop-reason reason
              :http-status (:status resp)
              :response    resp
-             :state       state}]
+             :state       state
+             :retry-count (:retry-count resp)}]
     ;; Try a non-blocking offer of the terminal page; close regardless.
     (clojure.core.async/offer! pages-ch msg)
     (clojure.core.async/close! pages-ch)
@@ -281,7 +346,7 @@
 
 (defn- run-producer!
   [{:keys [base-url endpoint headers auth pagination query-builder initial-state
-           state-key-map out-key-map page->items-fn
+           body-builder state-key-map out-key-map page->items-fn method retry-policy pagination-location
            pages-ch errors-ch stop-ch rate-limit]}]
   (let [out-map (or out-key-map (inverse-map (or state-key-map {})))]
     (go-loop [state  (merge {:type pagination} (or initial-state {}))
@@ -290,14 +355,22 @@
       (if (async/poll! stop-ch)
         (finish! {:pages-ch pages-ch :errors-ch errors-ch
                   :resp nil :state state :reason :cancelled})
-        (let [{:keys [url query]} (next-url+query {:base-url base-url
-                                                   :endpoint endpoint
-                                                   :state state
-                                                   :first? first?
-                                                   :pagination pagination
-                                                   :query-builder query-builder
-                                                   :out-key-map out-map})
-              resp (<! (do-get! {:url url :headers headers :auth auth :query query}))
+        (let [{:keys [url query body]} (next-url+request {:base-url base-url
+                                                          :endpoint endpoint
+                                                          :state state
+                                                          :first? first?
+                                                          :pagination pagination
+                                                          :query-builder query-builder
+                                                          :body-builder body-builder
+                                                          :out-key-map out-map
+                                                          :pagination-location pagination-location})
+              resp (<! (do-request! {:method method
+                                     :url url
+                                     :headers headers
+                                     :auth auth
+                                     :query query
+                                     :body body
+                                     :retry-policy retry-policy}))
               body (:body resp)
               err  (classify-error resp body)]
           (when err (emit-error! errors-ch :fetch url query err))
@@ -309,12 +382,10 @@
                       :resp resp :state state :reason (:type err)})
 
             :else
-            (let [{:keys [state' metrics]} (compute-state' {:state state :body body :state-key-map state-key-map})
-                  envelope (make-envelope {:state state' :body body :resp resp :metrics metrics})]
+              (let [{:keys [state' metrics]} (compute-state' {:state state :body body :state-key-map state-key-map})
+                    envelope (make-envelope {:state state' :body body :resp resp :metrics metrics})]
               ;; emit current page
               (emit-page! {:pages-ch pages-ch :envelope envelope :body body :page->items-fn page->items-fn})
-
-		    (log/debug "state' to paginator:" (select-keys state' [:type :offset :limit :total :is-last :page]))
 
               ;; ask paginator for next
               (if-let [{:keys [state-next url-next]} (decide-next {:state' state' :resp resp
@@ -337,17 +408,22 @@
      - without :process-fn -> {:pages ch, :errors ch, :cancel fn}
      - with    :process-fn -> {:pages ch, :results ch, :errors ch, :cancel fn}"
   [{:keys [base-url endpoint headers auth pagination query-builder initial-state
-           state-key-map out-key-map page->items-fn process-fn
-           worker-count pages-buffer results-buffer blocking? rate-limit]
+           body-builder state-key-map out-key-map page->items-fn process-fn
+           worker-count pages-buffer results-buffer blocking? rate-limit
+           method retry-policy pagination-location]
     :or   {worker-count 4 pages-buffer 500 results-buffer 500 blocking? true
-           rate-limit {:per-page-ms 0}}}]
+           rate-limit {:per-page-ms 0}
+           method :get
+           retry-policy {:max-retries 0 :base-backoff-ms 1000}
+           pagination-location :query}}]
   (let [pages-ch  (chan pages-buffer)
         errors-ch (chan 10)
         stop-ch   (chan 1)]
     ;; producer
     (run-producer! {:base-url base-url :endpoint endpoint :headers headers :auth auth
+                    :method method :retry-policy retry-policy :pagination-location pagination-location
                     :pagination pagination :query-builder query-builder :initial-state initial-state
-                    :state-key-map state-key-map :out-key-map out-key-map :page->items-fn page->items-fn
+                    :body-builder body-builder :state-key-map state-key-map :out-key-map out-key-map :page->items-fn page->items-fn
                     :pages-ch pages-ch :errors-ch errors-ch :stop-ch stop-ch :rate-limit rate-limit})
     ;; optional worker pool
     (if (nil? process-fn)
@@ -377,12 +453,12 @@
 (def jira-auth
   (atom {:type :atlassian-basic
          :email "you@example.com"            ;; <-- change me
-         :api-token "REDACTED_GITHUB_TOKEN"             ;; <-- change me
+         :api-token "CHANGE_ME"             ;; <-- change me
          :refresh-fn (fn []
                        ;; If your token rotates, return a fresh one here.
                        {:type :atlassian-basic
                         :email "you@example.com"
-                        :api-token "REDACTED_GITHUB_TOKEN"})}))
+                        :api-token "CHANGE_ME"})}))
 
 (def issue-path->col
   {"$.key"                               :key

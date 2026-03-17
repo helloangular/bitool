@@ -29,6 +29,8 @@
    "mp" "mapping", "Mp" "mapping"
    "c" "conditionals", "C" "conditionals"
    "t" "table", "T" "table"
+   "kf" "kafka-source", "Kf" "kafka-source"
+   "fs" "file-source", "Fs" "file-source"
    "tg" "target", "Tg" "target"
    "o" "output", "O" "output"})
 
@@ -106,6 +108,19 @@
                        :save-fn nil
                        :config-keys []
                        :required-config []}
+   "kafka-source"     {:btype (get g2/btype-codes "kafka-source")
+                       :source? true
+                       :terminal? false
+                       :save-fn g2/save-kafka-source
+                       :config-keys [:source_system :connection_id :bootstrap_servers :security_protocol
+                                     :consumer_group_id :topic_configs]
+                       :required-config [:connection_id :topic_configs]}
+   "file-source"      {:btype (get g2/btype-codes "file-source")
+                       :source? true
+                       :terminal? false
+                       :save-fn g2/save-file-source
+                       :config-keys [:source_system :connection_id :base_path :transport :file_configs]
+                       :required-config [:file_configs]}
    "target"           {:btype (get g2/btype-codes "target")
                        :source? false
                        :terminal? false
@@ -237,4 +252,3 @@
     (boolean
       (and parent-btype child-btype
            (some #{child-btype} (get g2/rectangles parent-btype))))))
-

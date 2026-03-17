@@ -209,6 +209,12 @@ class RectangleComponent extends HTMLElement {
       case getShortBtype('api-connection'):
         document.querySelector("api-component")?.setAttribute("visibility", "open");
         break;
+      case getShortBtype('kafka-source'):
+        document.querySelector("kafka-source-component")?.setAttribute("visibility", "open");
+        break;
+      case getShortBtype('file-source'):
+        document.querySelector("file-source-component")?.setAttribute("visibility", "open");
+        break;
       case getShortBtype('conditionals'):
         document.querySelector('control-flow-component')?.setAttribute("visibility", "open");
         break;
@@ -399,7 +405,8 @@ class FloaterMenu extends HTMLElement {
 
     // Add menu items — includes add-child actions, implicit tech nodes, and delete
     ['filter', 'join', 'function', 'projection', 'aggregation', 'union', 'sorter', 'mapping',
-      'target', 'conditionals', 'api-connection', 'output', 'run', 'schedule',
+      'target', 'conditionals', 'api-connection', 'kafka-source', 'file-source',
+      'output', 'run', 'schedule',
       'rate-limiter', 'cors', 'logger', 'cache', 'circuit-breaker',
       'delete'].forEach((label) => {
         const item = this.createMenuItemAndAddListener(label);
@@ -490,6 +497,8 @@ class FloaterMenu extends HTMLElement {
         mapping:           'mapping-editor',
         conditionals:      'control-flow-component',
         'api-connection':  'api-component',
+        'kafka-source':    'kafka-source-component',
+        'file-source':     'file-source-component',
         'rate-limiter':    'rate-limiter-component',
         cors:              'cors-component',
         logger:            'logger-component',

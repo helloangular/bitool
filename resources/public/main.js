@@ -10,6 +10,7 @@ window.data = {
       items: [
         { label: "Oracle" },
         { label: "SQL Server" },
+        { label: "PostgreSQL" },
       ],
     },
     {
@@ -19,7 +20,26 @@ window.data = {
         { label: "Cassandra" },
       ]
     },
-    { label: "Kafka" },
+    {
+      label: "Kafka",
+      items: [
+        { label: "Kafka Stream" },
+        { label: "Kafka Consumer" },
+      ]
+    },
+    {
+      label: "Files",
+      items: [
+        { label: "Local Files" },
+        { label: "Remote Files" },
+      ]
+    },
+    {
+      label: "Mainframe",
+      items: [
+        { label: "Mainframe Files" },
+      ]
+    },
     { label: "Hadoop" },
     { label: "API" },
   ],
@@ -182,6 +202,15 @@ window.toggleScheduler = function () {
     scheduler.setAttribute("visibility", "close");
   } else {
     scheduler.setAttribute("visibility", "open");
+  }
+}
+
+window.toggleModeling = function () {
+  const mc = document.querySelector('modeling-console');
+  if (mc.getAttribute("visibility") === "open") {
+    mc.setAttribute("visibility", "close");
+  } else {
+    mc.setAttribute("visibility", "open");
   }
 }
 

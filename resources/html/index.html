@@ -10,169 +10,204 @@
 </head>
 
 <body style="display: flex;margin:0;height:100vh;">
-  <smart-menu id="menu">
+  <smart-menu id="menu" style="display:none;">
     <smart-menu-item>Windows-1251</smart-menu-item>
   </smart-menu>
 
   <div class="panel-btns">
-    <div class="tooltip">
-      <button data-label="filter" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('filter')">&#128481;</button>
-      <span class="tooltiptext">Filter</span>
+    <!-- ── Graph ── -->
+    <div class="btn-group">
+      <span class="group-label">Graph</span>
+      <div class="group-row">
+        <div class="tooltip">
+          <button onclick="document.getElementById('dialog').opened=true" class="btn-text">+ New</button>
+          <span class="tooltiptext">New Graph</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="undo()">&#8634;</button>
+          <span class="tooltiptext">Undo</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="redo()">&#8635;</button>
+          <span class="tooltiptext">Redo</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="preview()">&#128065;</button>
+          <span class="tooltiptext">Preview</span>
+        </div>
+      </div>
     </div>
-    <div class="tooltip">
-      <button data-label="function" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('function')">&#955;</button>
-      <span class="tooltiptext">Function</span>
+
+    <!-- ── Transform ── -->
+    <div class="btn-group">
+      <span class="group-label">Transform</span>
+      <div class="group-row">
+        <div class="tooltip">
+          <button data-label="filter" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('filter')">&#128481;</button>
+          <span class="tooltiptext">Filter</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="projection" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('projection')">&#960;</button>
+          <span class="tooltiptext">Projection</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="function" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('function')">&#955;</button>
+          <span class="tooltiptext">Function</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="join" data-conn_id="123" data-schema="schema" onclick="addRectangle('join')">&#x2795;</button>
+          <span class="tooltiptext">Join</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="union" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('union')">&#8746;</button>
+          <span class="tooltiptext">Union</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="aggregation" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('aggregation')">&#x1F4E6;</button>
+          <span class="tooltiptext">Aggregation</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="sorter" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('sorter')">&#x25B2;</button>
+          <span class="tooltiptext">Sorter</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="mapping" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('mapping')">&#x1F4CD;</button>
+          <span class="tooltiptext">Mapping</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="conditionals" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('conditionals')">&#128295;</button>
+          <span class="tooltiptext">Conditionals</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="toggleLogic()" class="btn-text">Logic</button>
+          <span class="tooltiptext">Logic Builder</span>
+        </div>
+      </div>
     </div>
-    <div class="tooltip">
-      <button data-label="projection" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('projection')">&#960;</button>
-      <span class="tooltiptext">Projection</span>
+
+    <!-- ── API / Endpoint ── -->
+    <div class="btn-group">
+      <span class="group-label">API</span>
+      <div class="group-row">
+        <div class="tooltip">
+          <button data-label="endpoint" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('endpoint')">&#9881;</button>
+          <span class="tooltiptext">Endpoint</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="response-builder" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('response-builder')">&#128221;</button>
+          <span class="tooltiptext">Response Builder</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="validator" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('validator')">&#10003;</button>
+          <span class="tooltiptext">Validator</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="auth" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('auth')">&#128274;</button>
+          <span class="tooltiptext">Auth</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="webhook" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('webhook')">&#127381;</button>
+          <span class="tooltiptext">Webhook</span>
+        </div>
+      </div>
     </div>
-    <div class="tooltip">
-      <button data-label="join" data-conn_id="123" data-schema="schema" onclick="addRectangle('join')">&#x2795;</button>
-      <span class="tooltiptext">Join</span>
+
+    <!-- ── Infra ── -->
+    <div class="btn-group">
+      <span class="group-label">Infra</span>
+      <div class="group-row">
+        <div class="tooltip">
+          <button data-label="db-execute" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('db-execute')">&#128196;</button>
+          <span class="tooltiptext">DB Execute</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="rate-limiter" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('rate-limiter')">&#9200;</button>
+          <span class="tooltiptext">Rate Limiter</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="cors" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('cors')">&#127760;</button>
+          <span class="tooltiptext">CORS</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="logger" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('logger')">&#128221;</button>
+          <span class="tooltiptext">Logger</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="cache" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('cache')">&#9889;</button>
+          <span class="tooltiptext">Cache</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="event-emitter" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('event-emitter')">&#128228;</button>
+          <span class="tooltiptext">Event Emitter</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="circuit-breaker" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('circuit-breaker')">&#9934;</button>
+          <span class="tooltiptext">Circuit Breaker</span>
+        </div>
+        <div class="tooltip">
+          <button data-label="scheduler" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('scheduler')">&#128337;</button>
+          <span class="tooltiptext">Scheduler</span>
+        </div>
+      </div>
     </div>
-    <div class="tooltip">
-      <button data-label="aggregation" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('aggregation')">&#x1F4E6;</button>
-      <span class="tooltiptext">Aggregation</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="union" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('union')">&#8746;</button>
-      <span class="tooltiptext">Union</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="sorter" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('sorter')">&#x25B2;</button>
-      <span class="tooltiptext">Sorter</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="mapping" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('mapping')">&#x1F4CD;</button>
-      <span class="tooltiptext">Mapping</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="target" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('target')">&#x1F3AF;</button>
-      <span class="tooltiptext">Target</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="api-connection" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('api-connection')">&Alpha;</button>
-      <span class="tooltiptext">API</span>
-    </div>
-    <div class="tooltip">
-      <button id="openGraphqlBuilderBtn" data-label="graphql-builder"
-        onclick="toggleGraphQLBuilder()">&#128279;</button>
-      <span class="tooltiptext">GraphQL Builder</span>
-    </div>
-    <div class="tooltip">
-      <button id="openGitlabPipelineBtn" data-label="gitlab-pipeline" onclick="toggleGitlabPipelineBuilder()">🚀</button>
-      <span class="tooltiptext">GitLab Pipeline</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="conditionals" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('conditionals')">&#128295;</button>
-      <span class="tooltiptext">Conditionals</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="endpoint" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('endpoint')">&#9881;</button>
-      <span class="tooltiptext">Endpoint</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="response-builder" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('response-builder')">&#128221;</button>
-      <span class="tooltiptext">Response Builder</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="validator" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('validator')">&#10003;</button>
-      <span class="tooltiptext">Validator</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="auth" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('auth')">&#128274;</button>
-      <span class="tooltiptext">Auth</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="db-execute" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('db-execute')">&#128196;</button>
-      <span class="tooltiptext">DB Execute</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="rate-limiter" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('rate-limiter')">&#9200;</button>
-      <span class="tooltiptext">Rate Limiter</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="cors" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('cors')">&#127760;</button>
-      <span class="tooltiptext">CORS</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="logger" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('logger')">&#128221;</button>
-      <span class="tooltiptext">Logger</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="cache" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('cache')">&#9889;</button>
-      <span class="tooltiptext">Cache</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="event-emitter" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('event-emitter')">&#128228;</button>
-      <span class="tooltiptext">Event Emitter</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="circuit-breaker" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('circuit-breaker')">&#9934;</button>
-      <span class="tooltiptext">Circuit Breaker</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="scheduler" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('scheduler')">&#128337;</button>
-      <span class="tooltiptext">Scheduler</span>
-    </div>
-    <div class="tooltip">
-      <button data-label="webhook" data-conn_id="123" data-schema="schema"
-        onclick="addRectangle('webhook')">&#127381;</button>
-      <span class="tooltiptext">Webhook</span>
-    </div>
-    <div class="tooltip">
-      <button onclick="toggleScheduler(this)">&#128198;</button>
-      <span class="tooltiptext">Schedular</span>
-    </div>
-    <div class="tooltip">
-      <button onclick="preview()">&#128065;</button>
-      <span class="tooltiptext">Preview</span>
-    </div>
-    <div class="tooltip">
-      <button onclick="undo()">&#8634;</button>
-      <span class="tooltiptext">Undo</span>
-    </div>
-    <div class="tooltip">
-      <button onclick="redo()">&#8635;</button>
-      <span class="tooltiptext">Redo</span>
-    </div>
-    <div class="tooltip">
-      <button onclick="toggleLogic()" style="width: fit-content;padding: 0 5px;">Logic</button>
-    </div>
-    <div class="tooltip">
-      <button onclick="toggleWfDialog()" style="width:fit-content; padding:0 5px;">WorFlow</button>
-      <span class="tooltiptext">New Workflow</span>
-    </div>
-    <div class="tooltip">
-      <button onclick="toggleOpenApiImport()" style="width:fit-content; padding:0 5px;">OpenAPI</button>
-      <span class="tooltiptext">Import OpenAPI Spec</span>
-    </div>
-    <div class="tooltip">
-      <button onclick="deployEndpoints()" style="width:fit-content; padding:0 5px;">Deploy API</button>
-      <span class="tooltiptext">Deploy Ep/Wh routes for live testing</span>
+
+    <!-- ── Tools ── -->
+    <div class="btn-group">
+      <span class="group-label">Tools</span>
+      <div class="group-row">
+        <div class="tooltip">
+          <button onclick="toggleModeling()" class="btn-text">Modeling</button>
+          <span class="tooltiptext">Medallion Modeling Console</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="toggleScheduler(this)">&#128198;</button>
+          <span class="tooltiptext">Scheduler</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="toggleWfDialog()" class="btn-text">Flow</button>
+          <span class="tooltiptext">New Workflow</span>
+        </div>
+        <div class="tooltip">
+          <button id="openGraphqlBuilderBtn" data-label="graphql-builder"
+            onclick="toggleGraphQLBuilder()">&#128279;</button>
+          <span class="tooltiptext">GraphQL Builder</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="toggleOpenApiImport()" class="btn-text">OpenAPI</button>
+          <span class="tooltiptext">Import OpenAPI Spec</span>
+        </div>
+        <!-- GitLab Pipeline hidden
+        <div class="tooltip">
+          <button id="openGitlabPipelineBtn" data-label="gitlab-pipeline" onclick="toggleGitlabPipelineBuilder()">&#128640;</button>
+          <span class="tooltiptext">GitLab Pipeline</span>
+        </div>
+        -->
+        <div class="tooltip">
+          <button onclick="deployEndpoints()" class="btn-text">Deploy</button>
+          <span class="tooltiptext">Deploy Ep/Wh routes for live testing</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -188,7 +223,7 @@
   </smart-window>
 
   <tree-component
-    style="display: flex; justify-content: center; align-items: center;  height: 87vh; width: 100%; position: fixed; bottom: 0; left: 0;"></tree-component>
+    style="display: flex; justify-content: center; align-items: center; width: 100%; position: fixed; top: 48px; bottom: 0; left: 0;"></tree-component>
 
   <column-list-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </column-list-component>
@@ -248,6 +283,12 @@
   <control-flow-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </control-flow-component>
 
+  <kafka-source-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </kafka-source-component>
+
+  <file-source-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  </file-source-component>
+
   <api-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </api-component>
   
@@ -256,6 +297,9 @@
 
   <endpoint-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </endpoint-component>
+
+  <modeling-console style="height: 100vh; width: 80%; position: fixed; top: 0; right: 0; background-color: white;">
+  </modeling-console>
   <response-builder-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </response-builder-component>
   <validator-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
@@ -320,6 +364,7 @@
 
   <workflow-dialog id="wfDialog"></workflow-dialog>
   <db-config-form-modal></db-config-form-modal>
+  <connector-config-modal></connector-config-modal>
   
   <script type="module" src="customWebComponent.js"></script>
   <script type="module" src="workflowDialog.js"></script>
@@ -347,6 +392,8 @@
   <script type="module" src="scheduler-wizard.js"></script>
   <script type="module" src="functionBuilder.js"></script>
   <script type="module" src="targetComponent.js"></script>
+  <script type="module" src="kafkaSourceComponent.js"></script>
+  <script type="module" src="fileSourceComponent.js"></script>
   <!-- <script type="module" src="database_forms/index.js"></script> TODO: create database_forms module -->
   <script type="module" src="gitlabPipelineBuilder.js"></script>
   <script type="module" src="apiConnectionComponent.js"></script>
@@ -363,6 +410,8 @@
   <script type="module" src="circuitBreakerComponent.js"></script>
   <script type="module" src="schedulerComponent.js"></script>
   <script type="module" src="webhookComponent.js"></script>
+  <script type="module" src="modelingConsole.js"></script>
+  <script type="module" src="connectorConfigModal.js"></script>
 
   <script src="main.js"></script>
   <script type="module" src="openApiImport.js"></script>

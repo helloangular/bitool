@@ -67,7 +67,8 @@ export function closeOpenedPanel() {
     "circuit-breaker-component",
     "scheduler-component",
     "webhook-component",
-    "lambda-function-builder"
+    "lambda-function-builder",
+    "modeling-console"
   ];
 
   for (const componentName of panels) {
