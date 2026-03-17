@@ -54,6 +54,7 @@
                  [com.taoensso/telemere "1.1.0"]
                  [com.taoensso/timbre "6.5.0"]
                  [org.clojure/core.async "1.8.741"]
+                 [org.apache.kafka/kafka-clients "3.7.1"]
 
 
 ;;                 [com.datomic/peer "1.0.7075"]

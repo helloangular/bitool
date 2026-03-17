@@ -1,6 +1,20 @@
 (ns bitool.compiler.dialect.databricks
   (:require [clojure.string :as string]))
 
+(defn- quote-ident
+  [x]
+  (str "`" (-> (or x "")
+               str
+               (string/replace "`" "``"))
+       "`"))
+
+(defn- qualified-ident
+  [x]
+  (->> (string/split (str x) #"\.")
+       (remove string/blank?)
+       (map quote-ident)
+       (string/join ".")))
+
 (defn- group-by-list
   [sql-ir]
   (let [group-cols (set (:group_by sql-ir))]
@@ -14,7 +28,7 @@
   [sql-ir]
   (string/join ", "
                (map (fn [{:keys [target_column expression]}]
-                      (str expression " AS " target_column))
+                      (str expression " AS " (quote-ident target_column)))
                     (:select sql-ir))))
 
 (defn compile-select-sql
@@ -25,7 +39,7 @@
     (str "SELECT "
          (select-list sql-ir)
          " FROM "
-         source-relation
+         (qualified-ident source-relation)
          " " source-alias
          (when where-sql
            (str " WHERE " where-sql))
@@ -35,29 +49,31 @@
 (defn compile-materialization-sql
   [sql-ir select-sql]
   (let [{:keys [mode target keys]} (:materialization sql-ir)
-        target-columns            (mapv :target_column (:select sql-ir))]
+        target-table              (qualified-ident target)
+        target-columns            (mapv :target_column (:select sql-ir))
+        quoted-target-columns     (mapv quote-ident target-columns)]
     (case mode
       "merge"
       (let [update-set (string/join ", "
-                                    (map #(str "t." % " = s." %) target-columns))
+                                    (map #(str "t." (quote-ident %) " = s." (quote-ident %)) target-columns))
             join-on    (string/join " AND "
-                                    (map #(str "t." % " = s." %) keys))]
-        (str "MERGE INTO " target " t "
+                                    (map #(str "t." (quote-ident %) " = s." (quote-ident %)) keys))]
+        (str "MERGE INTO " target-table " t "
              "USING (" select-sql ") s "
              "ON " join-on " "
              "WHEN MATCHED THEN UPDATE SET " update-set " "
              "WHEN NOT MATCHED THEN INSERT ("
-             (string/join ", " target-columns)
+             (string/join ", " quoted-target-columns)
              ") VALUES ("
-             (string/join ", " (map #(str "s." %) target-columns))
+             (string/join ", " (map #(str "s." (quote-ident %)) target-columns))
              ")"))
 
       "table_replace"
-      (str "CREATE OR REPLACE TABLE " target " AS " select-sql)
+      (str "CREATE OR REPLACE TABLE " target-table " AS " select-sql)
 
       "append"
-      (str "INSERT INTO " target " ("
-           (string/join ", " target-columns)
+      (str "INSERT INTO " target-table " ("
+           (string/join ", " quoted-target-columns)
            ") " select-sql)
 
       (throw (ex-info "Unsupported materialization mode for Databricks compilation"

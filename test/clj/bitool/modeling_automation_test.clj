@@ -170,16 +170,105 @@
           (is (= "tenant-a" (nth @captured-profile 2)))
           (is (= 11 (second @captured-proposal))))))))
 
-(deftest propose-silver-schema-rejects-non-api-node
+(deftest propose-silver-schema-rejects-unsupported-source-node
   (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
                    #'control-plane/ensure-control-plane-tables! (fn [] true)
                    #'db/getGraph (fn [_] {:a {:id 99 :v 1}})
                    #'g2/getData (fn [_ _] {:btype "Fi"})}
     (fn []
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"Node is not an API node"
+                            #"Node is not a supported Bronze source node"
                             (modeling/propose-silver-schema! {:graph-id 99
                                                               :api-node-id 7}))))))
+
+(deftest propose-silver-schema-supports-kafka-source-node
+  (let [captured-proposal (atom nil)
+        graph {:a {:id 99 :v 7}}
+        kafka-node {:btype "Kf"
+                    :source_system "kafka"
+                    :topic_configs [{:endpoint_name "orders.events"
+                                     :enabled true
+                                     :primary_key_fields ["id"]
+                                     :silver_table_name "silver_orders"
+                                     :inferred_fields [{:path "$._record.id"
+                                                        :column_name "order_id"
+                                                        :type "STRING"
+                                                        :nullable false
+                                                        :enabled true}]}]}]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'control-plane/ensure-control-plane-tables! (fn [] true)
+                     #'db/getGraph (fn [_] graph)
+                     #'g2/getData (fn [_ _] kafka-node)
+                     #'control-plane/graph-workspace-context (fn [_]
+                                                               {:tenant_key "tenant-a"
+                                                                :workspace_key "ops"})
+                     #'bitool.modeling.automation/find-downstream-target (fn [_ _] {:connection_id 9})
+                     #'bitool.modeling.automation/schema-source-for-endpoint (fn [_ _ _ endpoint _]
+                                                                               {:source "endpoint_config"
+                                                                                :snapshot-row nil
+                                                                                :fields (:inferred_fields endpoint)})
+                     #'bitool.modeling.automation/latest-model-proposal (fn [& _] nil)
+                     #'bitool.modeling.automation/persist-schema-profile! (fn [_ _ _ _]
+                                                                            {:profile_id 11})
+                     #'bitool.modeling.automation/persist-model-proposal! (fn [proposal profile-id]
+                                                                            (reset! captured-proposal [proposal profile-id])
+                                                                            {:proposal_id 22
+                                                                             :status "draft"
+                                                                             :target_model (:target_model proposal)
+                                                                             :confidence_score (:confidence_score proposal)})}
+      (fn []
+        (let [result (modeling/propose-silver-schema! {:graph-id 99
+                                                       :api-node-id 2
+                                                       :endpoint-name "orders.events"
+                                                       :created-by "alice"})]
+          (is (= 22 (:proposal_id result)))
+          (is (= "silver_orders" (get-in result [:proposal :target_table])))
+          (is (= "orders.events" (get-in result [:proposal :endpoint_name])))
+          (is (= "orders.events" (get-in @captured-proposal [0 :source_endpoint_name]))))))))
+
+(deftest propose-silver-schema-supports-file-source-node
+  (let [captured-proposal (atom nil)
+        graph {:a {:id 99 :v 7}}
+        file-node {:btype "Fs"
+                   :source_system "file"
+                   :file_configs [{:endpoint_name "orders.jsonl"
+                                   :enabled true
+                                   :primary_key_fields ["id"]
+                                   :bronze_table_name "bronze.orders_raw"
+                                   :inferred_fields [{:path "$._record.id"
+                                                      :column_name "order_id"
+                                                      :type "STRING"
+                                                      :nullable false
+                                                      :enabled true}]}]}]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'control-plane/ensure-control-plane-tables! (fn [] true)
+                     #'db/getGraph (fn [_] graph)
+                     #'g2/getData (fn [_ _] file-node)
+                     #'control-plane/graph-workspace-context (fn [_]
+                                                               {:tenant_key "tenant-a"
+                                                                :workspace_key "ops"})
+                     #'bitool.modeling.automation/find-downstream-target (fn [_ _] {:connection_id 9})
+                     #'bitool.modeling.automation/schema-source-for-endpoint (fn [_ _ _ endpoint _]
+                                                                               {:source "endpoint_config"
+                                                                                :snapshot-row nil
+                                                                                :fields (:inferred_fields endpoint)})
+                     #'bitool.modeling.automation/latest-model-proposal (fn [& _] nil)
+                     #'bitool.modeling.automation/persist-schema-profile! (fn [_ _ _ _]
+                                                                            {:profile_id 11})
+                     #'bitool.modeling.automation/persist-model-proposal! (fn [proposal profile-id]
+                                                                            (reset! captured-proposal [proposal profile-id])
+                                                                            {:proposal_id 22
+                                                                             :status "draft"
+                                                                             :target_model (:target_model proposal)
+                                                                             :confidence_score (:confidence_score proposal)})}
+      (fn []
+        (let [result (modeling/propose-silver-schema! {:graph-id 99
+                                                       :api-node-id 2
+                                                       :endpoint-name "orders.jsonl"
+                                                       :created-by "alice"})]
+          (is (= 22 (:proposal_id result)))
+          (is (= "orders.jsonl" (get-in result [:proposal :endpoint_name])))
+          (is (= "orders.jsonl" (get-in @captured-proposal [0 :source_endpoint_name]))))))))
 
 (deftest propose-silver-schema-dedupes-identical-latest-proposal
   (let [graph {:a {:id 99 :v 7}}
@@ -287,8 +376,8 @@
     (fn []
       (let [result (modeling/compile-silver-proposal! 22)]
         (is (= 22 (:proposal_id result)))
-        (is (re-find #"MERGE INTO sheetz_telematics.silver.trip" (:compiled_sql result)))
-        (is (re-find #"FROM sheetz_telematics.bronze.trip_raw bronze" (:select_sql result)))))))
+        (is (re-find #"MERGE INTO `sheetz_telematics`\.`silver`\.`trip`" (:compiled_sql result)))
+        (is (re-find #"FROM `sheetz_telematics`\.`bronze`\.`trip_raw` bronze" (:select_sql result)))))))
 
 (deftest compile-silver-proposal-rejects-unsafe-expression
   (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
@@ -382,7 +471,8 @@
           (is (= 101 (:validation_id result)))
           (is (= "valid" (:status @captured-validation)))
           (is (= [22 {:compiled_sql (:compiled_sql result) :status "validated"}] @captured-update))
-          (is (re-find #"MERGE INTO sheetz_telematics.silver.trip" (:compiled_sql result)))
+          (is (re-find #"MERGE INTO `sheetz_telematics`\.`silver`\.`trip`" (:compiled_sql result)))
+          (is (string? (get-in @captured-validation [:validation-json :proposal_checksum])))
           (is (= 5 (get-in result [:validation :sample_execution :summary :row_count]))))))))
 
 (deftest validate-silver-proposal-clears-compiled-sql-when-static-validation-fails
@@ -418,7 +508,7 @@
           (is (nil? (:compiled-sql @captured-validation)))
           (is (= [22 {:compiled_sql nil :status "draft"}] @captured-update)))))))
 
-(deftest publish-silver-proposal-tx-creates-release-and-artifact
+(deftest publish-proposal-tx-creates-release-and-artifact
   (let [deactivated (atom nil)
         updated (atom nil)]
     (with-redefs-fn {#'bitool.modeling.automation/lock-release-stream! (fn [_ layer target-model]
@@ -439,7 +529,7 @@
                                                                            (reset! updated [proposal-id attrs])
                                                                            nil)}
       (fn []
-        (let [result (#'bitool.modeling.automation/publish-silver-proposal-tx!
+        (let [result (#'bitool.modeling.automation/publish-proposal-tx!
                       {}
                       22
                       {:proposal_id 22
@@ -593,6 +683,45 @@
         (is (= "append" (get-in @captured-update [1 :proposal_json :materialization :mode])))
         (is (= ["trip_id"] (get-in @captured-update [1 :proposal_json :materialization :keys])))))))
 
+(deftest update-silver-proposal-clones-validated-proposal-into-new-draft
+  (let [captured-persist (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-by-id (fn [_]
+                                                                   {:proposal_id 22
+                                                                    :profile_id 11
+                                                                    :tenant_key "tenant-a"
+                                                                    :workspace_key "ops"
+                                                                    :layer "silver"
+                                                                    :status "validated"
+                                                                    :target_model "silver_trip"
+                                                                    :source_graph_id 99
+                                                                    :source_node_id 2
+                                                                    :source_endpoint_name "trips"
+                                                                    :confidence_score 0.8
+                                                                    :proposal_json "{\"target_model\":\"silver_trip\"}"})
+                     #'bitool.modeling.automation/persist-model-proposal! (fn [proposal _]
+                                                                            (reset! captured-persist proposal)
+                                                                            {:proposal_id 23
+                                                                             :layer "silver"
+                                                                             :status "draft"
+                                                                             :target_model (:target_model proposal)
+                                                                             :source_graph_id (:source_graph_id proposal)
+                                                                             :source_node_id (:source_node_id proposal)
+                                                                             :source_endpoint_name (:source_endpoint_name proposal)
+                                                                             :created_by (:created_by proposal)
+                                                                             :created_at_utc "2026-03-14T00:00:00Z"
+                                                                             :proposal_json (json/generate-string (:proposal_json proposal))
+                                                                             :confidence_score (:confidence_score proposal)})
+                     #'bitool.modeling.automation/latest-validation-for-proposal (fn [_] nil)
+                     #'bitool.modeling.automation/latest-active-release (fn [& _] nil)
+                     #'bitool.modeling.automation/latest-graph-artifact-for-proposal (fn [& _] nil)}
+      (fn []
+        (let [result (modeling/update-silver-proposal! 22 {:proposal {:target_model "silver_trip_v2"}
+                                                           :created_by "alice"})]
+          (is (= 23 (:proposal_id result)))
+          (is (= "silver_trip_v2" (:target_model @captured-persist)))
+          (is (= "draft" (:status result))))))))
+
 (deftest synthesize-silver-graph-persists-graph-artifact
   (let [captured-artifact (atom nil)]
     (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
@@ -669,7 +798,7 @@
                                                                                                       :merge_keys ["trip_id"]}}]})})}
     (fn []
       (let [result (modeling/compile-silver-graph-artifact! 91)]
-        (is (re-find #"MERGE INTO sheetz_telematics.silver.trip" (:compiled_sql result)))
+        (is (re-find #"MERGE INTO `sheetz_telematics`\.`silver`\.`trip`" (:compiled_sql result)))
         (is (re-find #"WHERE trip_id IS NOT NULL" (:select_sql result)))
         (is (= "merge" (get-in result [:sql_ir :materialization :mode])))))))
 
@@ -679,6 +808,7 @@
                      #'bitool.modeling.automation/proposal-by-id (fn [_]
                                                                    {:proposal_id 22
                                                                     :layer "silver"
+                                                                    :status "validated"
                                                                     :proposal_json "{\"target_model\":\"silver_trip\"}"})
                      #'bitool.modeling.automation/update-model-proposal! (fn [proposal-id attrs]
                                                                            (reset! updated [proposal-id attrs])
@@ -691,6 +821,18 @@
           (is (= 22 (first @updated)))
           (is (= "approved" (get-in @updated [1 :status])))
           (is (= "alice" (get-in @updated [1 :proposal_json :review :reviewed_by]))))))))
+
+(deftest review-silver-proposal-rejects-draft-proposal
+  (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                   #'bitool.modeling.automation/proposal-by-id (fn [_]
+                                                                 {:proposal_id 22
+                                                                  :layer "silver"
+                                                                  :status "draft"
+                                                                  :proposal_json "{\"target_model\":\"silver_trip\"}"})}
+    (fn []
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"not ready for review"
+                            (modeling/review-silver-proposal! 22 {:review_state "approved"}))))))
 
 (deftest validate-silver-proposal-warehouse-submits-job
   (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)

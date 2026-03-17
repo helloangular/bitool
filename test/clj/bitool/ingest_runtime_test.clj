@@ -2791,6 +2791,62 @@
         (runtime/run-file-node! 99 2)
         (is (= ["s3://bucket/b.jsonl"] (:paths @fetch-config)))))))
 
+(deftest run-kafka-node-uses-native-consumer-ops-when-no-poll-fn-is-injected
+  (let [captured-fetch (atom nil)]
+    (with-redefs-fn {#'db/getGraph (fn [_] {})
+                     #'g2/getData (fn [_ _] {:btype "Kf"
+                                             :source_system "kafka"
+                                             :bootstrap_servers "broker:9092"
+                                             :topic_configs [{:endpoint_name "orders.events"
+                                                              :topic_name "orders.events"
+                                                              :bronze_table_name "lake.bronze.kafka_raw"}]})
+                     #'bitool.ingest.runtime/find-downstream-target (fn [_ _] {:connection_id 9
+                                                                              :catalog "lake"
+                                                                              :schema "bronze"})
+                     #'bitool.ingest.runtime/ensure-table! (fn [& _] nil)
+                     #'bitool.ingest.runtime/ensure-checkpoint-columns! (fn [& _] nil)
+                     #'bitool.ingest.runtime/ensure-batch-manifest-columns! (fn [& _] nil)
+                     #'bitool.ingest.runtime/ensure-bad-record-columns! (fn [& _] nil)
+                     #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] {:last_successful_cursor "{\"orders.events\":{\"0\":41}}"})
+                     #'bitool.ingest.runtime/abort-preparing-batches! (fn [& _] nil)
+                     #'bitool.connector.kafka/native-consumer-ops (fn [_]
+                                                                    {:poll-timeout-ms 250
+                                                                     :poll-fn (fn [_] {:type :stop :stop-reason :eof})
+                                                                     :commit-fn (fn [_] nil)
+                                                                     :close-fn (fn [] nil)
+                                                                     :wakeup-fn (fn [] nil)})
+                     #'bitool.connector.kafka/fetch-kafka-async (fn [opts]
+                                                                  (reset! captured-fetch opts)
+                                                                  {:pages (async/to-chan! [{:stop-reason :eof
+                                                                                            :state nil
+                                                                                            :response {:status 200}}])
+                                                                   :errors (async/to-chan! [])
+                                                                   :cancel (fn [] nil)
+                                                                   :commit! (fn [_] nil)})
+                     #'bitool.ingest.runtime/process-source-stream! (fn [& _]
+                                                                      {:batch-seq 0
+                                                                       :checkpoint-row nil
+                                                                       :max-watermark nil
+                                                                       :next-cursor nil
+                                                                       :rows-extracted 0
+                                                                       :rows-written 0
+                                                                       :bad-records-total 0
+                                                                       :bad-records-written 0
+                                                                       :pages-fetched 0
+                                                                       :retry-count 0
+                                                                       :last-http-status 200
+                                                                       :changed-partition-dates []
+                                                                       :manifests []})
+                     #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] nil)
+                     #'bitool.ingest.runtime/connection-dbtype (fn [_] "snowflake")}
+      (fn []
+        (runtime/run-kafka-node! 99 2)
+        (is (= "orders.events" (:topic-name @captured-fetch)))
+        (is (= 250 (:poll-timeout-ms @captured-fetch)))
+        (is (fn? (:wakeup-fn @captured-fetch)))
+        (is (fn? (:poll-fn @captured-fetch)))))))
+
 (deftest preview-endpoint-schema-returns-inferred-fields
   (with-redefs [api/do-request (fn [_]
                                  {:status 200

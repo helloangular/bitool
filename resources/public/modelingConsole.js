@@ -825,13 +825,14 @@ class ModelingConsole extends HTMLElement {
       const layer = this._proposalLayer(p);
       const tr = document.createElement("tr");
       tr.classList.add("clickable");
+      const safeStatus = this._esc(p.status || "draft");
       tr.innerHTML = `
-        <td>${p.proposal_id || p.id || "--"}</td>
-        <td>${p.source_node_id || p.api_node_id || "--"}</td>
+        <td>${this._esc(p.proposal_id || p.id || "--")}</td>
+        <td>${this._esc(p.source_node_id || p.api_node_id || "--")}</td>
         <td>${this._esc(this._proposalSourceName(p))}</td>
         <td>${this._esc(layer)}</td>
-        <td><span class="badge ${badgeClass(p.status)}">${p.status || "draft"}</span></td>
-        <td>${p.created_by || "--"}</td>
+        <td><span class="badge ${badgeClass(p.status)}">${safeStatus}</span></td>
+        <td>${this._esc(p.created_by || "--")}</td>
         <td>${fmtDate(this._proposalCreatedAt(p))}</td>
         <td class="proposal-actions"></td>
       `;
@@ -1377,13 +1378,14 @@ class ModelingConsole extends HTMLElement {
       const layer = this._proposalLayer(r);
       const tr = document.createElement("tr");
       tr.classList.add("clickable");
+      const safeRunStatus = this._esc(r.run_status || "published");
       tr.innerHTML = `
-        <td>${r.release_id || "--"}</td>
-        <td>#${r.proposal_id || r.id || "--"}</td>
+        <td>${this._esc(r.release_id || "--")}</td>
+        <td>#${this._esc(r.proposal_id || r.id || "--")}</td>
         <td>${this._esc(this._proposalSourceName(r))}</td>
         <td>${this._esc(layer)}</td>
         <td>${fmtDate(r.published_at || this._proposalCreatedAt(r))}</td>
-        <td><span class="badge ${badgeClass(r.run_status || "published")}">${r.run_status || "published"}</span></td>
+        <td><span class="badge ${badgeClass(r.run_status || "published")}">${safeRunStatus}</span></td>
         <td class="release-actions"></td>
       `;
       const actionsCell = tr.querySelector(".release-actions");

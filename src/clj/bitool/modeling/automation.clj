@@ -36,7 +36,7 @@
 (def ^:private qualified-table-name-pattern #"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 (def ^:private sample-query-timeout-ms 5000)
 
-(declare proposal-columns proposal-mappings)
+(declare proposal-columns proposal-mappings latest-validation-for-proposal parse-json-safe)
 
 (defn- parse-int-env
   [k default-value]
@@ -109,6 +109,40 @@
             (re-matches #"^CAST\((?:bronze|silver)\.[A-Za-z_][A-Za-z0-9_]* AS DATE\)$" value)
             (re-matches #"^(?:SUM|AVG|MIN|MAX)\((?:bronze|silver)\.[A-Za-z_][A-Za-z0-9_]*\)$" value)
             (= "COUNT(*)" value)))))
+
+(def ^:private allowed-review-states
+  #{"reviewed" "approved" "rejected"})
+
+(def ^:private editable-in-place-statuses
+  #{"draft" "invalid"})
+
+(def ^:private clone-on-edit-statuses
+  #{"validated" "reviewed" "approved" "published"})
+
+(defn- proposal-checksum
+  [proposal-json]
+  (sha256-hex (json/generate-string proposal-json)))
+
+(defn- reviewable-proposal?
+  [proposal-row]
+  (contains? #{"validated" "reviewed" "approved"} (:status proposal-row)))
+
+(defn- publishable-proposal?
+  [proposal-row]
+  (contains? #{"validated" "reviewed" "approved" "published"} (:status proposal-row)))
+
+(defn- current-valid-validation
+  [proposal-id proposal-json]
+  (let [latest   (latest-validation-for-proposal proposal-id)
+        checksum (proposal-checksum proposal-json)]
+    (when (and latest
+               (= "valid" (:status latest))
+               (= checksum (get (parse-json-safe (:validation_json latest)) :proposal_checksum)))
+      {:validation_id (:validation_id latest)
+       :proposal_id proposal-id
+       :status (:status latest)
+       :compiled_sql (:compiled_sql latest)
+       :validation (parse-json-safe (:validation_json latest))})))
 
 (defn- ensure-modeling-tables!
   []
@@ -270,6 +304,29 @@
   (->> (:endpoint_configs api-node)
        (filter #(not= false (:enabled %)))))
 
+(defn- source-config-key
+  [source-node]
+  (case (:btype source-node)
+    "Ap" :endpoint_configs
+    "Kf" :topic_configs
+    "Fs" :file_configs
+    nil))
+
+(defn- source-node-label
+  [source-node]
+  (case (:btype source-node)
+    "Ap" "API"
+    "Kf" "Kafka"
+    "Fs" "File"
+    "source"))
+
+(defn- enabled-source-endpoints
+  [source-node]
+  (if-let [config-key (source-config-key source-node)]
+    (->> (get source-node config-key)
+         (filter #(not= false (:enabled %))))
+    []))
+
 (defn- select-endpoint!
   [api-node endpoint-name]
   (let [endpoints (vec (enabled-endpoints api-node))]
@@ -292,6 +349,35 @@
       :else
       (throw (ex-info "endpoint_name is required when an API node has multiple enabled endpoints"
                       {:endpoint_names (mapv :endpoint_name endpoints)})))))
+
+(defn- select-source-endpoint!
+  [source-node endpoint-name]
+  (let [endpoints (vec (enabled-source-endpoints source-node))
+        label     (source-node-label source-node)]
+    (cond
+      (and endpoint-name
+           (some #(= endpoint-name (:endpoint_name %)) endpoints))
+      (first (filter #(= endpoint-name (:endpoint_name %)) endpoints))
+
+      endpoint-name
+      (throw (ex-info (str "No enabled source config found for endpoint_name '" endpoint-name "'")
+                      {:endpoint_name endpoint-name
+                       :node_id (:id source-node)
+                       :btype (:btype source-node)}))
+
+      (= 1 (count endpoints))
+      (first endpoints)
+
+      (empty? endpoints)
+      (throw (ex-info (str label " node has no enabled source configs")
+                      {:node_id (:id source-node)
+                       :btype (:btype source-node)}))
+
+      :else
+      (throw (ex-info (str "endpoint_name is required when a " label " node has multiple enabled source configs")
+                      {:endpoint_names (mapv :endpoint_name endpoints)
+                       :node_id (:id source-node)
+                       :btype (:btype source-node)})))))
 
 (defn- parse-json-safe
   [value]
@@ -1069,7 +1155,7 @@
    ["SELECT pg_advisory_xact_lock(hashtext(?))"
     (str layer ":" target-model)]))
 
-(defn- publish-silver-proposal-tx!
+(defn- publish-proposal-tx!
   [tx proposal-id proposal-row validation-result graph-artifact-id created-by proposal-json sql-ir]
   (lock-release-stream! tx (:layer proposal-row) (:target_model proposal-row))
   (let [version      (next-release-version tx (:layer proposal-row) (:target_model proposal-row))
@@ -1180,27 +1266,29 @@
           profile-row   (schema-profile-by-id (:profile_id proposal-row))
           profile-json  (parse-json-safe (:profile_json profile-row))
           graph-id      (:source_graph_id proposal-row)
-          api-node-id   (:source_node_id proposal-row)
+          source-node-id (:source_node_id proposal-row)
           graph         (db/getGraph graph-id)
-          api-node      (g2/getData graph api-node-id)
-          _             (when-not (= "Ap" (:btype api-node))
-                          (throw (ex-info "Proposal source node is not an API node"
+          source-node   (g2/getData graph source-node-id)
+          _             (when-not (contains? #{"Ap" "Kf" "Fs"} (:btype source-node))
+                          (throw (ex-info "Proposal source node is not a supported Bronze source node"
                                           {:proposal_id proposal-id
-                                           :node_id api-node-id
-                                           :btype (:btype api-node)})))
-          endpoint      (select-endpoint! api-node (:source_endpoint_name proposal-row))
-          target        (find-downstream-target graph api-node-id)]
+                                           :node_id source-node-id
+                                           :btype (:btype source-node)})))
+          endpoint      (select-source-endpoint! source-node (:source_endpoint_name proposal-row))
+          target        (find-downstream-target graph source-node-id)]
       {:proposal-row proposal-row
        :proposal-json proposal-json
        :profile-row profile-row
        :profile-json profile-json
        :graph graph
        :graph-id graph-id
-       :api-node-id api-node-id
-       :api-node api-node
+       :api-node-id source-node-id
+       :source-node-id source-node-id
+       :api-node source-node
+       :source-node source-node
        :endpoint endpoint
        :target target
-       :source-system (or (:source_system api-node) "samara")
+       :source-system (or (:source_system source-node) "samara")
        :source-table (source-table-for-endpoint endpoint)
        :target-connection-id (target-connection-id target)})))
 
@@ -1258,6 +1346,10 @@
         merge-keys      (vec (or (:keys materialization) []))
         group-by-cols   (vec (or (:group_by proposal-json) []))
         target-table    (:target_table proposal-json)
+        source-alias    (or (:source_alias proposal-json)
+                            (:source_layer proposal-json)
+                            "bronze")
+        graph-filter    (some-> (:graph_filter_sql proposal-json) str string/trim not-empty)
         available-cols  (available-source-columns proposal-json profile-json)]
     (vec
      (concat
@@ -1267,6 +1359,8 @@
         [{:kind "schema" :field "source_table" :message "Source table must be a valid qualified table name"}])
       (when-not (valid-qualified-table-name? target-table)
         [{:kind "schema" :field "target_table" :message "Target table must be a valid qualified table name"}])
+      (when-not (valid-sql-ident? source-alias)
+        [{:kind "schema" :field "source_alias" :message "Source alias must be a valid SQL identifier"}])
       (when-not (every? #(valid-sql-ident? (:target_column %)) columns)
         [{:kind "schema" :message "All target columns must be valid SQL identifiers"}])
       (when-not (= (count target-columns) (count (distinct target-columns)))
@@ -1275,6 +1369,11 @@
         [{:kind "schema" :message "Proposal contains unsupported target column types"}])
       (when-not (every? #(safe-proposal-expression? (:expression %)) columns)
         [{:kind "schema" :message "All compiled expressions must be simple Bronze column references"}])
+      (when (and graph-filter
+                 (or (re-find #"(?:--|/\*|\*/|;)" graph-filter)
+                     (re-find #"(?i)\b(select|insert|update|delete|drop|alter|merge|union|join|from|into|copy|put)\b" graph-filter)
+                     (not (re-matches #"[A-Za-z0-9_.'\"()=<>!%+\-*/,\s]+" graph-filter))))
+        [{:kind "schema" :field "graph_filter_sql" :message "Graph filter contains unsupported SQL"}])
       (when-not (contains? #{"merge" "table_replace" "append"} (:mode materialization))
         [{:kind "schema" :message "Materialization mode must be one of merge, table_replace, or append"}])
       (when (and (= "merge" (:mode materialization)) (empty? merge-keys))
@@ -1674,25 +1773,26 @@
      :panel (:panel result)}))
 
 (defn propose-silver-schema!
-  [{:keys [graph-id api-node-id endpoint-name created-by]
+  [{:keys [graph-id api-node-id source-node-id endpoint-name created-by]
     :or {created-by "system"}}]
   (ensure-modeling-tables!)
   (control-plane/ensure-control-plane-tables!)
   (let [graph              (db/getGraph graph-id)
-        api-node           (g2/getData graph api-node-id)
-        _                  (when-not (= "Ap" (:btype api-node))
-                             (throw (ex-info "Node is not an API node"
-                                             {:node_id api-node-id
-                                              :btype (:btype api-node)})))
-        source-system      (or (:source_system api-node) "samara")
-        target             (find-downstream-target graph api-node-id)
+        source-node-id     (or source-node-id api-node-id)
+        source-node        (g2/getData graph source-node-id)
+        _                  (when-not (contains? #{"Ap" "Kf" "Fs"} (:btype source-node))
+                             (throw (ex-info "Node is not a supported Bronze source node"
+                                             {:node_id source-node-id
+                                              :btype (:btype source-node)})))
+        source-system      (or (:source_system source-node) "samara")
+        target             (find-downstream-target graph source-node-id)
         workspace-context  (control-plane/graph-workspace-context graph-id)
         tenant-key         (:tenant_key workspace-context)
         workspace-key      (:workspace_key workspace-context)
-        endpoint           (select-endpoint! api-node endpoint-name)
-        {:keys [source snapshot-row fields]} (schema-source-for-endpoint graph-id api-node-id source-system endpoint target)
+        endpoint           (select-source-endpoint! source-node endpoint-name)
+        {:keys [source snapshot-row fields]} (schema-source-for-endpoint graph-id source-node-id source-system endpoint target)
         profile            (build-schema-profile {:graph-id graph-id
-                                                  :api-node-id api-node-id
+                                                  :api-node-id source-node-id
                                                   :source-system source-system
                                                   :endpoint-name (:endpoint_name endpoint)
                                                   :source source
@@ -1703,12 +1803,12 @@
         proposal           (build-silver-proposal {:tenant-key tenant-key
                                                    :workspace-key workspace-key
                                                    :graph-id graph-id
-                                                   :api-node-id api-node-id
+                                                   :api-node-id source-node-id
                                                    :source-system source-system
                                                    :endpoint endpoint'
                                                    :profile profile
                                                    :created-by created-by})
-        latest-proposal    (latest-model-proposal graph-id api-node-id (:endpoint_name endpoint))
+        latest-proposal    (latest-model-proposal graph-id source-node-id (:endpoint_name endpoint))
         proposal-json      (json/generate-string (:proposal_json proposal))]
     (if (= (:proposal_json latest-proposal) proposal-json)
       (let [profile-row (schema-profile-by-id (:profile_id latest-proposal))
@@ -1727,12 +1827,12 @@
                           :source_layer "bronze"
                           :source_system source-system
                           :endpoint_name (:endpoint_name endpoint)
-                          :profile_source (:profile_source profile-row)
-                          :sample_record_count (:sample_record_count profile-row)
-                          :field_count (:field_count profile-row)
-                          :profile_id (:profile_id latest-proposal)
-                          :tenant_key tenant-key
-                          :workspace_key workspace-key}
+                         :profile_source (:profile_source profile-row)
+                         :sample_record_count (:sample_record_count profile-row)
+                         :field_count (:field_count profile-row)
+                         :profile_id (:profile_id latest-proposal)
+                         :tenant_key tenant-key
+                         :workspace_key workspace-key}
                          parsed-profile-json)
          :proposal (parse-json-safe (:proposal_json latest-proposal))})
       (let [profile-row  (persist-schema-profile! profile created-by tenant-key workspace-key)
@@ -1945,7 +2045,8 @@
           next-json    (deep-merge current-json proposal)
           next-model   (or (non-blank-str (:target_model next-json))
                            (:target_model proposal-row))]
-      (if (= "published" (:status proposal-row))
+      (cond
+        (contains? clone-on-edit-statuses (:status proposal-row))
         (let [new-row (persist-model-proposal! {:tenant_key (:tenant_key proposal-row)
                                                 :workspace_key (:workspace_key proposal-row)
                                                 :layer "silver"
@@ -1960,12 +2061,20 @@
                                                 :created_by created_by}
                                                (:profile_id proposal-row))]
           (proposal-summary new-row))
+
+        (contains? editable-in-place-statuses (:status proposal-row))
         (do
           (update-model-proposal! proposal-id {:proposal_json next-json
                                                :target_model next-model
                                                :compiled_sql nil
                                                :status "draft"})
-          (proposal-summary (proposal-by-id proposal-id)))))))
+          (proposal-summary (proposal-by-id proposal-id)))
+
+        :else
+        (throw (ex-info "Proposal cannot be edited in its current state"
+                        {:proposal_id proposal-id
+                         :status 409
+                         :proposal_status (:status proposal-row)}))))))
 
 (defn update-gold-proposal!
   [proposal-id {:keys [proposal created_by]
@@ -1982,7 +2091,8 @@
           next-json    (deep-merge current-json proposal)
           next-model   (or (non-blank-str (:target_model next-json))
                            (:target_model proposal-row))]
-      (if (= "published" (:status proposal-row))
+      (cond
+        (contains? clone-on-edit-statuses (:status proposal-row))
         (let [new-row (persist-model-proposal! {:tenant_key (:tenant_key proposal-row)
                                                 :workspace_key (:workspace_key proposal-row)
                                                 :layer "gold"
@@ -1997,12 +2107,20 @@
                                                 :created_by created_by}
                                                (:profile_id proposal-row))]
           (proposal-summary new-row))
+
+        (contains? editable-in-place-statuses (:status proposal-row))
         (do
           (update-model-proposal! proposal-id {:proposal_json next-json
                                                :target_model next-model
                                                :compiled_sql nil
                                                :status "draft"})
-          (proposal-summary (proposal-by-id proposal-id)))))))
+          (proposal-summary (proposal-by-id proposal-id)))
+
+        :else
+        (throw (ex-info "Proposal cannot be edited in its current state"
+                        {:proposal_id proposal-id
+                         :status 409
+                         :proposal_status (:status proposal-row)}))))))
 
 (defn synthesize-silver-graph!
   ([proposal-id] (synthesize-silver-graph! proposal-id {}))
@@ -2148,6 +2266,7 @@
          validation-json {:proposal_id proposal-id
                           :target_model (:target_model proposal-row)
                           :status status
+                          :proposal_checksum (proposal-checksum proposal-json)
                           :schema_errors errors
                           :warnings warnings
                           :sample_execution sample-result
@@ -2203,6 +2322,7 @@
          validation-json {:proposal_id proposal-id
                           :target_model (:target_model proposal-row)
                           :status status
+                          :proposal_checksum (proposal-checksum proposal-json)
                           :schema_errors errors
                           :warnings warnings
                           :sample_execution sample-result
@@ -2236,15 +2356,14 @@
                               (throw (ex-info "Proposal is not a Silver proposal"
                                               {:proposal_id proposal-id
                                                :layer (:layer proposal-row)})))
-         validation-result  (let [latest (latest-validation-for-proposal proposal-id)]
-                              (if (= "valid" (:status latest))
-                                {:validation_id (:validation_id latest)
-                                 :proposal_id proposal-id
-                                 :status (:status latest)
-                                 :compiled_sql (:compiled_sql latest)
-                                 :validation (parse-json-safe (:validation_json latest))}
+         _                  (when-not (publishable-proposal? proposal-row)
+                              (throw (ex-info "Silver proposal is not in a publishable state"
+                                              {:proposal_id proposal-id
+                                               :proposal_status (:status proposal-row)
+                                               :status 409})))
+         validation-result  (or (current-valid-validation proposal-id (parse-json-safe (:proposal_json proposal-row)))
                                 (validate-silver-proposal! proposal-id {:created_by created_by
-                                                                        :sample_limit sample_limit})))
+                                                                        :sample_limit sample_limit}))
          _                  (when-not (= "valid" (:status validation-result))
                               (throw (ex-info "Silver proposal is not valid and cannot be published"
                                               {:proposal_id proposal-id
@@ -2254,7 +2373,7 @@
          sql-ir             (or (get-in validation-result [:validation :sql_ir])
                                 (:sql_ir (compile-silver-proposal! proposal-id)))]
      (jdbc/with-transaction [tx db/ds]
-       (publish-silver-proposal-tx! tx proposal-id proposal-row validation-result (:graph_artifact_id graph-artifact) created_by proposal-json sql-ir)))))
+       (publish-proposal-tx! tx proposal-id proposal-row validation-result (:graph_artifact_id graph-artifact) created_by proposal-json sql-ir)))))
 
 (defn publish-gold-proposal!
   ([proposal-id] (publish-gold-proposal! proposal-id {}))
@@ -2268,15 +2387,14 @@
                               (throw (ex-info "Proposal is not a Gold proposal"
                                               {:proposal_id proposal-id
                                                :layer (:layer proposal-row)})))
-         validation-result  (let [latest (latest-validation-for-proposal proposal-id)]
-                              (if (= "valid" (:status latest))
-                                {:validation_id (:validation_id latest)
-                                 :proposal_id proposal-id
-                                 :status (:status latest)
-                                 :compiled_sql (:compiled_sql latest)
-                                 :validation (parse-json-safe (:validation_json latest))}
+         _                  (when-not (publishable-proposal? proposal-row)
+                              (throw (ex-info "Gold proposal is not in a publishable state"
+                                              {:proposal_id proposal-id
+                                               :proposal_status (:status proposal-row)
+                                               :status 409})))
+         validation-result  (or (current-valid-validation proposal-id (parse-json-safe (:proposal_json proposal-row)))
                                 (validate-gold-proposal! proposal-id {:created_by created_by
-                                                                      :sample_limit sample_limit})))
+                                                                      :sample_limit sample_limit}))
          _                  (when-not (= "valid" (:status validation-result))
                               (throw (ex-info "Gold proposal is not valid and cannot be published"
                                               {:proposal_id proposal-id
@@ -2286,7 +2404,7 @@
          sql-ir             (or (get-in validation-result [:validation :sql_ir])
                                 (:sql_ir (compile-gold-proposal! proposal-id)))]
      (jdbc/with-transaction [tx db/ds]
-       (publish-silver-proposal-tx! tx proposal-id proposal-row validation-result (:graph_artifact_id graph-artifact) created_by proposal-json sql-ir)))))
+       (publish-proposal-tx! tx proposal-id proposal-row validation-result (:graph_artifact_id graph-artifact) created_by proposal-json sql-ir)))))
 
 (defn- target-node-id-from-graph-artifact
   [graph-artifact graph]
@@ -2318,8 +2436,20 @@
   (let [proposal-row (proposal-by-id proposal-id)]
     (when-not proposal-row
       (throw (ex-info "Silver proposal not found" {:proposal_id proposal-id :status 404})))
+    (when-not (= "silver" (:layer proposal-row))
+      (throw (ex-info "Proposal is not a Silver proposal" {:proposal_id proposal-id :status 400})))
+    (when-not (reviewable-proposal? proposal-row)
+      (throw (ex-info "Silver proposal is not ready for review"
+                      {:proposal_id proposal-id
+                       :proposal_status (:status proposal-row)
+                       :status 409})))
     (let [proposal-json (parse-json-safe (:proposal_json proposal-row))
           review-state (or (non-blank-str review_state) "reviewed")
+          _            (when-not (contains? allowed-review-states review-state)
+                         (throw (ex-info "Invalid review state"
+                                         {:proposal_id proposal-id
+                                          :review_state review-state
+                                          :status 400})))
           updated-json (assoc proposal-json
                               :review {:state review-state
                                        :notes (or review_notes "")
@@ -2340,8 +2470,18 @@
       (throw (ex-info "Gold proposal not found" {:proposal_id proposal-id :status 404})))
     (when-not (= "gold" (:layer proposal-row))
       (throw (ex-info "Proposal is not a Gold proposal" {:proposal_id proposal-id :status 400})))
+    (when-not (reviewable-proposal? proposal-row)
+      (throw (ex-info "Gold proposal is not ready for review"
+                      {:proposal_id proposal-id
+                       :proposal_status (:status proposal-row)
+                       :status 409})))
     (let [proposal-json (parse-json-safe (:proposal_json proposal-row))
           review-state (or (non-blank-str review_state) "reviewed")
+          _            (when-not (contains? allowed-review-states review-state)
+                         (throw (ex-info "Invalid review state"
+                                         {:proposal_id proposal-id
+                                          :review_state review-state
+                                          :status 400})))
           updated-json (assoc proposal-json
                               :review {:state review-state
                                        :notes (or review_notes "")

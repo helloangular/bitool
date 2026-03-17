@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BiTool Input to Bronze to Silver to Gold Architecture</title>
+  <style>
+    :root {
+      --bg: #f4f7f4;
+      --card: #ffffff;
+      --ink: #17251c;
+      --muted: #5e6f63;
+      --line: #cfd8d1;
+      --accent: #1f5f46;
+      --accent-2: #7a2e0b;
+      --warn: #9a6700;
+      --vendor: #5b21b6;
+      --common: #065f46;
+      --state-bg: #fff2e8;
+      --state-border: #e6b99a;
+      --shadow: 0 14px 40px rgba(23, 37, 28, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background:
+        radial-gradient(circle at top left, rgba(31,95,70,0.12), transparent 32%),
+        linear-gradient(180deg, #f7faf8 0%, var(--bg) 100%);
+      color: var(--ink);
+    }
+    main {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 28px 28px 60px;
+    }
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      line-height: 1.15;
+    }
+    h1 { font-size: 36px; }
+    h2 {
+      font-size: 26px;
+      margin-top: 34px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+    }
+    h3 { font-size: 18px; }
+    p, li {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--ink);
+    }
+    .lede {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 1100px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(23, 37, 28, 0.08);
+      box-shadow: var(--shadow);
+      border-radius: 18px;
+      padding: 18px;
+      margin-top: 18px;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      margin-right: 8px;
+    }
+    .pill.common { background: rgba(6,95,70,0.12); color: var(--common); }
+    .pill.vendor { background: rgba(91,33,182,0.12); color: var(--vendor); }
+    .pill.state { background: rgba(122,46,11,0.14); color: var(--accent-2); }
+    .caption {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .diagram {
+      display: grid;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .lane {
+      display: grid;
+      gap: 12px;
+      align-items: stretch;
+    }
+    .lane.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .lane.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .lane.cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .lane.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fbfdfb;
+      padding: 14px;
+      min-height: 96px;
+      position: relative;
+    }
+    .box.common {
+      border-color: rgba(6,95,70,0.28);
+      background: rgba(6,95,70,0.05);
+    }
+    .box.vendor {
+      border-color: rgba(91,33,182,0.24);
+      background: rgba(91,33,182,0.05);
+    }
+    .box.state {
+      border-color: var(--state-border);
+      background: var(--state-bg);
+    }
+    .box.warning {
+      border-color: rgba(154,103,0,0.25);
+      background: rgba(154,103,0,0.06);
+    }
+    .box h4 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .box ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .arrow-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 18px;
+      margin: 2px 0;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      background: white;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #eff5f0;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    code {
+      background: rgba(23,37,28,0.06);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 13px;
+    }
+    .module-list {
+      columns: 2;
+      column-gap: 20px;
+    }
+    .module-list li {
+      break-inside: avoid;
+      margin-bottom: 8px;
+    }
+    .footnote {
+      margin-top: 28px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    @media (max-width: 980px) {
+      .grid.two, .grid.three, .grid.four,
+      .lane.cols-3, .lane.cols-4, .lane.cols-5, .lane.cols-6 {
+        grid-template-columns: 1fr;
+      }
+      .module-list { columns: 1; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>BiTool Input → Bronze → Silver → Gold Architecture</h1>
+    <p class="lede">
+      This document maps the current codebase and design into one end-to-end view: API, Kafka stream, Kafka consumer,
+      file, and mainframe file ingestion into Bronze, then Bronze to Silver and Gold modeling, review, compilation,
+      and execution. It also calls out where resilience, idempotency, concurrency control, and vendor-specific logic live,
+      and whether the architecture is generic enough for BigQuery.
+    </p>
+
+    <div class="card">
+      <h3>Legend</h3>
+      <div class="legend">
+        <span class="pill common">Common cross-warehouse / cross-source block</span>
+        <span class="pill vendor">Vendor-specific warehouse or runtime block</span>
+        <span class="pill state">State / control-plane / operator block</span>
+      </div>
+    </div>
+
+    <h2>1. End-to-End System Map</h2>
+    <div class="card">
+      <div class="diagram">
+        <div class="lane cols-5">
+          <div class="box state">
+            <h4>External Orchestrator</h4>
+            <ul>
+              <li>Airflow / enterprise scheduler</li>
+              <li>Optional outer control</li>
+              <li>Calls Bitool HTTP / job entrypoints</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <h4>Input Sources</h4>
+            <ul>
+              <li>API nodes (`Ap`)</li>
+              <li>Kafka source nodes (`Kf`)</li>
+              <li>File source nodes (`Fs`)</li>
+              <li>Mainframe fixed-width / copybook files</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <h4>Bronze Ingestion Runtime</h4>
+            <ul>
+              <li>Fetch / stream / file read</li>
+              <li>Row standardization</li>
+              <li>Bad record capture</li>
+              <li>Manifest + checkpoint commit</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <h4>Bronze Ops Plane</h4>
+            <ul>
+              <li>Execution queue / workers</li>
+              <li>Observability / freshness</li>
+              <li>Retention / replay / rollback</li>
+              <li>Schema approval</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <h4>Modeling Control Plane</h4>
+            <ul>
+              <li>Silver proposal generation</li>
+              <li>Gold proposal generation</li>
+              <li>Human review / approval</li>
+              <li>Release publishing</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <h4>Warehouse Execution</h4>
+            <ul>
+              <li>Databricks backend</li>
+              <li>Snowflake backend</li>
+              <li>Dialect-specific SQL + execution</li>
+            </ul>
+          </div>
+        </div>
+        <div class="arrow-row">Airflow / Scheduler → Input → Bronze → Control Plane → Silver/Gold Compiler → Warehouse Execution</div>
+      </div>
+      <p class="caption">
+        Common orchestration and metadata layers are reused across Databricks and Snowflake. SQL emission,
+        validation, and some load paths are warehouse-specific.
+      </p>
+    </div>
+
+    <h2>2. Input to Bronze Flow</h2>
+    <div class="card">
+      <div class="diagram">
+        <div class="lane cols-6">
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Graph Node Config</h4>
+            <ul>
+              <li><code>graph2.clj</code> normalize / validate</li>
+              <li>UI source components</li>
+              <li>Target linkage to Bronze destination</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>Execution Request</h4>
+            <ul>
+              <li><code>ingest/execution.clj</code></li>
+              <li>Queueing</li>
+              <li>Dedup</li>
+              <li>Concurrency governance</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Bronze Runtime</h4>
+            <ul>
+              <li><code>run-bronze-source-node!</code></li>
+              <li>Table ensure / schema columns</li>
+              <li>Buffer + flush</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>Commit Closure</h4>
+            <ul>
+              <li>Manifest rows</li>
+              <li>Checkpoint rows</li>
+              <li>Bad record rows</li>
+              <li>Run detail rows</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>Bronze Ops</h4>
+            <ul>
+              <li>Freshness metadata</li>
+              <li>Observability alerts</li>
+              <li>Batch history</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Downstream Trigger</h4>
+            <ul>
+              <li>Committed partitions only</li>
+              <li>Silver / Gold trigger handoff</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>2.1 Actual Runtime Pipeline: Push, Dedup, Queue, Worker, Pull/Stream, Flush, Trigger</h3>
+      <div class="diagram">
+        <div class="lane cols-6">
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>1. UI / Route Push</h4>
+            <ul>
+              <li>User clicks run / start stream</li>
+              <li><code>routes/home.clj</code> receives request</li>
+              <li>Dispatches to enqueue or direct runtime entrypoint</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>2. Request Key + Dedup</h4>
+            <ul>
+              <li><code>ingest/execution.clj</code></li>
+              <li>Builds <code>request_key</code></li>
+              <li>Prevents overlapping active requests</li>
+              <li>Applies queue capacity and concurrency checks</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>3. Push Into Queue</h4>
+            <ul>
+              <li>Insert <code>execution_request</code></li>
+              <li>Status <code>queued</code></li>
+              <li>Partitioned by queue / workload</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>4. Worker Claim + Lease</h4>
+            <ul>
+              <li>Worker loop polls queue</li>
+              <li><code>FOR UPDATE SKIP LOCKED</code> claim</li>
+              <li>Lease heartbeat + orphan recovery</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>5. Runtime Pull / Stream</h4>
+            <ul>
+              <li>API fetch pages</li>
+              <li>Kafka poll stream</li>
+              <li>File / mainframe read batches</li>
+              <li>Rows normalized into Bronze shape</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>6. Bronze Flush + Closure</h4>
+            <ul>
+              <li>Manifest state machine</li>
+              <li>Checkpoint write</li>
+              <li>Bad-record write</li>
+              <li>Run detail persisted</li>
+            </ul>
+          </div>
+        </div>
+        <div class="arrow-row">Push → Dedup → Queue → Claim/Lease → Pull or Stream → Flush/Commit</div>
+        <div class="lane cols-5">
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>0. Outer Orchestration</h4>
+            <ul>
+              <li>Airflow DAG or enterprise scheduler</li>
+              <li>Schedules Bitool runs</li>
+              <li>Coordinates cross-system dependencies</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>7. Post-Commit Hooks</h4>
+            <ul>
+              <li>Kafka offset commit after Bronze commit</li>
+              <li>Freshness metadata</li>
+              <li>Observability updates</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>8. Retry / Recovery</h4>
+            <ul>
+              <li>Retryable failure classes</li>
+              <li>Backoff + requeue</li>
+              <li>Expired lease orphan sweep</li>
+            </ul>
+          </div>
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>9. Replay / Rollback / Archive</h4>
+            <ul>
+              <li>Manifest-driven replay</li>
+              <li>Rollback by batch</li>
+              <li>Archive and retention lifecycle</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>10. Medallion Handoff</h4>
+            <ul>
+              <li>Committed partition dates only</li>
+              <li>Silver/Gold proposal + publish flow</li>
+              <li>Downstream execution trigger params</li>
+            </ul>
+          </div>
+          <div class="box vendor">
+            <span class="pill vendor">Vendor-specific</span>
+            <h4>11. Warehouse Execution</h4>
+            <ul>
+              <li>Databricks jobs / SQL</li>
+              <li>Snowflake SQL / load path</li>
+              <li>Dialect-specific validation</li>
+            </ul>
+          </div>
+        </div>
+        <div class="arrow-row">Outer Scheduler → Post-Commit → Retry/Recovery → Operator Controls → Silver/Gold → Warehouse</div>
+      </div>
+      <p class="caption">
+        This reflects the actual code split: request enqueue and worker leasing in <code>ingest/execution.clj</code>,
+        source pull/stream and Bronze commit closure in <code>ingest/runtime.clj</code>, and downstream compiler /
+        warehouse execution in the modeling and compiler namespaces.
+      </p>
+    </div>
+
+    <h2>2.2 Where Airflow Fits</h2>
+    <div class="card">
+      <div class="diagram">
+        <div class="lane cols-4">
+          <div class="box state">
+            <span class="pill state">State</span>
+            <h4>Airflow / External Scheduler</h4>
+            <ul>
+              <li>Triggers Bitool ingestion/modeling APIs</li>
+              <li>Coordinates Bitool with dbt, ML, QA, notifications</li>
+              <li>Runs periodic audits, proof suites, reconciliations</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Bitool Control Plane</h4>
+            <ul>
+              <li>Queue / workers / leases / retries</li>
+              <li>Checkpoint / manifest / replay semantics</li>
+              <li>Schema approval and medallion release lifecycle</li>
+            </ul>
+          </div>
+          <div class="box.warning">
+            <h4>Keep Inside Bitool</h4>
+            <ul>
+              <li>Kafka stream correctness</li>
+              <li>Bronze batch commit closure</li>
+              <li>Replay / rollback / bad-record workflows</li>
+              <li>Silver / Gold review and publish semantics</li>
+            </ul>
+          </div>
+          <div class="box.vendor">
+            <span class="pill vendor">Vendor-specific</span>
+            <h4>Warehouse / Infra Consoles</h4>
+            <ul>
+              <li>Snowflake load history</li>
+              <li>Databricks jobs / SQL</li>
+              <li>Kafka cluster / broker tooling</li>
+            </ul>
+          </div>
+        </div>
+        <div class="arrow-row">Airflow orchestrates around Bitool; it does not replace Bitool’s queue, checkpoint, manifest, or replay engine.</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Concern</th>
+              <th>Best Owner</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Scheduled batch kickoff</td>
+              <td>Airflow or enterprise scheduler</td>
+              <td>Good fit for time-based orchestration and cross-team dependency chains.</td>
+            </tr>
+            <tr>
+              <td>Kafka stream lifecycle and offset safety</td>
+              <td>Bitool</td>
+              <td>Requires source-aware runtime semantics, checkpoints, and post-commit offset handling.</td>
+            </tr>
+            <tr>
+              <td>Bronze queue / worker leases / orphan recovery</td>
+              <td>Bitool</td>
+              <td>These are internal execution semantics tied to manifests, retries, and replayability.</td>
+            </tr>
+            <tr>
+              <td>Replay / rollback / bad-record reprocessing</td>
+              <td>Bitool</td>
+              <td>These actions depend on domain-specific batch state, not generic DAG orchestration.</td>
+            </tr>
+            <tr>
+              <td>Cross-product workflows</td>
+              <td>Airflow</td>
+              <td>Useful when Bitool is one step among many systems.</td>
+            </tr>
+            <tr>
+              <td>Schema review / Silver / Gold publish lifecycle</td>
+              <td>Bitool</td>
+              <td>These are part of the medallion control plane and compiler workflow.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">
+        Recommended split: Bitool is the ingestion and medallion control plane; Airflow is an optional outer orchestrator.
+        Airflow should call Bitool, not reimplement its queue, stream runtime, checkpointing, or replay semantics.
+      </p>
+    </div>
+
+    <h2>3. Source-Specific Bronze Blocks</h2>
+    <div class="grid two">
+      <div class="card">
+        <h3>API → Bronze</h3>
+        <div class="diagram">
+          <div class="lane cols-4">
+            <div class="box common">
+              <h4>API Connector</h4>
+              <ul>
+                <li><code>connector/api.clj</code></li>
+                <li>Pagination</li>
+                <li>Retry / backoff</li>
+                <li>Schema sampling</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Schema Inference</h4>
+              <ul>
+                <li><code>schema-infer.clj</code></li>
+                <li>Snapshot + approval</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Runtime</h4>
+              <ul>
+                <li><code>run-api-node!</code></li>
+                <li>Replay / retention / rollback</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Bronze Safety</h4>
+              <ul>
+                <li>Non-transactional state machine</li>
+                <li>Idempotent batch semantics</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Kafka Stream / Kafka Consumer → Bronze</h3>
+        <div class="diagram">
+          <div class="lane cols-4">
+            <div class="box common">
+              <h4>Kafka Node Config</h4>
+              <ul>
+                <li><code>Kf</code> node</li>
+                <li>Topic configs</li>
+                <li>Deserializer config</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Managed Stream Lifecycle</h4>
+              <ul>
+                <li><code>start/stop/pause/resume</code></li>
+                <li>Stream registry</li>
+                <li>Status route + UI</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Kafka Consumer Block</h4>
+              <ul>
+                <li><code>native-consumer-ops</code></li>
+                <li>Seek from checkpoint</li>
+                <li>Commit offset after Bronze commit</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Bronze Commit</h4>
+              <ul>
+                <li>Micro-batch flush</li>
+                <li>Manifest + checkpoint</li>
+                <li>Batch history + observability</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Files → Bronze</h3>
+        <div class="diagram">
+          <div class="lane cols-4">
+            <div class="box common">
+              <h4>File Node Config</h4>
+              <ul>
+                <li><code>Fs</code> node</li>
+                <li>Transport + file config</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Transport Reader</h4>
+              <ul>
+                <li>Local</li>
+                <li>S3 / SFTP / Azure Blob adapters</li>
+                <li>Checksum-based change detection</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Parser Layer</h4>
+              <ul>
+                <li>CSV</li>
+                <li>JSONL</li>
+                <li>Fixed-width</li>
+                <li>Parquet placeholder path</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Bronze Runtime</h4>
+              <ul>
+                <li><code>run-file-node!</code></li>
+                <li>Observability + batches</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Mainframe Files → Bronze</h3>
+        <div class="diagram">
+          <div class="lane cols-4">
+            <div class="box common">
+              <h4>Copybook Input</h4>
+              <ul>
+                <li>Inline copybook text</li>
+                <li>Preview schema route</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Copybook Parser</h4>
+              <ul>
+                <li><code>parse-copybook</code></li>
+                <li>OCCURS expansion</li>
+                <li>REDEFINES conservative handling</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Mainframe Decode</h4>
+              <ul>
+                <li>EBCDIC / charset mapping</li>
+                <li>COMP-3 packed decimal</li>
+                <li>Binary numeric decode</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Bronze Commit</h4>
+              <ul>
+                <li>Bad row isolation</li>
+                <li>Manifest / checkpoint / batches</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h2>4. Bronze to Silver to Gold Flow</h2>
+    <div class="card">
+      <div class="diagram">
+        <div class="lane cols-6">
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Bronze Source Selection</h4>
+            <ul>
+              <li>API / Kafka / File / Mainframe Bronze tables</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Silver Proposal Generation</h4>
+            <ul>
+              <li><code>propose-silver-schema!</code></li>
+              <li>Mappings + schema proposal</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Human Review</h4>
+            <ul>
+              <li>Modeling console</li>
+              <li>Approve / reject / request changes</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Compiler IR</h4>
+            <ul>
+              <li><code>compiler/ir.clj</code></li>
+              <li>Logical plan shared across vendors</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Gold Proposal Generation</h4>
+            <ul>
+              <li><code>propose-gold-schema!</code></li>
+              <li>Mart / aggregate proposal</li>
+            </ul>
+          </div>
+          <div class="box common">
+            <span class="pill common">Common</span>
+            <h4>Publish + Execute</h4>
+            <ul>
+              <li>Release model</li>
+              <li>Run metadata</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="arrow-row">Bronze Data → Silver Proposal → Review → Compile → Gold Proposal → Publish/Execute</div>
+    </div>
+
+    <h2>5. Stability, Resilience, and Scalability</h2>
+    <div class="grid two">
+      <div class="card">
+        <h3>Correctness / Idempotency Diagram</h3>
+        <div class="diagram">
+          <div class="lane cols-3">
+            <div class="box common">
+              <h4>Execution Safety</h4>
+              <ul>
+                <li>Queue dedupe</li>
+                <li>Lease / heartbeat / orphan recovery</li>
+                <li>Expected-state transitions</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Batch Commit Safety</h4>
+              <ul>
+                <li>Transactional path where available</li>
+                <li>Non-transactional manifest state machine where not</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Recovery Semantics</h4>
+              <ul>
+                <li>Checkpoint only after committed truth</li>
+                <li>Replay and retention driven by manifests</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Scalability Diagram</h3>
+        <div class="diagram">
+          <div class="lane cols-3">
+            <div class="box common">
+              <h4>Concurrency Governance</h4>
+              <ul>
+                <li>Workspace / tenant quotas</li>
+                <li>Source / credential caps</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Adaptive Controls</h4>
+              <ul>
+                <li>Backpressure</li>
+                <li>Circuit breaker admission</li>
+              </ul>
+            </div>
+            <div class="box common">
+              <h4>Operational Signals</h4>
+              <ul>
+                <li>Freshness dashboard</li>
+                <li>Usage metering</li>
+                <li>Audit trail</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h2>6. Common Blocks vs Vendor-Specific Blocks</h2>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Block</th>
+              <th>Classification</th>
+              <th>Current Code Area</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Graph node models (`Ap`, `Kf`, `Fs`, `Tg`)</td>
+              <td><span class="pill common">Common</span></td>
+              <td><code>graph2.clj</code>, source UI components</td>
+              <td>Shared control-plane model across source types and warehouses.</td>
+            </tr>
+            <tr>
+              <td>Bronze manifest / checkpoint / bad-record framework</td>
+              <td><span class="pill common">Common</span></td>
+              <td><code>ingest/runtime.clj</code>, <code>bronze.clj</code>, <code>checkpoint.clj</code></td>
+              <td>Core durability and replay model reused across input types.</td>
+            </tr>
+            <tr>
+              <td>Execution queue / leases / retries / orphan recovery</td>
+              <td><span class="pill common">Common</span></td>
+              <td><code>ingest/execution.clj</code></td>
+              <td>Cross-source operational control plane.</td>
+            </tr>
+            <tr>
+              <td>Silver / Gold proposal lifecycle</td>
+              <td><span class="pill common">Common</span></td>
+              <td><code>modeling/automation.clj</code>, <code>modelingConsole.js</code></td>
+              <td>Warehouse-agnostic at proposal/review/release level.</td>
+            </tr>
+            <tr>
+              <td>Compiler IR</td>
+              <td><span class="pill common">Common</span></td>
+              <td><code>compiler/ir.clj</code></td>
+              <td>Logical transform representation shared across warehouses.</td>
+            </tr>
+            <tr>
+              <td>Databricks SQL emission</td>
+              <td><span class="pill vendor">Vendor-specific</span></td>
+              <td><code>compiler/dialect/databricks.clj</code></td>
+              <td>Quoting, explain SQL, materialization syntax.</td>
+            </tr>
+            <tr>
+              <td>Snowflake SQL emission</td>
+              <td><span class="pill vendor">Vendor-specific</span></td>
+              <td><code>compiler/dialect/snowflake.clj</code></td>
+              <td>VARIANT, explain SQL, Snowflake materialization syntax.</td>
+            </tr>
+            <tr>
+              <td>Databricks job execution</td>
+              <td><span class="pill vendor">Vendor-specific</span></td>
+              <td><code>databricks/jobs.clj</code>, parts of <code>automation.clj</code></td>
+              <td>Jobs API and run polling are Databricks-specific.</td>
+            </tr>
+            <tr>
+              <td>Snowflake Bronze bulk load</td>
+              <td><span class="pill vendor">Vendor-specific</span></td>
+              <td><code>db.clj</code> stage-copy path</td>
+              <td>PUT / COPY INTO style load path is Snowflake-specific.</td>
+            </tr>
+            <tr>
+              <td>Warehouse table DDL generation</td>
+              <td><span class="pill vendor">Vendor-specific</span></td>
+              <td><code>db.clj</code></td>
+              <td>Type mappings and physical table syntax vary by warehouse.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h2>7. Code Module Map</h2>
+    <div class="card">
+      <ul class="module-list">
+        <li><code>src/clj/bitool/graph2.clj</code> — graph node normalization, persistence shape, source/target config validation</li>
+        <li><code>src/clj/bitool/ingest/execution.clj</code> — queueing, dedupe, leasing, retries, workload governance</li>
+        <li><code>src/clj/bitool/ingest/runtime.clj</code> — Bronze runtime, commit closure, replay, retention, observability, Kafka stream lifecycle</li>
+        <li><code>src/clj/bitool/connector/api.clj</code> — API pagination and fetch loop</li>
+        <li><code>src/clj/bitool/connector/kafka.clj</code> — Kafka fetch loop and native consumer ops</li>
+        <li><code>src/clj/bitool/connector/file.clj</code> — file transport, CSV/JSONL/fixed-width parsing, copybook handling</li>
+        <li><code>src/clj/bitool/ingest/bronze.clj</code> — canonical Bronze row-building and bad-record handling</li>
+        <li><code>src/clj/bitool/modeling/automation.clj</code> — Silver/Gold proposal generation, review, compile, publish, execute</li>
+        <li><code>src/clj/bitool/compiler/core.clj</code> — warehouse compiler dispatch</li>
+        <li><code>src/clj/bitool/compiler/ir.clj</code> — shared logical transform IR</li>
+        <li><code>src/clj/bitool/compiler/dialect/databricks.clj</code> — Databricks SQL backend</li>
+        <li><code>src/clj/bitool/compiler/dialect/snowflake.clj</code> — Snowflake SQL backend</li>
+        <li><code>src/clj/bitool/db.clj</code> — dbspec creation, DDL generation, Snowflake stage-copy path</li>
+        <li><code>src/clj/bitool/operations.clj</code> — freshness dashboard, alerts, usage metering</li>
+        <li><code>src/clj/bitool/control_plane.clj</code> — workspaces, tenants, secrets, audit, lineage metadata</li>
+        <li><code>src/clj/bitool/routes/home.clj</code> — HTTP surface for ingestion, ops, modeling, audit, control plane</li>
+        <li><code>resources/public/kafkaSourceComponent.js</code> — Kafka source UI + managed stream operator view</li>
+        <li><code>resources/public/fileSourceComponent.js</code> — file/mainframe source UI + batch / copybook operator view</li>
+        <li><code>resources/public/modelingConsole.js</code> — Silver/Gold review, SQL preview, releases, operations tab</li>
+      </ul>
+    </div>
+
+    <h2>8. Is the Architecture Generic Enough for BigQuery?</h2>
+    <div class="card">
+      <p>
+        <strong>Short answer:</strong> mostly yes at the control-plane and compiler-IR layers, but not yet plug-and-play.
+        BigQuery is feasible without redesigning the whole product, but it still needs a new warehouse adapter and some refactoring.
+      </p>
+      <div class="grid two">
+        <div class="box common">
+          <h4>Already Generic Enough</h4>
+          <ul>
+            <li>Graph/source node model</li>
+            <li>Bronze manifest / checkpoint / replay concepts</li>
+            <li>Silver / Gold proposal lifecycle</li>
+            <li>Compiler IR</li>
+            <li>Modeling console and review workflow</li>
+          </ul>
+        </div>
+        <div class="box warning">
+          <h4>Needs Refactor or New Adapter Work</h4>
+          <ul>
+            <li>New <code>compiler/dialect/bigquery.clj</code></li>
+            <li>BigQuery execution / validation packaging</li>
+            <li>BigQuery-specific DDL and load path in <code>db.clj</code></li>
+            <li>Warehouse execution routing in modeling automation</li>
+            <li>Physical load semantics for Bronze bulk ingest</li>
+          </ul>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Area</th>
+              <th>BigQuery Fit</th>
+              <th>Refactor Needed?</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Bronze control-plane semantics</td>
+              <td>Good</td>
+              <td>No redesign</td>
+            </tr>
+            <tr>
+              <td>Silver / Gold proposal model</td>
+              <td>Good</td>
+              <td>No redesign</td>
+            </tr>
+            <tr>
+              <td>Compiler dispatch</td>
+              <td>Good</td>
+              <td>Add dialect backend</td>
+            </tr>
+            <tr>
+              <td>Warehouse execution routing</td>
+              <td>Partial</td>
+              <td>Yes; more adapter isolation needed</td>
+            </tr>
+            <tr>
+              <td>Vendor-specific physical load path</td>
+              <td>Not present</td>
+              <td>Yes; BigQuery load jobs would need a new block</td>
+            </tr>
+            <tr>
+              <td>Databricks/Snowflake assumptions in some runtime code</td>
+              <td>Manageable</td>
+              <td>Yes; continue adapter extraction</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">
+        Conclusion: the product is architecturally extensible to BigQuery, but not “add one connection string and it works”.
+        It needs a BigQuery vendor adapter at the dialect, load, validation, and execution-packaging layers.
+      </p>
+    </div>
+
+    <h2>9. Practical Takeaway</h2>
+    <div class="card">
+      <p>
+        The architecture is already split the right way:
+      </p>
+      <ul>
+        <li>The <strong>control plane</strong> is mostly generic: graph config, Bronze runtime model, modeling workflow, IR, review, releases, observability, and governance.</li>
+        <li>The <strong>data plane / warehouse adapter layer</strong> is where vendor-specific code belongs: SQL dialect, DDL/load path, warehouse validation, and execution packaging.</li>
+        <li>The system is strong enough to support Databricks and Snowflake today, and can support BigQuery next if the current warehouse adapters continue to be extracted cleanly.</li>
+      </ul>
+    </div>
+
+    <p class="footnote">
+      Generated from the current code structure and recent implementation slices, not from an abstract greenfield design.
+      The module references and vendor split reflect the repository as it exists now.
+    </p>
+  </main>
+</body>
+</html>

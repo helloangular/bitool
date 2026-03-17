@@ -17,6 +17,9 @@
    "IBM1047" "Cp1047"
    "CP1047" "Cp1047"})
 
+(def ^:private default-remote-connect-timeout-ms 10000)
+(def ^:private default-remote-read-timeout-ms 30000)
+
 (defn- sha256-hex
   [^bytes bytes]
   (let [digest (MessageDigest/getInstance "SHA-256")]
@@ -281,13 +284,30 @@
 (defn- remote-http-bytes
   [url headers]
   (let [^HttpURLConnection conn (.openConnection (URL. url))]
-    (.setRequestMethod conn "GET")
-    (doseq [[k v] headers]
-      (.setRequestProperty conn (str k) (str v)))
-    (with-open [stream (.getInputStream conn)]
-      (let [bytes (.readAllBytes stream)]
-        (.disconnect conn)
-        bytes))))
+    (try
+      (.setRequestMethod conn "GET")
+      (.setConnectTimeout conn default-remote-connect-timeout-ms)
+      (.setReadTimeout conn default-remote-read-timeout-ms)
+      (doseq [[k v] headers]
+        (.setRequestProperty conn (str k) (str v)))
+      (let [status (.getResponseCode conn)
+            stream (if (< status 400)
+                     (.getInputStream conn)
+                     (.getErrorStream conn))
+            bytes  (if stream
+                     (with-open [stream stream]
+                       (.readAllBytes stream))
+                     (byte-array 0))]
+        (when (>= status 400)
+          (throw (ex-info "Remote file request failed"
+                          {:failure_class "remote_transport_error"
+                           :status status
+                           :url url
+                           :response_body (when (pos? (alength ^bytes bytes))
+                                            (String. ^bytes bytes "UTF-8"))})))
+        bytes)
+      (finally
+        (.disconnect conn)))))
 
 (defn- transport-read-fn
   [source-node file-config]

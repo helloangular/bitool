@@ -454,14 +454,19 @@
   [graph-id node-id environment]
   (string/join "::" ["api-scope" graph-id node-id environment]))
 
-(defn- active-api-request-overlap
-  [conn graph-id node-id environment endpoint-name]
+(defn- source-request-scope-key
+  [request-kind graph-id node-id environment]
+  (string/join "::" [(str (name request-kind) "-scope") graph-id node-id environment]))
+
+(defn- active-source-request-overlap
+  [conn request-kind graph-id node-id environment endpoint-name]
   (let [endpoint-name (normalize-endpoint-name endpoint-name)
+        request-kind  (name request-kind)
         [sql-str params] (if endpoint-name
                            [(str "SELECT r.*, er.run_id
                                   FROM " execution-request-table " r
                                   JOIN " execution-run-table " er ON er.request_id = r.request_id
-                                  WHERE r.request_kind = 'api'
+                                  WHERE r.request_kind = ?
                                     AND r.graph_id = ?
                                     AND r.node_id = ?
                                     AND r.environment = ?
@@ -470,18 +475,18 @@
                                   ORDER BY CASE WHEN r.endpoint_name = ? THEN 0 ELSE 1 END,
                                            r.requested_at_utc ASC
                                   LIMIT 1")
-                            [graph-id node-id environment endpoint-name endpoint-name]]
+                            [request-kind graph-id node-id environment endpoint-name endpoint-name]]
                            [(str "SELECT r.*, er.run_id
                                   FROM " execution-request-table " r
                                   JOIN " execution-run-table " er ON er.request_id = r.request_id
-                                  WHERE r.request_kind = 'api'
+                                  WHERE r.request_kind = ?
                                     AND r.graph_id = ?
                                     AND r.node_id = ?
                                     AND r.environment = ?
                                     AND r.status IN ('queued', 'leased', 'running', 'recovering_orphan')
                                   ORDER BY r.requested_at_utc ASC
                                   LIMIT 1")
-                            [graph-id node-id environment]])]
+                            [request-kind graph-id node-id environment]])]
     (jdbc/execute-one! (db-opts conn) (into [sql-str] params))))
 
 (defn- request->response
@@ -540,18 +545,19 @@
           queue-partition (queue-partition-for request-key (:workspace_key workspace-context))
           workload-class  (request-workload-class request-kind trigger-type request-params)]
       (jdbc/with-transaction [tx db/ds]
-        (when (= request-kind :api)
+        (when (contains? #{:api :kafka :file} request-kind)
           (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))"
-                             (api-request-scope-key graph-id node-id environment)]))
+                             (source-request-scope-key request-kind graph-id node-id environment)]))
         (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" request-key])
         (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" (:tenant_key workspace-context)])
         (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" (:workspace_key workspace-context)])
         (if-let [existing (active-request-by-key tx request-key)]
           (request->response existing)
-          (if-let [overlap (when (= request-kind :api)
-                             (active-api-request-overlap tx graph-id node-id environment endpoint-name))]
+          (if-let [overlap (when (contains? #{:api :kafka :file} request-kind)
+                             (active-source-request-overlap tx request-kind graph-id node-id environment endpoint-name))]
             (if (nil? endpoint-name)
-              (throw (ex-info "API node already has an active endpoint-scoped ingestion request; cannot start an all-endpoints run"
+              (throw (ex-info (str (string/upper-case (name request-kind))
+                                   " node already has an active endpoint-scoped ingestion request; cannot start an all-endpoints run")
                               {:graph_id graph-id
                                :node_id node-id
                                :environment environment

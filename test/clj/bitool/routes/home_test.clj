@@ -115,6 +115,67 @@
         (is (= [99 2 {:endpoint-name "orders.jsonl" :trigger-type "manual"}] @captured-call))
         (is (= "queued" (:status body)))))))
 
+(deftest bronze-source-batches-route-returns-batches
+  (let [captured-call (atom nil)]
+    (with-redefs [ingest-runtime/list-bronze-source-batches (fn [graph-id node-id opts]
+                                                              (reset! captured-call [graph-id node-id opts])
+                                                              {:batch_count 1
+                                                               :batches [{:batch_id "b1"}]})]
+      (let [response ((test-handler)
+                      (assoc (mock/request :get "/bronzeSourceBatches")
+                             :params {:gid "99"
+                                      :source_node_id "2"
+                                      :source_kind "kafka"
+                                      :endpoint_name "orders.events"}))
+            body     (response-body->map response)]
+        (is (= 200 (:status response)))
+        (is (= [99 2 {:source-kind :kafka
+                      :endpoint-name "orders.events"
+                      :run-id nil
+                      :status nil
+                      :active-only nil
+                      :replayable-only nil
+                      :archived-only nil
+                      :limit nil}]
+               @captured-call))
+        (is (= 1 (:batch_count body)))))))
+
+(deftest bronze-source-observability-summary-route-returns-summary
+  (let [captured-call (atom nil)]
+    (with-redefs [ingest-runtime/bronze-source-observability-summary (fn [graph-id node-id opts]
+                                                                       (reset! captured-call [graph-id node-id opts])
+                                                                       {:alerts []
+                                                                        :endpoint_name "orders.events"})]
+      (let [response ((test-handler)
+                      (assoc (mock/request :get "/bronzeSourceObservabilitySummary")
+                             :params {:gid "99"
+                                      :source_node_id "2"
+                                      :source_kind "kafka"
+                                      :endpoint_name "orders.events"}))
+            body     (response-body->map response)]
+        (is (= 200 (:status response)))
+        (is (= [99 2 {:source-kind :kafka
+                      :endpoint-name "orders.events"}]
+               @captured-call))
+        (is (= "orders.events" (:endpoint_name body)))))))
+
+(deftest preview-copybook-schema-route-returns-field-specs
+  (let [captured-call (atom nil)]
+    (with-redefs [ingest-runtime/preview-copybook-schema (fn [opts]
+                                                           (reset! captured-call opts)
+                                                           {:field_count 1
+                                                            :field_specs [{:name "customer_id"}]})]
+      (let [response ((test-handler)
+                      (assoc (mock/request :post "/previewCopybookSchema")
+                             :params {:copybook "05 CUSTOMER-ID PIC 9(8)."
+                                      :encoding "EBCDIC"}))
+            body     (response-body->map response)]
+        (is (= 200 (:status response)))
+        (is (= {:copybook "05 CUSTOMER-ID PIC 9(8)."
+                :encoding "EBCDIC"}
+               @captured-call))
+        (is (= 1 (:field_count body)))))))
+
 (deftest preview-api-schema-inference-route-returns-inferred-fields
   (let [captured-call (atom nil)]
     (with-redefs [ingest-runtime/preview-endpoint-schema! (fn [api-node endpoint]
@@ -741,6 +802,49 @@
       (is (= 403 (:status response)))
       (is (= "Forbidden" (:error body))))))
 
+(deftest request-roles-does-not-trust-query-param-role
+  (with-redefs [config/env {:bitool-rbac-enabled "true"}]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/runSchedulerIngestion")
+                           :params {:gid "99" :id "4" :role "admin"}
+                           :session {}))
+          body (response-body->map response)]
+      (is (= 403 (:status response)))
+      (is (= "Forbidden" (:error body))))))
+
+(deftest propose-silver-schema-route-requires-authorization-when-rbac-enabled
+  (with-redefs [config/env {:bitool-rbac-enabled "true"}]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/proposeSilverSchema")
+                           :params {:gid "99" :id "2" :endpoint_name "trips"}
+                           :session {:roles ["viewer"]}))
+          body (response-body->map response)]
+      (is (= 403 (:status response)))
+      (is (= "Forbidden" (:error body))))))
+
+(deftest preview-api-schema-inference-rejects-localhost-base-url
+  (with-redefs [config/env {:bitool-rbac-enabled "true"}]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/previewApiSchemaInference")
+                           :params {:base_url "http://127.0.0.1:8080"
+                                    :endpoint_config {:endpoint_name "trips"}}
+                           :session {:roles ["api.ops"]}))
+          body (response-body->map response)]
+      (is (= 400 (:status response)))
+      (is (= "Preview base_url must not target local or private addresses" (:error body))))))
+
+(deftest html-handler-rejects-unsafe-template-name
+  (let [response (home/html-handler {:path-params {:file "../../etc/passwd"}})
+        body (response-body->map response)]
+    (is (= 400 (:status response)))
+    (is (= "Invalid template name" (:error body)))))
+
+(deftest fn-handler-rejects-unsupported-save-function
+  (let [response (home/fn-handler {:path-params {:fn "persist-graph!"}})
+        body (response-body->map response)]
+    (is (= 404 (:status response)))
+    (is (= "Unsupported save function" (:error body)))))
+
 (deftest run-scheduler-ingestion-route-returns-success-response
   (let [captured-call (atom nil)]
     (with-redefs [ingest-execution/enqueue-scheduler-request! (fn [gid scheduler-id opts]
@@ -943,6 +1047,16 @@
       (is (= 4 (:max_concurrent_requests @captured)))
       (is (= 200 (:max_queued_requests @captured)))
       (is (= 2 (:weight @captured)))))))
+
+(deftest save-workspace-route-requires-authorization-when-rbac-enabled
+  (with-redefs [config/env {:bitool-rbac-enabled "true"}]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/controlPlane/workspaces")
+                           :params {:workspace_key "ops" :tenant_key "tenant-a"}
+                           :session {:roles ["viewer"]}))
+          body (response-body->map response)]
+      (is (= 403 (:status response)))
+      (is (= "Forbidden" (:error body))))))
 
 (deftest save-tenant-route-persists-tenant-config
   (let [captured (atom nil)]

@@ -387,6 +387,30 @@
       :else
       (throw (ex-info empty-message {:status 409})))))
 
+(defn- select-source-config!
+  [source-node config-key endpoint-name empty-message source-label]
+  (let [configs (vec (enabled-source-configs source-node config-key))]
+    (cond
+      (and endpoint-name
+           (some #(= endpoint-name (:endpoint_name %)) configs))
+      (first (filter #(= endpoint-name (:endpoint_name %)) configs))
+
+      endpoint-name
+      (throw (ex-info (str "No enabled source config found for endpoint_name '" endpoint-name "'")
+                      {:endpoint_name endpoint-name
+                       :status 404}))
+
+      (= 1 (count configs))
+      (first configs)
+
+      (empty? configs)
+      (throw (ex-info empty-message {:status 409}))
+
+      :else
+      (throw (ex-info (str "endpoint_name is required when a " source-label " node has multiple enabled source configs")
+                      {:endpoint_names (mapv :endpoint_name configs)
+                       :status 409})))))
+
 (defn- parse-json-cursor
   [cursor]
   (try
@@ -2300,6 +2324,85 @@
      :schema-snapshot-table schema-snapshot-table
      :schema-approval-table schema-approval-table}))
 
+(defn- source-kind-config-key
+  [source-kind]
+  (case source-kind
+    :kafka :topic_configs
+    :file :file_configs
+    (throw (ex-info "Unsupported Bronze source kind"
+                    {:source_kind source-kind
+                     :status 400}))))
+
+(defn- source-kind-node-btype
+  [source-kind]
+  (case source-kind
+    :kafka "Kf"
+    :file "Fs"
+    nil))
+
+(defn- source-kind-label
+  [source-kind]
+  (case source-kind
+    :kafka "Kafka source"
+    :file "File source"
+    "Bronze source"))
+
+(defn- bronze-source-runtime-context
+  [graph-id node-id source-kind endpoint-name]
+  (let [g                 (db/getGraph graph-id)
+        source-node       (g2/getData g node-id)
+        expected-btype    (source-kind-node-btype source-kind)
+        _                 (when-not (= expected-btype (:btype source-node))
+                            (throw (ex-info "Node does not match the requested Bronze source kind"
+                                            {:graph_id graph-id
+                                             :node_id node-id
+                                             :source_kind source-kind
+                                             :btype (:btype source-node)
+                                             :status 400})))
+        config-key        (source-kind-config-key source-kind)
+        config            (select-source-config! source-node
+                                                 config-key
+                                                 endpoint-name
+                                                 (str (source-kind-label source-kind) " node has no enabled source configs")
+                                                 (source-kind-label source-kind))
+        target            (find-downstream-target g node-id)
+        conn-id           (target-connection-id target)
+        source-system     (or (:source_system source-node)
+                              (name source-kind))
+        checkpoint-table  (when conn-id
+                            (validated-qualified-table-name (audit-table target conn-id "ingestion_checkpoint")))
+        run-detail-table  (when conn-id
+                            (validated-qualified-table-name (audit-table target conn-id "endpoint_run_detail")))
+        bad-records-table (when conn-id
+                            (validated-qualified-table-name (audit-table target conn-id "bad_records")))
+        manifest-table    (when conn-id
+                            (validated-qualified-table-name (audit-table target conn-id "run_batch_manifest")))]
+    (when-not conn-id
+      (throw (ex-info (str "No downstream target connection found for " (source-kind-label source-kind) " node")
+                      {:graph_id graph-id
+                       :node_id node-id
+                       :source_kind source-kind})))
+    (ensure-table! conn-id checkpoint-table checkpoint/ingestion-checkpoint-columns {})
+    (ensure-checkpoint-columns! conn-id checkpoint-table)
+    (ensure-table! conn-id run-detail-table endpoint-run-detail-columns {})
+    (ensure-table! conn-id manifest-table batch-manifest-columns {})
+    (ensure-batch-manifest-columns! conn-id manifest-table)
+    (ensure-table! conn-id bad-records-table bronze/bad-record-columns {})
+    (ensure-bad-record-columns! conn-id bad-records-table)
+    {:graph-id graph-id
+     :node-id node-id
+     :graph g
+     :source-kind source-kind
+     :source-node source-node
+     :target target
+     :conn-id conn-id
+     :source-system source-system
+     :endpoint config
+     :checkpoint-table checkpoint-table
+     :run-detail-table run-detail-table
+     :bad-records-table bad-records-table
+     :manifest-table manifest-table}))
+
 (defn- manifest-committed-instant
   [manifest]
   (or (parse-instant-safe (:committed_at_utc manifest))
@@ -2378,6 +2481,27 @@
     {:graph_id graph-id
      :api_node_id api-node-id
      :endpoint_name (or endpoint-name (:endpoint_name endpoint))
+     :batch_count (count rows)
+     :batches (mapv manifest-summary rows)}))
+
+(defn list-bronze-source-batches
+  [graph-id node-id {:keys [source-kind endpoint-name run-id status active-only replayable-only archived-only limit]}]
+  (let [{:keys [conn-id manifest-table endpoint source-system]} (bronze-source-runtime-context graph-id node-id source-kind endpoint-name)
+        endpoint-name' (:endpoint_name endpoint)
+        rows (query-manifest-rows conn-id
+                                  manifest-table
+                                  {:source-system source-system
+                                   :endpoint-name endpoint-name'
+                                   :run-id run-id
+                                   :status status
+                                   :active-only? active-only
+                                   :replayable-only? replayable-only
+                                   :archived-only? archived-only
+                                   :limit limit})]
+    {:graph_id graph-id
+     :node_id node-id
+     :source_kind (name source-kind)
+     :endpoint_name endpoint-name'
      :batch_count (count rows)
      :batches (mapv manifest-summary rows)}))
 
@@ -2762,6 +2886,163 @@
   (let [summary (api-observability-summary graph-id api-node-id {:endpoint-name endpoint-name})]
     {:graph_id graph-id
      :api_node_id api-node-id
+     :endpoint_name (:endpoint_name summary)
+     :alert_count (count (:alerts summary))
+     :alerts (:alerts summary)}))
+
+(defn bronze-source-observability-summary
+  [graph-id node-id {:keys [source-kind endpoint-name]}]
+  (let [{:keys [conn-id checkpoint-table run-detail-table manifest-table bad-records-table endpoint source-system]}
+        (bronze-source-runtime-context graph-id node-id source-kind endpoint-name)
+        endpoint-name'         (:endpoint_name endpoint)
+        checkpoint-row         (fetch-checkpoint conn-id checkpoint-table source-system endpoint-name')
+        latest-run             (jdbc/execute-one!
+                                (sql-opts conn-id)
+                                [(str "SELECT * FROM " run-detail-table
+                                      " WHERE source_system = ? AND endpoint_name = ?"
+                                      " ORDER BY started_at_utc DESC LIMIT 1")
+                                 source-system
+                                 endpoint-name'])
+        manifests              (query-manifest-rows conn-id manifest-table
+                                                    {:source-system source-system
+                                                     :endpoint-name endpoint-name'
+                                                     :limit 200})
+        committed-manifests    (filter #(= "committed" (:status %)) manifests)
+        latest-run-id          (:run_id latest-run)
+        latest-run-manifests   (if latest-run-id
+                                 (filter #(= (str latest-run-id) (str (:run_id %))) committed-manifests)
+                                 [])
+        latest-bad-ratio       (let [rows (reduce + 0 (map #(long (or (:row_count %) 0)) latest-run-manifests))
+                                     bads (reduce + 0 (map #(long (or (:bad_record_count %) 0)) latest-run-manifests))
+                                     denom (+ rows bads)]
+                                 (if (pos? denom)
+                                   (/ (double bads) (double denom))
+                                   0.0))
+        latency-samples        (->> committed-manifests
+                                    (keep (fn [m]
+                                            (let [start (coerce-instant (:started_at_utc m))
+                                                  commit (coerce-instant (:committed_at_utc m))]
+                                              (when (and start commit)
+                                                (.toMillis (java.time.Duration/between start commit)))))))
+        avg-commit-latency-ms  (if (seq latency-samples)
+                                 (long (/ (reduce + 0 latency-samples) (count latency-samples)))
+                                 0)
+        day-ago-str            (str (.minusSeconds (now-utc) 86400))
+        retry-volume-24h       (long (or (:retry_volume
+                                          (jdbc/execute-one!
+                                           (sql-opts conn-id)
+                                           [(str "SELECT COALESCE(SUM(retry_count), 0) AS retry_volume
+                                                 FROM " run-detail-table "
+                                                 WHERE source_system = ?
+                                                   AND endpoint_name = ?
+                                                   AND started_at_utc >= ?")
+                                            source-system
+                                            endpoint-name'
+                                            day-ago-str]))
+                                         0))
+        bad-records-24h        (long (or (:cnt
+                                          (jdbc/execute-one!
+                                           (sql-opts conn-id)
+                                           [(str "SELECT COUNT(*) AS cnt
+                                                 FROM " bad-records-table "
+                                                 WHERE source_system = ?
+                                                   AND endpoint_name = ?
+                                                   AND created_at_utc >= ?")
+                                            source-system
+                                            endpoint-name'
+                                            day-ago-str]))
+                                         0))
+        replay-stats-7d        (jdbc/execute!
+                                (db-opts db/ds)
+                                [(str "SELECT status, COUNT(*) AS cnt
+                                      FROM execution_run
+                                      WHERE request_kind = ?
+                                        AND trigger_type = 'replay'
+                                        AND graph_id = ?
+                                        AND node_id = ?
+                                        AND endpoint_name = ?
+                                        AND started_at_utc >= now() - interval '7 days'
+                                      GROUP BY status")
+                                 (name source-kind)
+                                 graph-id
+                                 node-id
+                                 endpoint-name'])
+        replay-successes       (reduce + 0 (map (fn [row]
+                                                  (if (= "succeeded" (:status row))
+                                                    (long (:cnt row))
+                                                    0))
+                                                replay-stats-7d))
+        replay-failures        (reduce + 0 (map (fn [row]
+                                                  (if (#{"failed" "dead_lettered"} (:status row))
+                                                    (long (:cnt row))
+                                                    0))
+                                                replay-stats-7d))
+        checkpoint-lag-seconds (let [updated (coerce-instant (:updated_at_utc checkpoint-row))]
+                                 (if updated
+                                   (long (max 0 (.toSeconds (java.time.Duration/between updated (now-utc)))))
+                                   0))
+        freshness-sla-seconds  (long (or (:freshness_sla_seconds endpoint)
+                                         (some-> (:freshness_sla_minutes endpoint) long (* 60))
+                                         (parse-int-env :ingest-default-freshness-sla-seconds 3600)))
+        checkpoint-threshold   (long (max (* 2 freshness-sla-seconds)
+                                          (long (or (:checkpoint_alert_seconds endpoint)
+                                                    (parse-int-env :ingest-checkpoint-alert-seconds (* 2 freshness-sla-seconds))))))
+        bad-record-threshold   (double (or (:bad_record_alert_ratio endpoint)
+                                           (parse-double-env :ingest-bad-record-alert-ratio 0.05)))
+        retry-threshold        (long (or (:retry_volume_alert_24h endpoint)
+                                         (parse-int-env :ingest-retry-volume-alert-24h 50)))
+        replay-threshold       (long (or (:replay_failure_alert_7d endpoint)
+                                         (parse-int-env :ingest-replay-failure-alert-7d 3)))
+        alerts                 (cond-> []
+                                 (> checkpoint-lag-seconds checkpoint-threshold)
+                                 (conj {:code "stale_checkpoint"
+                                        :severity "high"
+                                        :checkpoint_lag_seconds checkpoint-lag-seconds
+                                        :threshold_seconds checkpoint-threshold})
+                                 (> latest-bad-ratio bad-record-threshold)
+                                 (conj {:code "high_bad_record_ratio"
+                                        :severity "medium"
+                                        :bad_record_ratio latest-bad-ratio
+                                        :threshold bad-record-threshold})
+                                 (> retry-volume-24h retry-threshold)
+                                 (conj {:code "high_retry_volume"
+                                        :severity "medium"
+                                        :retry_volume_24h retry-volume-24h
+                                        :threshold retry-threshold})
+                                 (>= replay-failures replay-threshold)
+                                 (conj {:code "replay_failures"
+                                        :severity "high"
+                                        :replay_failures_7d replay-failures
+                                        :threshold replay-threshold}))]
+    {:graph_id graph-id
+     :node_id node-id
+     :source_kind (name source-kind)
+     :endpoint_name endpoint-name'
+     :checkpoint_lag_seconds checkpoint-lag-seconds
+     :freshness_sla_seconds freshness-sla-seconds
+     :bad_record_ratio_latest_run latest-bad-ratio
+     :bad_records_24h bad-records-24h
+     :batch_commit_latency_ms_avg avg-commit-latency-ms
+     :retry_volume_24h retry-volume-24h
+     :replay_successes_7d replay-successes
+     :replay_failures_7d replay-failures
+     :alerts alerts
+     :latest_run (when latest-run
+                   {:run_id (:run_id latest-run)
+                    :status (:status latest-run)
+                    :started_at_utc (:started_at_utc latest-run)
+                    :finished_at_utc (:finished_at_utc latest-run)
+                    :rows_written (long (or (:rows_written latest-run) 0))
+                    :retry_count (long (or (:retry_count latest-run) 0))})}))
+
+(defn bronze-source-observability-alerts
+  [graph-id node-id {:keys [source-kind endpoint-name]}]
+  (let [summary (bronze-source-observability-summary graph-id node-id
+                                                     {:source-kind source-kind
+                                                      :endpoint-name endpoint-name})]
+    {:graph_id graph-id
+     :node_id node-id
+     :source_kind (name source-kind)
      :endpoint_name (:endpoint_name summary)
      :alert_count (count (:alerts summary))
      :alerts (:alerts summary)}))
@@ -4500,23 +4781,44 @@
 
 (defn run-kafka-node!
   ([graph-id node-id] (run-kafka-node! graph-id node-id {}))
-  ([graph-id node-id {:keys [endpoint-name poll-fn] :as opts}]
+  ([graph-id node-id {:keys [endpoint-name poll-fn commit-fn close-fn consumer-ops-factory] :as opts}]
    (let [source-node (g2/getData (db/getGraph graph-id) node-id)]
      (run-bronze-source-node!
       graph-id
       node-id
       source-node
       :topic_configs
-      (fn [{:keys [config checkpoint-row]}]
-        (let [fetch-result (kafka/fetch-kafka-async
-                            {:topic-name (:topic_name config)
-                             :topic-config config
-                             :initial-cursor (parse-json-cursor (:last_successful_cursor checkpoint-row))
-                             :poll-fn (or poll-fn
-                                          (:poll-fn opts)
-                                          (fn [_]
-                                            (throw (ex-info "Kafka runtime requires an injected poll-fn in the repo-local implementation"
-                                                            {:failure_class "unsupported"}))))})]
+      (fn [{:keys [config checkpoint-row run-id]}]
+        (let [initial-cursor (parse-json-cursor (:last_successful_cursor checkpoint-row))
+              consumer-ops   (or (when consumer-ops-factory
+                                   (consumer-ops-factory {:graph-id graph-id
+                                                          :node-id node-id
+                                                          :source-node source-node
+                                                          :config config
+                                                          :checkpoint-row checkpoint-row
+                                                          :run-id run-id}))
+                                 (when (or poll-fn commit-fn close-fn)
+                                   {:poll-fn poll-fn
+                                    :commit-fn commit-fn
+                                    :close-fn close-fn})
+                                 (kafka/native-consumer-ops {:source-node source-node
+                                                             :topic-config config
+                                                             :topic-name (:topic_name config)
+                                                             :initial-cursor initial-cursor}))
+              fetch-result   (kafka/fetch-kafka-async
+                              {:topic-name (:topic_name config)
+                               :topic-config config
+                               :initial-cursor initial-cursor
+                               :poll-timeout-ms (:poll-timeout-ms consumer-ops)
+                               :rate-limit-ms (or (:rate_limit_per_poll_ms config) 0)
+                               :poll-fn (or (:poll-fn consumer-ops)
+                                            (:poll-fn opts)
+                                            (fn [_]
+                                              (throw (ex-info "Kafka runtime requires an injected poll-fn or native consumer support"
+                                                              {:failure_class "unsupported"}))))
+                               :commit-fn (or (:commit-fn consumer-ops) commit-fn)
+                               :close-fn (or (:close-fn consumer-ops) close-fn)
+                               :wakeup-fn (:wakeup-fn consumer-ops)})]
           (assoc fetch-result
                  :post-commit-fn (fn [{:keys [buffer]}]
                                    (when-let [commit! (:commit! fetch-result)]
@@ -4539,17 +4841,28 @@
               paths      (or (:paths config) [])
               changed    (->> paths
                               (filter (fn [path]
-                                        (not= (get cursor-map path)
-                                              (try
-                                                (file-connector/file-checksum source-node config path)
-                                                (catch Exception _
-                                                  nil)))))
+                                        (let [checksum (try
+                                                         (file-connector/file-checksum source-node config path)
+                                                         (catch Exception e
+                                                           (log/warn e "Failed to compute file checksum; treating file as changed"
+                                                                     {:path path
+                                                                      :endpoint_name (:endpoint_name config)})
+                                                           ::checksum-unavailable))]
+                                          (or (= checksum ::checksum-unavailable)
+                                              (not= (get cursor-map path) checksum)))))
                               vec)
               config'    (assoc config :paths (if (seq changed) changed paths))]
           (file-connector/fetch-files-async {:source-node source-node
                                              :file-config config'})))
       {:endpoint-name endpoint-name
        :source-kind :file}))))
+
+(defn preview-copybook-schema
+  [{:keys [copybook encoding]}]
+  (let [field-specs (file-connector/parse-copybook copybook)]
+    {:field_count (count field-specs)
+     :encoding (or encoding "UTF-8")
+     :field_specs field-specs}))
 
 (defn rollback-api-batch!
   [graph-id api-node-id batch-id {:keys [endpoint-name rollback-reason rolled-back-by]

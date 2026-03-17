@@ -371,6 +371,100 @@
                 (is (= 409 (:status (ex-data e))))
                 (is (= "trips" (:active_endpoint_name (ex-data e))))))))))))
 
+(deftest enqueue-kafka-request-reuses-all-endpoints-run-for-overlapping-specific-endpoint
+  (if-not (postgres-available?)
+    (is true "Skipping overlapping Kafka enqueue test; local Postgres is not available")
+    (with-isolated-execution-tables
+      (fn [tables]
+        (let [opts            (jdbc/with-options db/ds {:builder-fn rs/as-unqualified-lower-maps})
+              graph-id         (+ 830000 (rand-int 100000))
+              request-id       (UUID/randomUUID)
+              run-id           (UUID/randomUUID)
+              request-key      (str "kafka::" graph-id "::2::default::")
+              graph-version-id (:id (jdbc/execute-one!
+                                     opts
+                                     [(str "INSERT INTO " (:graph-version tables) "
+                                            (graph_id, graph_version, graph_name, graph_definition, definition_checksum)
+                                            VALUES (?, ?, ?, ?, ?)
+                                            RETURNING id")
+                                      graph-id 3 "overlap-all-topics" "{}" (apply str (repeat 64 "f"))]))]
+          (jdbc/execute!
+           opts
+           [(str "INSERT INTO " (:execution-request tables) "
+                  (request_id, request_key, request_kind, tenant_key, workspace_key, graph_id, graph_version_id, graph_version,
+                   environment, node_id, trigger_type, endpoint_name, request_params, queue_partition, workload_class, status, max_retries)
+                  VALUES (?, ?, 'kafka', 'tenant-a', 'ops', ?, ?, 3, 'default', 2, 'manual', NULL, '{}', 'p00', 'kafka', 'running', 3)")
+            request-id request-key graph-id graph-version-id])
+          (jdbc/execute!
+           opts
+           [(str "INSERT INTO " (:execution-run tables) "
+                  (run_id, request_id, tenant_key, workspace_key, graph_id, graph_version_id, graph_version, environment,
+                   request_kind, queue_partition, workload_class, node_id, trigger_type, endpoint_name, status)
+                  VALUES (?, ?, 'tenant-a', 'ops', ?, ?, 3, 'default', 'kafka', 'p00', 'kafka', 2, 'manual', NULL, 'running')")
+            run-id request-id graph-id graph-version-id])
+          (with-redefs [control-plane/dependency-blockers (fn [_] [])
+                        control-plane/graph-workspace-context (fn [_]
+                                                               {:workspace_key "ops"
+                                                                :tenant_key "tenant-a"
+                                                                :max_queued_requests 100
+                                                                :tenant_max_queued_requests 1000
+                                                                :active true
+                                                                :tenant_active true})]
+            (let [result        (execution/enqueue-kafka-request! graph-id 2 {:endpoint-name "orders.events"})
+                  request-count (:cnt (jdbc/execute-one!
+                                       opts
+                                       [(str "SELECT COUNT(*) AS cnt FROM " (:execution-request tables))]))]
+              (is (= false (:created? result)))
+              (is (= (str request-id) (:request_id result)))
+              (is (= (str run-id) (:run_id result)))
+              (is (= 1 (long request-count))))))))))
+
+(deftest enqueue-file-request-rejects-all-endpoints-run-when-scoped-endpoint-is-active
+  (if-not (postgres-available?)
+    (is true "Skipping all-endpoints file overlap enqueue test; local Postgres is not available")
+    (with-isolated-execution-tables
+      (fn [tables]
+        (let [opts            (jdbc/with-options db/ds {:builder-fn rs/as-unqualified-lower-maps})
+              graph-id         (+ 840000 (rand-int 100000))
+              request-id       (UUID/randomUUID)
+              run-id           (UUID/randomUUID)
+              request-key      (str "file::" graph-id "::2::default::orders.jsonl")
+              graph-version-id (:id (jdbc/execute-one!
+                                     opts
+                                     [(str "INSERT INTO " (:graph-version tables) "
+                                            (graph_id, graph_version, graph_name, graph_definition, definition_checksum)
+                                            VALUES (?, ?, ?, ?, ?)
+                                            RETURNING id")
+                                      graph-id 3 "overlap-file-endpoint" "{}" (apply str (repeat 64 "g"))]))]
+          (jdbc/execute!
+           opts
+           [(str "INSERT INTO " (:execution-request tables) "
+                  (request_id, request_key, request_kind, tenant_key, workspace_key, graph_id, graph_version_id, graph_version,
+                   environment, node_id, trigger_type, endpoint_name, request_params, queue_partition, workload_class, status, max_retries)
+                  VALUES (?, ?, 'file', 'tenant-a', 'ops', ?, ?, 3, 'default', 2, 'manual', 'orders.jsonl', '{}', 'p00', 'file', 'leased', 3)")
+            request-id request-key graph-id graph-version-id])
+          (jdbc/execute!
+           opts
+           [(str "INSERT INTO " (:execution-run tables) "
+                  (run_id, request_id, tenant_key, workspace_key, graph_id, graph_version_id, graph_version, environment,
+                   request_kind, queue_partition, workload_class, node_id, trigger_type, endpoint_name, status)
+                  VALUES (?, ?, 'tenant-a', 'ops', ?, ?, 3, 'default', 'file', 'p00', 'file', 2, 'manual', 'orders.jsonl', 'leased')")
+            run-id request-id graph-id graph-version-id])
+          (with-redefs [control-plane/dependency-blockers (fn [_] [])
+                        control-plane/graph-workspace-context (fn [_]
+                                                               {:workspace_key "ops"
+                                                                :tenant_key "tenant-a"
+                                                                :max_queued_requests 100
+                                                                :tenant_max_queued_requests 1000
+                                                                :active true
+                                                                :tenant_active true})]
+            (try
+              (execution/enqueue-file-request! graph-id 2 {})
+              (is false "Expected all-endpoints file enqueue to reject overlapping endpoint-scoped run")
+              (catch clojure.lang.ExceptionInfo e
+                (is (= 409 (:status (ex-data e))))
+                (is (= "orders.jsonl" (:active_endpoint_name (ex-data e))))))))))))
+
 (deftest classify-failure-maps-common-runtime-errors
   (is (= "rate_limited"
          (#'execution/classify-failure

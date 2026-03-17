@@ -26,8 +26,9 @@
       (is (= {:id "o1"} (:_record (first (:body page)))))
       (is (= "{\"orders.events\":{\"0\":41}}" (get-in page [:state :cursor])))
       (commit! (get-in page [:state :offsets]))
-      (is (= [{"0" 41}] @commits))
       (is (= :eof (:stop-reason terminal)))
+      (Thread/sleep 25)
+      (is (= [{"0" 41}] @commits))
       (is (nil? (async/<!! errors))))))
 
 (deftest fetch-kafka-async-reports-consumer-errors
@@ -55,3 +56,18 @@
     (async/<!! pages)
     (Thread/sleep 25)
     (is (= 1 @close-count))))
+
+(deftest fetch-kafka-async-cancel-invokes-wakeup
+  (let [wakeup-count (atom 0)
+        {:keys [pages cancel]}
+        (kafka/fetch-kafka-async
+         {:topic-name "orders.events"
+          :topic-config {:value_deserializer "json"}
+          :poll-fn (fn [_]
+                     (Thread/sleep 10)
+                     {:type :stop :stop-reason :eof})
+          :wakeup-fn (fn [] (swap! wakeup-count inc))})]
+    (cancel)
+    (async/<!! pages)
+    (Thread/sleep 25)
+    (is (= 1 @wakeup-count))))

@@ -10,6 +10,7 @@
    [clojure.string :as string]
    [clojure.set :as set]
    [clojure.java.io :as io]
+   [clojure.edn :as edn]
    [bitool.middleware :as middleware]
    [selmer.parser :as selmer]
    [selmer.filters :as filters]
@@ -37,7 +38,8 @@
    [bitool.modeling.automation :as modeling-automation]
    [bitool.operations :as operations]
    [bitool.gil.api :as gil-api]
-   ))
+   )
+  (:import [java.net URI InetAddress]))
 
 (filters/add-filter! :second second)
 
@@ -538,6 +540,16 @@
         (#{"false" "0" "no" "off"} normalized) false
         :else (throw (ex-info "Invalid boolean value" {:value value}))))))
 
+(defn- parse-source-kind
+  [value]
+  (let [normalized (some-> value str string/trim string/lower-case)]
+    (case normalized
+      "kafka" :kafka
+      "file" :file
+      (throw (ex-info "Invalid or missing source_kind"
+                      {:field :source_kind
+                       :value value})))))
+
 (defn- rbac-enabled?
   []
   (let [raw (get env :bitool-rbac-enabled)]
@@ -549,12 +561,71 @@
 (defn- request-roles
   [request]
   (let [session-roles (or (get-in request [:session :roles])
-                          (some-> (get-in request [:session :role]) vector)
-                          (some-> (get-in request [:params :role]) vector))]
+                          (some-> (get-in request [:session :role]) vector))]
     (->> (if (sequential? session-roles) session-roles [session-roles])
          (map #(some-> % str string/trim string/lower-case))
          (remove string/blank?)
          set)))
+
+(defn- bad-request
+  ([message] (http-response/bad-request {:error message}))
+  ([message data] (http-response/bad-request {:error message :data data})))
+
+(defn- with-bad-request-number-format
+  [handler]
+  (fn [request]
+    (try
+      (handler request)
+      (catch NumberFormatException e
+        (bad-request "Invalid numeric parameter" {:message (.getMessage e)}))
+      (catch IllegalArgumentException e
+        (bad-request (.getMessage e))))))
+
+(def ^:private allowed-legacy-save-functions
+  {"save-conn" g2/save-conn})
+
+(defn- safe-template-name
+  [value]
+  (let [template (some-> value str string/trim)]
+    (when-not (and (seq template)
+                   (re-matches #"[A-Za-z0-9_-]+" template))
+      (throw (ex-info "Invalid template name"
+                      {:status 400
+                       :template value})))
+    template))
+
+(defn- local-host?
+  [host]
+  (let [normalized (some-> host str string/trim string/lower-case)]
+    (contains? #{"localhost" "127.0.0.1" "::1" "0.0.0.0"} normalized)))
+
+(defn- private-ip-literal?
+  [host]
+  (try
+    (let [addr (.getAddress (InetAddress/getByName host))]
+      (or (.isAnyLocalAddress addr)
+          (.isLoopbackAddress addr)
+          (.isLinkLocalAddress addr)
+          (.isSiteLocalAddress addr)))
+    (catch Exception _
+      false)))
+
+(defn- ensure-preview-base-url-safe!
+  [raw-url]
+  (let [uri    (URI. (or (some-> raw-url str string/trim) ""))
+        scheme (some-> (.getScheme uri) string/lower-case)
+        host   (.getHost uri)]
+    (when-not (and (#{"http" "https"} scheme) (seq host))
+      (throw (ex-info "Preview base_url must be an absolute http(s) URL"
+                      {:status 400
+                       :field :base_url})))
+    (when (or (local-host? host)
+              (private-ip-literal? host))
+      (throw (ex-info "Preview base_url must not target local or private addresses"
+                      {:status 400
+                       :field :base_url
+                       :host host})))
+    (str uri)))
 
 (defn- ensure-authorized!
   [request required-role]
@@ -698,21 +769,117 @@
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
+(defn bronze-source-batches-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params      (:params request)
+          graph-id    (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          node-id     (parse-required-int (or (:source_node_id params) (:id params)) :source_node_id)
+          source-kind (parse-source-kind (:source_kind params))]
+      (http-response/ok
+       (ingest-runtime/list-bronze-source-batches
+        graph-id
+        node-id
+        {:source-kind source-kind
+         :endpoint-name (:endpoint_name params)
+         :run-id (:run_id params)
+         :status (:status params)
+         :active-only (parse-optional-bool (:active_only params))
+         :replayable-only (parse-optional-bool (:replayable_only params))
+         :archived-only (parse-optional-bool (:archived_only params))
+         :limit (parse-optional-int (:limit params) :limit)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn bronze-source-observability-summary-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params      (:params request)
+          graph-id    (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          node-id     (parse-required-int (or (:source_node_id params) (:id params)) :source_node_id)
+          source-kind (parse-source-kind (:source_kind params))]
+      (http-response/ok
+       (ingest-runtime/bronze-source-observability-summary
+        graph-id
+        node-id
+        {:source-kind source-kind
+         :endpoint-name (:endpoint_name params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn bronze-source-observability-alerts-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params      (:params request)
+          graph-id    (parse-required-int (or (:gid params) (:graph_id params)) :graph_id)
+          node-id     (parse-required-int (or (:source_node_id params) (:id params)) :source_node_id)
+          source-kind (parse-source-kind (:source_kind params))]
+      (http-response/ok
+       (ingest-runtime/bronze-source-observability-alerts
+        graph-id
+        node-id
+        {:source-kind source-kind
+         :endpoint-name (:endpoint_name params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         409 http-response/conflict
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn preview-copybook-schema-route [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)]
+      (http-response/ok
+       (ingest-runtime/preview-copybook-schema
+        {:copybook (:copybook params)
+         :encoding (:encoding params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
 (defn preview-api-schema-inference [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
-          api-node {:base_url (:base_url params)
+          api-node {:base_url (ensure-preview-base-url-safe! (:base_url params))
                     :auth_ref (:auth_ref params)}
           endpoint (:endpoint_config params)
           result (ingest-runtime/preview-endpoint-schema! api-node endpoint)]
       (http-response/ok result))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
 (defn propose-silver-schema [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           gid (parse-required-int (or (:gid params) (:gid (:session request))) :gid)
           node-id (parse-required-int (:id params) :id)
@@ -725,8 +892,9 @@
                                    "system")})]
       (http-response/ok result))
     (catch clojure.lang.ExceptionInfo e
-      ((if (= 409 (:status (ex-data e)))
-         http-response/conflict
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
@@ -734,6 +902,7 @@
 
 (defn list-silver-proposals [request]
   (try
+    (ensure-authorized! request :api.audit)
     (let [params (:params request)]
       (http-response/ok
        (modeling-automation/list-silver-proposals
@@ -741,12 +910,16 @@
          :status (:status params)
          :limit (parse-optional-int (:limit params) :limit)})))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
 (defn get-silver-proposal [request]
   (try
+    (ensure-authorized! request :api.audit)
     (let [proposal-id (parse-required-int (or (get-in request [:path-params :proposal_id])
                                               (get-in request [:params :proposal_id]))
                                           :proposal_id)
@@ -755,8 +928,9 @@
         (http-response/ok proposal)
         (http-response/not-found {:error "Silver proposal not found" :proposal_id proposal-id})))
     (catch clojure.lang.ExceptionInfo e
-      ((if (= 404 (:status (ex-data e)))
-         http-response/not-found
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
@@ -764,6 +938,7 @@
 
 (defn update-silver-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -775,6 +950,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -784,12 +960,14 @@
 
 (defn compile-silver-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok (modeling-automation/compile-silver-proposal! proposal-id)))
     (catch clojure.lang.ExceptionInfo e
-      ((if (= 404 (:status (ex-data e)))
-         http-response/not-found
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
@@ -797,6 +975,7 @@
 
 (defn synthesize-silver-graph [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -807,6 +986,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -816,6 +996,7 @@
 
 (defn validate-silver-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -826,8 +1007,9 @@
                          (get-in request [:session :user])
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
-      ((if (= 404 (:status (ex-data e)))
-         http-response/not-found
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
@@ -835,6 +1017,7 @@
 
 (defn publish-silver-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -846,6 +1029,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -855,6 +1039,7 @@
 
 (defn execute-silver-release [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           release-id (parse-required-int (:release_id params) :release_id)]
       (http-response/ok
@@ -865,6 +1050,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -874,6 +1060,7 @@
 
 (defn review-silver-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -886,6 +1073,7 @@
                           "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -895,6 +1083,7 @@
 
 (defn validate-silver-proposal-warehouse [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -905,6 +1094,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -914,6 +1104,7 @@
 
 (defn poll-silver-model-run [request]
   (try
+    (ensure-authorized! request :api.audit)
     (let [params (:params request)
           model-run-id (parse-required-int (:model_run_id params) :model_run_id)]
       (http-response/ok
@@ -929,6 +1120,7 @@
 
 (defn propose-gold-schema [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           silver-proposal-id (parse-required-int (:silver_proposal_id params) :silver_proposal_id)
           result (modeling-automation/propose-gold-schema!
@@ -938,8 +1130,9 @@
                                    "system")})]
       (http-response/ok result))
     (catch clojure.lang.ExceptionInfo e
-      ((if (= 409 (:status (ex-data e)))
-         http-response/conflict
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
@@ -947,6 +1140,7 @@
 
 (defn list-gold-proposals [request]
   (try
+    (ensure-authorized! request :api.audit)
     (let [params (:params request)]
       (http-response/ok
        (modeling-automation/list-gold-proposals
@@ -954,12 +1148,16 @@
          :status (:status params)
          :limit (parse-optional-int (:limit params) :limit)})))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
 (defn get-gold-proposal [request]
   (try
+    (ensure-authorized! request :api.audit)
     (let [proposal-id (parse-required-int (or (get-in request [:path-params :proposal_id])
                                               (get-in request [:params :proposal_id]))
                                           :proposal_id)
@@ -968,8 +1166,9 @@
         (http-response/ok proposal)
         (http-response/not-found {:error "Gold proposal not found" :proposal_id proposal-id})))
     (catch clojure.lang.ExceptionInfo e
-      ((if (= 404 (:status (ex-data e)))
-         http-response/not-found
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
@@ -977,6 +1176,7 @@
 
 (defn update-gold-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -988,6 +1188,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -997,12 +1198,14 @@
 
 (defn compile-gold-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok (modeling-automation/compile-gold-proposal! proposal-id)))
     (catch clojure.lang.ExceptionInfo e
-      ((if (= 404 (:status (ex-data e)))
-         http-response/not-found
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
@@ -1010,6 +1213,7 @@
 
 (defn synthesize-gold-graph [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -1020,6 +1224,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -1029,6 +1234,7 @@
 
 (defn validate-gold-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -1048,6 +1254,7 @@
 
 (defn publish-gold-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -1059,6 +1266,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -1068,6 +1276,7 @@
 
 (defn execute-gold-release [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           release-id (parse-required-int (:release_id params) :release_id)]
       (http-response/ok
@@ -1078,6 +1287,7 @@
                          "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -1087,6 +1297,7 @@
 
 (defn review-gold-proposal [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -1099,6 +1310,7 @@
                           "system")})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
+         403 http-response/forbidden
          404 http-response/not-found
          409 http-response/conflict
          http-response/bad-request)
@@ -1108,6 +1320,7 @@
 
 (defn validate-gold-proposal-warehouse [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
@@ -1586,13 +1799,17 @@
 
 (defn run-scheduler-ingestion [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params        (:params request)
           gid           (parse-required-int (or (:gid params) (:gid (:session request))) :gid)
           scheduler-id  (parse-required-int (:id params) :id)
           result        (ingest-execution/enqueue-scheduler-request! gid scheduler-id {:trigger-type "manual"})]
       (queue-response result))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
@@ -1611,7 +1828,10 @@
                    :limit (parse-optional-int (:limit params) :limit)})]
       (http-response/ok result))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
@@ -1625,7 +1845,10 @@
         (http-response/not-found {:error "Execution run not found"
                                   :run_id run-id})))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
     (catch IllegalArgumentException e
       (http-response/bad-request {:error (.getMessage e)}))
     (catch Exception e
@@ -1655,6 +1878,7 @@
 
 (defn list-workspaces [request]
   (try
+    (ensure-authorized! request :api.audit)
     (let [workspaces (control-plane/list-workspaces)]
       (http-response/ok workspaces))
     (catch Exception e
@@ -1662,12 +1886,14 @@
 
 (defn list-tenants [request]
   (try
+    (ensure-authorized! request :api.audit)
     (http-response/ok (control-plane/list-tenants))
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
 (defn save-tenant [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           tenant (control-plane/upsert-tenant!
                   {:tenant_key (:tenant_key params)
@@ -1683,12 +1909,16 @@
                              true)})]
       (http-response/ok tenant))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
 (defn save-workspace [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           workspace (control-plane/upsert-workspace!
                      {:workspace_key (:workspace_key params)
@@ -1702,7 +1932,10 @@
                                 true)})]
       (http-response/ok workspace))
     (catch clojure.lang.ExceptionInfo e
-      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
       (http-response/internal-server-error {:error (.getMessage e)}))))
 
@@ -1746,6 +1979,7 @@
 
 (defn assign-graph-workspace [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           graph-id (parse-required-int (or (:gid params) (:graph_id params)) :gid)
           workspace-key (:workspace_key params)
@@ -1758,6 +1992,7 @@
 
 (defn save-graph-dependencies [request]
   (try
+    (ensure-authorized! request :api.ops)
     (let [params (:params request)
           downstream-graph-id (parse-required-int (or (:gid params) (:downstream_graph_id params)) :gid)
           upstream-graph-ids  (or (:upstream_graph_ids params) [])
@@ -2155,8 +2390,19 @@
   (http-response/ok (mapCoordinates (saveRectJoin request))))
 
 (defn html-handler [request]
-  (let [path (get-in request [:path-params :file])]
-    (layout/render request (str  path ".html"))))
+  (try
+    (let [template-name (safe-template-name (get-in request [:path-params :file]))
+          template-path (str template-name ".html")]
+      (when-not (io/resource (str "html/" template-path))
+        (throw (ex-info "Template not found"
+                        {:status 404
+                         :template template-name})))
+      (layout/render request template-path))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))))
 
 (defn handle-post-request [request]
   (let [form-data (:form-params request)] ;; Extract form params as a map
@@ -2168,18 +2414,11 @@
    
 
 (defn call-function [func-name & args]
-  (let [func (resolve (symbol (str "bitool.graph2/" func-name )))
-       _ (println func) 
-       _ (println *ns*)
-       _ (println "------------------------------ARGS------------------------------")
-       _ (println args)
-       _ (println "------------------------------BODY------------------------------")
-       _ (println (class (:json-params (first args))))
-
-       ]
-    (if (and func (fn? @func))
-      (apply @func args)
-      (throw (Exception. (str "Function " func-name " not found!"))))))
+  (if-let [func (get allowed-legacy-save-functions func-name)]
+    (apply func args)
+    (throw (ex-info "Unsupported save function"
+                    {:status 404
+                     :function func-name}))))
 
 (defn get-item2 [request ]
      (let [ ;; _ (pp/pprint request)
@@ -2214,16 +2453,20 @@
     response)) ;; Return the response body
 
 (defn fn-handler [request]
-  (let [name (get-in request [:path-params :fn])
-        response (call-function name request)]
-   (http-response/ok response)))
+  (try
+    (let [name (get-in request [:path-params :fn])
+          response (call-function name request)]
+      (http-response/ok response))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))))
 
 (defn home-routes []
   [ "" 
-   {:middleware [
-;;middleware/wrap-csrf
-                 middleware/wrap-formats
-                 ]}
+   {:middleware [with-bad-request-number-format
+                 middleware/wrap-formats]}
    ["/" {:get home-page}]
    ["/html/:file" {:get html-handler}]
    ["/save/:fn" {:post fn-handler}]
@@ -2271,6 +2514,10 @@
    ["/runApiIngestion" {:post run-api-ingestion}]
    ["/runKafkaIngestion" {:post run-kafka-ingestion}]
    ["/runFileIngestion" {:post run-file-ingestion}]
+   ["/bronzeSourceBatches" {:get bronze-source-batches-route}]
+   ["/bronzeSourceObservabilitySummary" {:get bronze-source-observability-summary-route}]
+   ["/bronzeSourceObservabilityAlerts" {:get bronze-source-observability-alerts-route}]
+   ["/previewCopybookSchema" {:post preview-copybook-schema-route}]
    ["/apiBatches" {:get list-api-batches}]
    ["/apiBadRecords" {:get list-api-bad-records-route}]
    ["/apiSchemaApprovals" {:get list-api-schema-approvals-route}]

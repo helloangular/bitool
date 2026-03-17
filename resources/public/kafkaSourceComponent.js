@@ -220,6 +220,12 @@ class KafkaSourceComponent extends HTMLElement {
     this.saveButton.disabled = JSON.stringify(this.state) === this.savedState;
   }
 
+  esc(value) {
+    const div = document.createElement("div");
+    div.textContent = String(value ?? "");
+    return div.innerHTML;
+  }
+
   attachEvents() {
     EventHandler.removeGroup("KafkaSource");
     EventHandler.on(this.saveButton, "click", () => this.save(), false, "KafkaSource");
@@ -297,11 +303,11 @@ class KafkaSourceComponent extends HTMLElement {
         <div class="grid">
           <div>
             <label>Topic Name</label>
-            <input data-topic-idx="${idx}" data-topic-field="topic_name" type="text" value="${tc.topic_name || ""}" />
+            <input data-topic-idx="${idx}" data-topic-field="topic_name" type="text" value="${this.esc(tc.topic_name || "")}" />
           </div>
           <div>
             <label>Endpoint Name</label>
-            <input data-topic-idx="${idx}" data-topic-field="endpoint_name" type="text" value="${tc.endpoint_name || ""}" />
+            <input data-topic-idx="${idx}" data-topic-field="endpoint_name" type="text" value="${this.esc(tc.endpoint_name || "")}" />
           </div>
           <div>
             <label>Key Deserializer</label>
@@ -327,15 +333,15 @@ class KafkaSourceComponent extends HTMLElement {
           </div>
           <div>
             <label>Primary Key Fields (CSV)</label>
-            <input data-topic-idx="${idx}" data-topic-field="primary_key_fields" type="text" value="${(tc.primary_key_fields || []).join(", ")}" />
+            <input data-topic-idx="${idx}" data-topic-field="primary_key_fields" type="text" value="${this.esc((tc.primary_key_fields || []).join(", "))}" />
           </div>
           <div>
             <label>Watermark Column</label>
-            <input data-topic-idx="${idx}" data-topic-field="watermark_column" type="text" value="${tc.watermark_column || ""}" />
+            <input data-topic-idx="${idx}" data-topic-field="watermark_column" type="text" value="${this.esc(tc.watermark_column || "")}" />
           </div>
           <div>
             <label>Bronze Table Name</label>
-            <input data-topic-idx="${idx}" data-topic-field="bronze_table_name" type="text" value="${tc.bronze_table_name || ""}" />
+            <input data-topic-idx="${idx}" data-topic-field="bronze_table_name" type="text" value="${this.esc(tc.bronze_table_name || "")}" />
           </div>
           <div>
             <label>Batch Flush Rows</label>

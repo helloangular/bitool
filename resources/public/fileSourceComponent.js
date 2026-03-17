@@ -220,6 +220,12 @@ class FileSourceComponent extends HTMLElement {
     this.saveButton.disabled = JSON.stringify(this.state) === this.savedState;
   }
 
+  esc(value) {
+    const div = document.createElement("div");
+    div.textContent = String(value ?? "");
+    return div.innerHTML;
+  }
+
   attachEvents() {
     EventHandler.removeGroup("FileSource");
     EventHandler.on(this.saveButton, "click", () => this.save(), false, "FileSource");
@@ -302,11 +308,11 @@ class FileSourceComponent extends HTMLElement {
         <div class="grid">
           <div>
             <label>Path</label>
-            <input data-file-idx="${idx}" data-file-field="path" type="text" value="${fc.path || ""}" />
+            <input data-file-idx="${idx}" data-file-field="path" type="text" value="${this.esc(fc.path || "")}" />
           </div>
           <div>
             <label>Endpoint Name</label>
-            <input data-file-idx="${idx}" data-file-field="endpoint_name" type="text" value="${fc.endpoint_name || ""}" />
+            <input data-file-idx="${idx}" data-file-field="endpoint_name" type="text" value="${this.esc(fc.endpoint_name || "")}" />
           </div>
           <div>
             <label>Format</label>
@@ -324,19 +330,19 @@ class FileSourceComponent extends HTMLElement {
           </div>
           <div>
             <label>Encoding</label>
-            <input data-file-idx="${idx}" data-file-field="encoding" type="text" value="${fc.encoding || "UTF-8"}" />
+            <input data-file-idx="${idx}" data-file-field="encoding" type="text" value="${this.esc(fc.encoding || "UTF-8")}" />
           </div>
           <div>
             <label>Primary Key Fields (CSV)</label>
-            <input data-file-idx="${idx}" data-file-field="primary_key_fields" type="text" value="${(fc.primary_key_fields || []).join(", ")}" />
+            <input data-file-idx="${idx}" data-file-field="primary_key_fields" type="text" value="${this.esc((fc.primary_key_fields || []).join(", "))}" />
           </div>
           <div>
             <label>Watermark Column</label>
-            <input data-file-idx="${idx}" data-file-field="watermark_column" type="text" value="${fc.watermark_column || ""}" />
+            <input data-file-idx="${idx}" data-file-field="watermark_column" type="text" value="${this.esc(fc.watermark_column || "")}" />
           </div>
           <div>
             <label>Bronze Table Name</label>
-            <input data-file-idx="${idx}" data-file-field="bronze_table_name" type="text" value="${fc.bronze_table_name || ""}" />
+            <input data-file-idx="${idx}" data-file-field="bronze_table_name" type="text" value="${this.esc(fc.bronze_table_name || "")}" />
           </div>
           <div>
             <label>Batch Flush Rows</label>
@@ -345,7 +351,7 @@ class FileSourceComponent extends HTMLElement {
         </div>
         <div class="copybook-group ${fc.format === "fixed_width" ? "visible" : ""}" data-copybook-group="${idx}" style="margin-top:10px;">
           <label>COBOL Copybook</label>
-          <textarea data-file-idx="${idx}" data-file-field="copybook" placeholder="05 NAME PIC X(20).&#10;05 AMOUNT PIC 9(8)V99.">${fc.copybook || ""}</textarea>
+          <textarea data-file-idx="${idx}" data-file-field="copybook" placeholder="05 NAME PIC X(20).&#10;05 AMOUNT PIC 9(8)V99.">${this.esc(fc.copybook || "")}</textarea>
         </div>
       </div>
     `).join("");
