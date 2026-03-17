@@ -21,7 +21,8 @@ profiles.clj
 # Additional ignores
 .clj-kondo
 .tmp.driveupload
-Design/scratchpad.txt
+Design/
+config.edn
 
 # Vim swap files
 .*.sw[a-p]
@@ -33,9 +34,18 @@ Design/scratchpad.txt
 
 # Manual backup copies
 *\ copy.*
+* copy/
+* copy.*
 *_bkp
 *_bkp*
 *_claude
 *.clj.datomic
 
+# Playwright browsers (large binaries)
+.playwright-browsers/
 
+# npm cache
+.npm-cache/
+
+# Temp artifacts
+tmp/

@@ -939,17 +939,16 @@ api-node edge { endpoint selected_nodes } api/run-jira-pagination-test insert-ro
 (def github-auth
   (atom
     {:type :github-token
-     :token "REDACTED_GITHUB_TOKEN"      ;; <-- your GitHub PAT
+     :token (System/getenv "GITHUB_TOKEN")
      :refresh-fn (fn []
-                   ;; If you ever rotate your PAT, return a new one here
                    {:type :github-token
-                    :token "REDACTED_GITHUB_TOKEN"})}))
+                    :token (System/getenv "GITHUB_TOKEN")})}))
 
 
 (defn demo-github-prs []
   (let [result (run-gql-updated-at-pagination
     {:url             "https://api.github.com/graphql"
-     :headers         {:authorization "Bearer REDACTED_GITHUB_TOKEN"
+     :headers         {:authorization (str "Bearer " (System/getenv "GITHUB_TOKEN"))
                        :user-agent    "bitool"}
      :auth            nil ;; github-auth      ;; or reuse your auth atom if you want
      :query           github-gql
@@ -969,7 +968,7 @@ api-node edge { endpoint selected_nodes } api/run-jira-pagination-test insert-ro
 (defn demo-github-clj-prs []
   (run-gql-updated-at-pagination
     {:url             "https://api.github.com/graphql"
-     :headers         {:authorization "Bearer REDACTED_GITHUB_TOKEN"
+     :headers         {:authorization (str "Bearer " (System/getenv "GITHUB_TOKEN"))
                        :user-agent    "bitool"}
      :auth            nil
      :query           github-gql
