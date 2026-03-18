@@ -1595,8 +1595,10 @@
                             :ingest-artifact-retention-days "30"}
                 db/list-graph-ids (fn [] [99])
                 db/getGraph (fn [_]
-                              {:n {2 {:na {:btype "Ap"}}
-                                   7 {:na {:btype "Fi"}}}})
+                              {:n {2 {:na {:btype "Ap"}
+                                      :e {7 {}}}
+                                   7 {:na {:btype "Tg"
+                                           :c 123}}}})
                 runtime/apply-api-retention! (fn [graph-id api-node-id opts]
                                                (is (= 99 graph-id))
                                                (is (= 2 api-node-id))
@@ -1611,6 +1613,31 @@
       (is (= 1 (:deleted_count result)))
       (is (= 5 (:archive_days result)))
       (is (= 30 (:retention_days result))))))
+
+(deftest cleanup-ingest-retention-manifest-aware-skips-api-nodes-without-target-connection
+  (let [called-api-node-ids (atom [])]
+    (with-redefs [config/env {:ingest-artifact-store "http"
+                              :bitool-ingest-manifest-retention-enabled "true"
+                              :ingest-artifact-archive-days "5"
+                              :ingest-artifact-retention-days "30"}
+                  db/list-graph-ids (fn [] [99])
+                  db/getGraph (fn [_]
+                                {:n {2 {:na {:btype "Ap"}
+                                        :e {3 {}}}
+                                     3 {:na {:btype "Tg"}}
+                                     4 {:na {:btype "Ap"}
+                                        :e {7 {}}}
+                                     7 {:na {:btype "Tg"
+                                             :c 123}}}})
+                  runtime/apply-api-retention! (fn [_ api-node-id _]
+                                                 (swap! called-api-node-ids conj api-node-id)
+                                                 {:archived_count 0
+                                                  :deleted_count 0})]
+      (let [result (runtime/cleanup-ingest-retention!)]
+        (is (= [4] @called-api-node-ids))
+        (is (= 1 (:targets_discovered result)))
+        (is (= 1 (:targets_processed result)))
+        (is (= [] (:errors result)))))))
 
 (deftest read-batch-artifact-local-allows-archive-root-paths
   (let [root-dir (java.nio.file.Files/createTempDirectory "bitool-retention-hot-read" (make-array java.nio.file.attribute.FileAttribute 0))

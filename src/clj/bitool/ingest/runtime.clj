@@ -1694,6 +1694,19 @@
                (when (= "Ap" (get-in node [:na :btype]))
                  node-id)))))
 
+(defn- retention-ready-api-node-ids
+  [graph-id graph]
+  (->> (graph-api-node-ids graph)
+       (keep (fn [api-node-id]
+               (let [target  (find-downstream-target graph api-node-id)
+                     conn-id (target-connection-id target)]
+                 (when-not conn-id
+                   (log/debug "Skipping API node during manifest retention discovery without downstream target connection"
+                              {:graph_id graph-id
+                               :api_node_id api-node-id}))
+                 (when conn-id
+                   api-node-id))))))
+
 (defn- discovered-retention-targets
   []
   (let [configured (some-> (get env :bitool-ingest-retention-targets)
@@ -1714,7 +1727,7 @@
                                 {:graph-id graph-id
                                  :api-node-id api-node-id
                                  :endpoint-name nil})
-                              (graph-api-node-ids graph)))
+                              (retention-ready-api-node-ids graph-id graph)))
                        (catch Exception e
                          (log/warn e "Skipping graph during manifest retention discovery"
                                    {:graph_id graph-id})
