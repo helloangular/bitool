@@ -8,46 +8,80 @@
     height: 100%;
     column-gap: 0px;
     width: 100%;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+  }
+
+  /* Smart-tree custom properties override */
+  smart-tree {
+    --smart-font-family: 'DM Sans', -apple-system, sans-serif;
+    --smart-font-size: 12.5px;
+    --smart-tree-item-height: 30px;
+    --smart-primary: #3b7ddd;
+    --smart-secondary: #f5f6f8;
+    --smart-surface: #ffffff;
+    --smart-border: #e2e4ea;
+    --smart-ui-state-hover: #f0f1f4;
+    --smart-ui-state-active: rgba(59,125,221,0.1);
+    --smart-ui-state-focus: rgba(59,125,221,0.08);
+    --smart-tree-indent: 16px;
+    border-right: none !important;
   }
 
   .tree {
-    width: 30%;
+    width: 18%;
     height: 100%;
-    min-width: 100px; /* prevent collapsing */
-    max-width: 70%; /* optional limit */
-    /* resize: horizontal; */
-    background: #f0f0f0;
+    min-width: 80px;
+    max-width: 50%;
+    background: #ffffff;
+    overflow: auto;
+    border-right: 1px solid #e2e4ea;
+    --smart-tree-default-height: 100%;
+    --smart-font-size: 12.5px;
+    scrollbar-width: thin;
   }
+
+  .tree::-webkit-scrollbar { width: 4px; }
+  .tree::-webkit-scrollbar-thumb { background: #e2e4ea; border-radius: 2px; }
 
   #dropable-area {
     position: relative;
     flex-grow: 1;
-    background-color: #f5f5f5;
-    border: 2px dashed #ccc;
+    background-color: #f5f6f8;
+    border: none;
     overflow: auto;
     scrollbar-width: none;
   }
 
   #dropable-area::before {
-    content: 'Drop tables or views here';
+    content: 'Drop tables or connectors here';
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    color: #666;
+    color: #8b91a3;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
   }
 
   .resizer {
-    width: 5px;
+    width: 4px;
     height: 100%;
     background: transparent;
     cursor: col-resize;
-    margin-left: -5px;
+    margin-left: -4px;
     z-index: 1;
+    transition: background 0.15s;
   }
 
   .resizer:hover {
-    background: #888;
+    background: #3b7ddd;
+    opacity: 0.4;
+  }
+
+  /* Ensure rectangle-component custom elements have layout for offsetWidth/Height */
+  rectangle-component {
+    display: block;
   }
 
   #viewport {
@@ -83,14 +117,15 @@
     position: absolute;
     display: none;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    min-width: 160px;
-    border-radius: 8px;
-    background: white;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    gap: 4px;
+    padding: 6px;
+    min-width: 180px;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 0 0 1px #eceef2;
+    border: 1px solid #e2e4ea;
     z-index: 1000;
+    font-family: 'DM Sans', -apple-system, sans-serif;
   }
 
   .popup.show {
@@ -98,17 +133,22 @@
   }
 
   .popup button {
-    font-size: 14px;
-    padding: 8px 10px;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    padding: 7px 12px;
     border-radius: 6px;
-    border: 1px solid #e6e9ee;
-    background: #fff;
+    border: none;
+    background: transparent;
+    color: #1a1d26;
     cursor: pointer;
     text-align: left;
+    transition: 0.15s;
   }
 
   .popup button:hover {
-    background: #f8fafc;
+    background: #f0f1f4;
+    color: #3b7ddd;
   }
 </style>
 

@@ -10,6 +10,7 @@
     [bitool.operations :as operations]
     [cheshire.core :as json]
     [clojure.core.async :as async]
+    [clojure.string :as string]
     [clojure.test :refer :all]
     [next.jdbc :as jdbc]
     [next.jdbc.sql :as sql]))
@@ -26,11 +27,19 @@
 (def ^:private real-ensure-batch-manifest-columns!
   @#'bitool.ingest.runtime/ensure-batch-manifest-columns!)
 
+(def ^:private real-add-column-ddl
+  @#'bitool.ingest.runtime/add-column-ddl)
+
 (use-fixtures
   :each
   (fn [f]
     (reset! @#'bitool.ingest.runtime/adaptive-backpressure-state {})
     (reset! @#'bitool.ingest.runtime/source-circuit-breaker-state {})
+    (reset! @#'bitool.ingest.runtime/checkpoint-row-cache {})
+    (reset! @#'bitool.ingest.runtime/schema-snapshot-latest-cache {})
+    (reset! @#'bitool.ingest.runtime/tables-confirmed-per-run #{})
+    (reset! @#'bitool.ingest.runtime/current-run-id-for-cache nil)
+    (reset! @#'bitool.ingest.runtime/local-ingest-cache-ready? false)
     (with-redefs-fn {#'bitool.ingest.runtime/connection-dbtype (fn [_] "databricks")
                      #'bitool.ingest.runtime/ensure-checkpoint-columns! (fn [& _] nil)
                      #'bitool.ingest.runtime/ensure-batch-manifest-columns! (fn [& _] nil)
@@ -69,6 +78,73 @@
     (is (= 4 (get-in (g2/getData g' 2) [:endpoint_configs 0 :circuit_breaker_failure_threshold])))
     (is (= 0.15 (get-in (g2/getData g' 2) [:endpoint_configs 0 :bad_record_alert_ratio])))
     (is (= "https://api.example.com" (get item "base_url")))))
+
+(deftest save-api-treats-blank-bad-record-alert-ratio-as-unset
+  (let [g  (base-graph 2 "Ap")
+        g' (g2/save-api g 2 {:api_name "samara"
+                             :endpoint_configs [{:endpoint_name "drivers"
+                                                 :endpoint_url "/fleet/drivers"
+                                                 :load_type "full"
+                                                 :schema_mode "manual"
+                                                 :pagination_strategy "none"
+                                                 :primary_key_fields ["id"]
+                                                 :bad_record_alert_ratio ""}]})]
+    (is (nil? (get-in (g2/getData g' 2) [:endpoint_configs 0 :bad_record_alert_ratio])))))
+
+(deftest save-api-adds-target-under-output-without-mapping
+  (let [g  (base-graph 2 "Ap")
+        g' (g2/save-api g 2 {:api_name "samara"
+                             :endpoint_configs [{:endpoint_name "trips"
+                                                 :endpoint_url "/fleet/trips"
+                                                 :load_type "full"
+                                                 :pagination_strategy "none"
+                                                 :primary_key_fields ["id"]
+                                                 :bronze_table_name "bronze.trips_raw"}]})
+        target-id (->> (:n g')
+                       (keep (fn [[node-id node]]
+                               (when (= "Tg" (get-in node [:na :btype]))
+                                 node-id)))
+                       first)]
+    (is (some? target-id))
+    (is (nil? (some (fn [[_ node]]
+                      (when (= "Mp" (get-in node [:na :btype]))
+                        true))
+                    (:n g'))))
+    (is (= {1 {:endpoint_url "/fleet/trips"}}
+           (get-in g' [:n 2 :e])))
+    (is (= {target-id {}}
+           (get-in g' [:n 1 :e])))
+    (is (nil? (get-in g' [:n target-id :e])))
+    (is (= "bronze.trips_raw"
+           (get-in g' [:n target-id :na :table_name])))))
+
+(deftest save-api-migrates-legacy-mapping-chain-to-output-target
+  (let [g  {:a {:name "test" :v 0 :id 99}
+            :n {1 {:na {:name "O" :btype "O" :tcols {}} :e {}}
+                2 {:na {:name "Ap-node" :btype "Ap" :tcols {}} :e {1 {} 3 {:endpoint_url "/fleet/trips"}}}
+                3 {:na {:name "mapping" :btype "Mp" :tcols {} :source {} :target {} :mapping []} :e {4 {}}}
+                4 {:na {:name "target"
+                        :btype "Tg"
+                        :tcols {}
+                        :connection_id 42
+                        :table_name "old_name"} :e {}}}}
+        g' (g2/save-api g 2 {:endpoint_configs [{:endpoint_name "trips"
+                                                 :endpoint_url "/fleet/trips"
+                                                 :load_type "full"
+                                                 :pagination_strategy "none"
+                                                 :primary_key_fields ["id"]
+                                                 :bronze_table_name "bronze.trips_refined"}]})]
+    (is (nil? (get-in g' [:n 3])))
+    (is (= {1 {:endpoint_url "/fleet/trips"}}
+           (get-in g' [:n 2 :e])))
+    (is (= {4 {}}
+           (get-in g' [:n 1 :e])))
+    (is (= {}
+           (get-in g' [:n 4 :e])))
+    (is (= 42
+           (get-in g' [:n 4 :na :connection_id])))
+    (is (= "bronze.trips_refined"
+           (get-in g' [:n 4 :na :table_name])))))
 
 (deftest save-target-normalizes-job-and-list-config
   (let [g  (base-graph 2 "Tg")
@@ -122,6 +198,57 @@
     (is (= "CSV" (get item "sf_file_format")))
     (is (= "CONTINUE" (get item "sf_on_error")))
     (is (true? (get item "sf_purge")))))
+
+(deftest runtime-target-connection-id-normalizes-blank-and-numeric-strings
+  (is (nil? (#'bitool.ingest.runtime/target-connection-id {:connection_id ""})))
+  (is (nil? (#'bitool.ingest.runtime/target-connection-id {:connection "   "})))
+  (is (= 42 (#'bitool.ingest.runtime/target-connection-id {:connection_id "42"})))
+  (is (= 99 (#'bitool.ingest.runtime/target-connection-id {:c 99}))))
+
+(deftest runtime-resolved-target-connection-id-requires-existing-connection-row
+  (with-redefs [bitool.ingest.runtime/connection-dbtype (fn [conn-id]
+                                                          (when (= 42 conn-id)
+                                                            "postgresql"))]
+    (is (nil? (#'bitool.ingest.runtime/resolved-target-connection-id {:connection_id 476})))
+    (is (= 42 (#'bitool.ingest.runtime/resolved-target-connection-id {:connection_id "42"})))))
+
+(deftest runtime-retention-ready-api-node-ids-skips-stale-target-connection-references
+  (let [graph {:a {:name "test" :v 0 :id 99}
+               :n {1 {:na {:name "O" :btype "O" :tcols {}} :e {3 {} 5 {}}}
+                   2 {:na {:name "api" :btype "Ap" :tcols {}} :e {1 {}}}
+                   3 {:na {:name "target" :btype "Tg" :tcols {} :connection_id 476} :e {}}
+                   4 {:na {:name "api-2" :btype "Ap" :tcols {}} :e {1 {}}}
+                   5 {:na {:name "target-2" :btype "Tg" :tcols {} :connection_id 478} :e {}}}}]
+    (with-redefs-fn {#'bitool.ingest.runtime/connection-dbtype (fn [conn-id]
+                                                                 (when (= 478 conn-id)
+                                                                   "databricks"))
+                     #'bitool.ingest.runtime/find-downstream-target (fn [_ api-node-id]
+                                                                      (case api-node-id
+                                                                        2 {:connection_id 476}
+                                                                        4 {:connection_id 478}
+                                                                        nil))}
+      #(is (= [4] (#'bitool.ingest.runtime/retention-ready-api-node-ids 99 graph))))))
+
+(deftest runtime-api-endpoint-context-rejects-stale-target-connection-reference
+  (let [graph {:a {:name "test" :v 0 :id 99}
+               :n {1 {:na {:name "O" :btype "O" :tcols {}} :e {3 {}}}
+                   2 {:na {:name "api"
+                           :btype "Ap"
+                           :tcols {}
+                           :endpoint_configs [{:endpoint_name "fleet/vehicles" :enabled true}]}
+                      :e {1 {}}}
+                   3 {:na {:name "target" :btype "Tg" :tcols {} :connection_id 476} :e {}}}}]
+    (with-redefs [db/getGraph (fn [_] graph)
+                  bitool.ingest.runtime/connection-dbtype (fn [_] nil)]
+      (let [ex (try
+                 (#'bitool.ingest.runtime/api-endpoint-runtime-context 99 2 nil)
+                 nil
+                 (catch clojure.lang.ExceptionInfo e
+                   e))]
+        (is (instance? clojure.lang.ExceptionInfo ex))
+        (is (= 476 (:configured_connection_id (ex-data ex))))
+        (is (= 99 (:graph_id (ex-data ex))))
+        (is (= 2 (:api_node_id (ex-data ex))))))))
 
 (deftest save-kafka-source-normalizes-topic-config
   (let [g  (base-graph 2 "Kf")
@@ -231,7 +358,31 @@
     (is (= "t1" ((keyword "data_items_id") (first (:rows out)))))
     (is (= "t1" (:source_record_id (first (:rows out)))))
     (is (= "2026-03-13T09:05:00Z" (:event_time_utc (second (:rows out)))))
+    (is (instance? java.sql.Date (:partition_date (first (:rows out)))))
+    (is (instance? java.sql.Date (:load_date (first (:rows out)))))
+    (is (= "2026-03-13" (str (:partition_date (first (:rows out))))))
     (is (empty? (:bad-records out)))))
+
+(deftest build-page-rows-leaves-source-record-id-nil-when-primary-key-values-are-missing
+  (let [page {:body {:data [{:INVOICE_ID "1001" :LAST_UPDATE_DATE "2026-03-13T09:00:00Z"}]}
+              :page 1
+              :state {}
+              :response {:status 200}}
+        endpoint {:endpoint_name "ap/invoices"
+                  :schema_mode "infer"
+                  :inferred_fields [{:path "$.data[].INVOICE_ID"
+                                     :column_name "data_items_INVOICE_ID"
+                                     :enabled true
+                                     :type "STRING"
+                                     :nullable false}]
+                  :json_explode_rules [{:path "$.data[]"}]
+                  :primary_key_fields ["id"]}
+        out (bronze/build-page-rows page endpoint {:run-id "r1"
+                                                   :source-system "orcl"
+                                                   :now (java.time.Instant/parse "2026-03-13T10:00:00Z")
+                                                   :request-url "https://api.example.com/ap/invoices"})]
+    (is (= 1 (count (:rows out))))
+    (is (nil? (:source_record_id (first (:rows out)))))))
 
 (deftest build-page-rows-supports-inferred-field-descriptors
   (let [page {:body {:data [{:id "t1" :vehicle {:id "v1"} :speed 42 :active true}]}
@@ -266,10 +417,11 @@
                                                    :source-system "samara"
                                                    :now (java.time.Instant/parse "2026-03-13T10:00:00Z")
                                                    :request-url "https://api.example.com/fleet/trips"})]
+    ;; Only primary_key_fields are promoted to Bronze columns (selective promotion)
     (is (= "t1" (:trip_id (first (:rows out)))))
-    (is (= "v1" (:vehicle_id (first (:rows out)))))
-    (is (= 42 (:speed (first (:rows out)))))
-    (is (= true (:active (first (:rows out)))))))
+    ;; Non-key, non-watermark fields are NOT promoted — they stay in payload_json
+    (is (nil? (:speed (first (:rows out)))))
+    (is (nil? (:active (first (:rows out)))))))
 
 (deftest build-page-rows-coerces-common-type-aliases-and-keeps-ddl-aligned
   (let [page {:body {:data [{:id "t1"
@@ -306,12 +458,14 @@
                                                    :now (java.time.Instant/parse "2026-03-13T10:00:00Z")
                                                    :request-url "https://api.example.com/fleet/trips"})
         columns (bronze/bronze-columns endpoint)]
-    (is (= 42.5 (:distance (first (:rows out)))))
-    (is (= 922337203685477580 (:counter (first (:rows out)))))
-    (is (= "99" (:note (first (:rows out)))))
-    (is (= "DOUBLE" (:data_type (first (filter #(= "distance" (:column_name %)) columns)))))
-    (is (= "BIGINT" (:data_type (first (filter #(= "counter" (:column_name %)) columns)))))
-    (is (= "STRING" (:data_type (first (filter #(= "note" (:column_name %)) columns)))))))
+    ;; Non-key, non-watermark fields are NOT promoted to Bronze columns
+    (is (nil? (:distance (first (:rows out)))))
+    (is (nil? (:counter (first (:rows out)))))
+    (is (nil? (:note (first (:rows out)))))
+    ;; bronze-columns should NOT include non-promotable fields
+    (is (nil? (first (filter #(= "distance" (:column_name %)) columns))))
+    (is (nil? (first (filter #(= "counter" (:column_name %)) columns))))
+    (is (nil? (first (filter #(= "note" (:column_name %)) columns))))))
 
 (deftest build-page-rows-routes-coercion-failures-to-bad-records
   (let [page {:body {:data [{:id "t1" :distance "not-a-number"}]}
@@ -331,9 +485,9 @@
                                                    :source-system "samara"
                                                    :now (java.time.Instant/parse "2026-03-13T10:00:00Z")
                                                    :request-url "https://api.example.com/fleet/trips"})]
-    (is (empty? (:rows out)))
-    (is (= 1 (count (:bad-records out))))
-    (is (re-find #"For input string" (:error_message (first (:bad-records out)))))))
+    ;; distance is not a key/watermark field, so it's not promoted — no coercion, no bad record
+    (is (= 1 (count (:rows out))))
+    (is (empty? (:bad-records out)))))
 
 (deftest checkpoint-window-start-applies-overlap
   (let [row {:last_successful_watermark "2026-03-13T09:00:00Z"}
@@ -387,6 +541,38 @@
                         #"Table name must be a valid qualified identifier"
                         (#'bitool.ingest.runtime/fetch-checkpoint 1 "audit.bad;drop" "samara" "trips"))))
 
+(deftest runtime-caches-checkpoint-rows-and-refreshes-on-write
+  (let [calls (atom 0)
+        row-a {:source_system "samara" :endpoint_name "trips" :last_successful_watermark "a"}
+        row-b {:source_system "samara" :endpoint_name "trips" :last_successful_watermark "b"}]
+    (with-redefs-fn {#'bitool.db/get-opts (fn [& _] :fake-ds)
+                     #'next.jdbc/execute-one! (fn [& _]
+                                                (swap! calls inc)
+                                                row-a)
+                     #'bitool.ingest.runtime/local-checkpoint-row (fn [& _] nil)
+                     #'bitool.ingest.runtime/cache-local-checkpoint-row! (fn [& _] nil)
+                     #'bitool.ingest.runtime/delete-local-checkpoint-row! (fn [& _] nil)
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] nil)}
+      (fn []
+        (is (= row-a (#'bitool.ingest.runtime/fetch-checkpoint 9 "main.audit.ingestion_checkpoint" "samara" "trips")))
+        (is (= row-a (#'bitool.ingest.runtime/fetch-checkpoint 9 "main.audit.ingestion_checkpoint" "samara" "trips")))
+        (is (= 1 @calls))
+        (is (= row-b (#'bitool.ingest.runtime/replace-checkpoint-row! 9 "main.audit.ingestion_checkpoint" row-b)))
+        (is (= row-b (#'bitool.ingest.runtime/fetch-checkpoint 9 "main.audit.ingestion_checkpoint" "samara" "trips")))
+        (is (= 1 @calls))))))
+
+(deftest runtime-prefers-local-checkpoint-mirror-before-remote-query
+  (let [remote-calls (atom 0)
+        row {:source_system "samara" :endpoint_name "trips" :last_successful_watermark "cached"}]
+    (with-redefs-fn {#'bitool.ingest.runtime/local-checkpoint-row (fn [& _] row)
+                     #'bitool.ingest.runtime/cache-local-checkpoint-row! (fn [& _] nil)
+                     #'next.jdbc/execute-one! (fn [& _]
+                                                (swap! remote-calls inc)
+                                                nil)}
+      (fn []
+        (is (= row (#'bitool.ingest.runtime/fetch-checkpoint 9 "main.audit.ingestion_checkpoint" "samara" "trips")))
+        (is (zero? @remote-calls))))))
+
 (deftest runtime-rejects-invalid-replace-row-table-name
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"Table name must be a valid qualified identifier"
@@ -396,6 +582,167 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"Column name must be a valid identifier"
                         (#'bitool.ingest.runtime/replace-row! 1 "audit.good" [:source_system "bad;drop"] {:source_system "samara"}))))
+
+(deftest runtime-caches-latest-schema-snapshot-row
+  (let [query-calls (atom 0)
+        snapshot-row {:graph_id 99
+                      :api_node_id 2
+                      :endpoint_name "trips"
+                      :schema_mode "infer"
+                      :schema_enforcement_mode "strict"
+                      :source_system "samara"
+                      :inferred_fields_json "[]"
+                      :captured_at_utc "2026-03-23T00:00:00Z"}]
+    (with-redefs-fn {#'bitool.ingest.runtime/query-schema-snapshot-rows (fn [& _]
+                                                                          (swap! query-calls inc)
+                                                                          [snapshot-row])
+                     #'bitool.ingest.runtime/local-latest-schema-snapshot-row (fn [& _] nil)
+                     #'bitool.ingest.runtime/cache-local-latest-schema-snapshot-row! (fn [& _] nil)
+                     #'bitool.ingest.runtime/delete-local-latest-schema-snapshot-row! (fn [& _] nil)
+                     #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
+                     #'bitool.control-plane/graph-workspace-context (fn [_] {:workspace_key "wk-1"})}
+      (fn []
+        (is (= snapshot-row (#'bitool.ingest.runtime/latest-schema-snapshot-row
+                             9 "main.audit.endpoint_schema_snapshot" 99 2 "trips")))
+        (is (= snapshot-row (#'bitool.ingest.runtime/latest-schema-snapshot-row
+                             9 "main.audit.endpoint_schema_snapshot" 99 2 "trips")))
+        (is (= 1 @query-calls))
+        (#'bitool.ingest.runtime/persist-endpoint-schema-snapshot!
+         9
+         "main.audit.endpoint_schema_snapshot"
+         {:graph-id 99
+          :api-node-id 2
+          :graph-version-id nil
+          :graph-version 1
+          :source-system "samara"
+          :endpoint {:endpoint_name "trips"
+                     :schema_mode "infer"
+                     :schema_enforcement_mode "strict"
+                     :inferred_fields [{:source_path "$.id"}]}
+          :sample-pages []
+          :captured-at "2026-03-24T00:00:00Z"})
+        (is (= "2026-03-24T00:00:00Z"
+               (:captured_at_utc (#'bitool.ingest.runtime/latest-schema-snapshot-row
+                                 9 "main.audit.endpoint_schema_snapshot" 99 2 "trips"))))
+        (is (= 1 @query-calls))))))
+
+(deftest runtime-prefers-local-schema-snapshot-mirror-before-remote-query
+  (let [query-calls (atom 0)
+        snapshot-row {:graph_id 99
+                      :api_node_id 2
+                      :endpoint_name "trips"
+                      :schema_mode "infer"
+                      :schema_enforcement_mode "strict"
+                      :source_system "samara"
+                      :inferred_fields_json "[]"
+                      :captured_at_utc "2026-03-23T00:00:00Z"}]
+    (with-redefs-fn {#'bitool.ingest.runtime/local-latest-schema-snapshot-row (fn [& _] snapshot-row)
+                     #'bitool.ingest.runtime/cache-local-latest-schema-snapshot-row! (fn [& _] nil)
+                     #'bitool.ingest.runtime/query-schema-snapshot-rows (fn [& _]
+                                                                          (swap! query-calls inc)
+                                                                          [])}
+      (fn []
+        (is (= snapshot-row (#'bitool.ingest.runtime/latest-schema-snapshot-row
+                             9 "main.audit.endpoint_schema_snapshot" 99 2 "trips")))
+        (is (zero? @query-calls))))))
+
+(deftest ensure-bad-record-columns-skips-backfill-updates-when-no-null-values-exist
+  (reset! @#'bitool.ingest.runtime/bad-record-columns-ready? #{})
+  (let [executed-sql (atom [])]
+    (with-redefs [bitool.ingest.runtime/exec-add-column! (fn [& _] nil)
+                  bitool.db/get-opts (fn [& _] :fake-ds)
+                  next.jdbc/execute-one! (fn [_ [sql]]
+                                           (cond
+                                             (.contains sql "bad_record_id IS NULL") nil
+                                             (.contains sql "replay_status IS NULL") nil
+                                             :else nil))
+                  next.jdbc/execute! (fn [_ [sql]]
+                                       (swap! executed-sql conj sql)
+                                       {:status :ok})]
+      (#'bitool.ingest.runtime/ensure-bad-record-columns! 9 "main.audit.bad_records")
+      (is (empty? (filter #(string/starts-with? % "UPDATE ") @executed-sql))))))
+
+(deftest null-backfill-needed-detects-when-a-column-has-null-values
+  (with-redefs [bitool.db/get-opts (fn [& _] :fake-ds)
+                next.jdbc/execute-one! (fn [_ [sql]]
+                                         (cond
+                                           (.contains sql "bad_record_id IS NULL") {:needs_backfill 1}
+                                           :else nil))]
+    (is (true? (#'bitool.ingest.runtime/null-backfill-needed?
+                9 "main.audit.bad_records" "bad_record_id")))
+    (is (false? (#'bitool.ingest.runtime/null-backfill-needed?
+                 9 "main.audit.bad_records" "replay_status")))))
+
+(deftest schema-snapshot-write-needed-skips-empty-samples-without-querying-latest-snapshot
+  (let [query-calls (atom 0)
+        endpoint {:endpoint_name "trips"
+                  :schema_mode "infer"
+                  :schema_enforcement_mode "additive"
+                  :json_explode_rules [{:path "$.data[]"}]
+                  :inferred_fields [{:path "$.data[].id"
+                                     :column_name "data_id"
+                                     :type "STRING"}]
+                  :schema_drift {:missing_fields [{:path "$.data[].id"}]}}]
+    (with-redefs [bitool.ingest.runtime/query-schema-snapshot-rows (fn [& _]
+                                                                     (swap! query-calls inc)
+                                                                     [])]
+      (is (false? (#'bitool.ingest.runtime/schema-snapshot-write-needed?
+                   9
+                   "main.audit.endpoint_schema_snapshot"
+                   {:graph-id 99
+                    :api-node-id 2
+                    :source-system "samsara"
+                    :endpoint endpoint
+                    :sample-pages []})))
+      (is (zero? @query-calls)))))
+
+(deftest schema-snapshot-write-needed-skips-optional-permissive-advisory-infer-endpoints
+  (let [query-calls (atom 0)
+        endpoint {:endpoint_name "trips"
+                  :schema_mode "infer"
+                  :schema_enforcement_mode "permissive"
+                  :schema_evolution_mode "advisory"
+                  :schema_review_state "optional"
+                  :require_schema_approval false
+                  :json_explode_rules [{:path "$.data[]"}]
+                  :inferred_fields [{:path "$.data[].id"
+                                     :column_name "data_id"
+                                     :type "STRING"}]}]
+    (with-redefs [bitool.ingest.runtime/query-schema-snapshot-rows (fn [& _]
+                                                                     (swap! query-calls inc)
+                                                                     [])]
+      (is (false? (#'bitool.ingest.runtime/schema-snapshot-write-needed?
+                   9
+                   "main.audit.endpoint_schema_snapshot"
+                   {:graph-id 99
+                    :api-node-id 2
+                    :source-system "samsara"
+                    :endpoint endpoint
+                    :sample-pages [{:body {:data [{:id "1"}]}}]})))
+      (is (zero? @query-calls)))))
+
+(deftest runtime-table-cache-persists-across-run-resets
+  (with-redefs-fn {#'bitool.ingest.runtime/local-table-confirmed? (fn [& _] false)
+                   #'bitool.ingest.runtime/cache-local-table-confirmed! (fn [& _] nil)
+                   #'bitool.db/create-table! (fn [& _] nil)}
+    (fn []
+      (#'bitool.ingest.runtime/ensure-table! 9 "main.audit.ingestion_checkpoint" checkpoint/ingestion-checkpoint-columns {})
+      (#'bitool.ingest.runtime/reset-table-cache-for-run! "run-1")
+      (#'bitool.ingest.runtime/reset-table-cache-for-run! "run-2")
+      (is (contains? @@#'bitool.ingest.runtime/tables-confirmed-per-run
+                     [9 "main.audit.ingestion_checkpoint"])))))
+
+(deftest runtime-uses-persistent-table-confirmation-cache-before-remote-ensure
+  (let [create-calls (atom 0)]
+    (with-redefs-fn {#'bitool.ingest.runtime/local-table-confirmed? (fn [& _] true)
+                     #'bitool.db/create-table! (fn [& _]
+                                                 (swap! create-calls inc)
+                                                 nil)}
+      (fn []
+        (#'bitool.ingest.runtime/ensure-table! 9 "main.audit.ingestion_checkpoint" checkpoint/ingestion-checkpoint-columns {})
+        (is (zero? @create-calls))
+        (is (contains? @@#'bitool.ingest.runtime/tables-confirmed-per-run
+                       [9 "main.audit.ingestion_checkpoint"]))))))        
 
 (deftest runtime-supports-postgresql-targets
   (let [endpoint {:endpoint_name "trips"
@@ -429,7 +776,211 @@
                      #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
                      #'bitool.ingest.runtime/replace-row! (fn [& _] nil)}
       (fn []
-        (is (= "success" (get-in (runtime/run-api-node! 99 2) [:results 0 :status])))))))
+        (let [out (runtime/run-api-node! 99 2)
+              timings (get-in out [:results 0 :timings])]
+          (is (= "success" (get-in out [:results 0 :status])))
+          (is (map? (:run_timings out)))
+          (is (contains? (:run_timings out) :run_total_ms))
+          (is (contains? (:run_timings out) :endpoints_total_ms))
+          (is (map? timings))
+          (is (contains? timings :checkpoint_lookup_ms))
+          (is (contains? timings :stream_process_ms))
+          (is (contains? timings :endpoint_total_ms)))))))
+
+(deftest run-api-node-derives-bronze-table-name-when-blank
+  (let [ensure-table-calls (atom [])
+        endpoint {:endpoint_name "fleet/vehicles"
+                  :endpoint_url "/fleet/vehicles"
+                  :enabled true
+                  :pagination_strategy "none"
+                  :bronze_table_name ""
+                  :selected_nodes []
+                  :primary_key_fields ["id"]}
+        api-node {:source_system "samara"
+                  :base_url "https://api.example.com"
+                  :auth_ref {}
+                  :endpoint_configs [endpoint]}]
+    (with-redefs-fn {#'db/getGraph (fn [_] {})
+                     #'g2/getData (fn [_ _] api-node)
+                     #'bitool.ingest.runtime/find-downstream-target (fn [_ _] {:connection_id 9
+                                                                               :catalog "sheetz_telematics"
+                                                                               :schema "bronze"
+                                                                               :table_name ""})
+                     #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'bitool.ingest.runtime/ensure-table! (fn [_ table-name & _]
+                                                             (swap! ensure-table-calls conj table-name)
+                                                             nil)
+                     #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
+                     #'api/fetch-paged-async (fn [_]
+                                               {:pages (async/to-chan! [{:body {:data []}
+                                                                         :response {:status 200}}
+                                                                        {:stop-reason :eof
+                                                                         :state {}
+                                                                         :http-status 200}])
+                                                :errors (async/to-chan! [])
+                                                :cancel (fn [] nil)})
+                     #'bitool.ingest.runtime/with-batch-commit (fn [_ f] (f))
+                     #'bronze/build-page-rows (fn [& _] {:rows [] :bad-records []})
+                     #'bitool.ingest.runtime/delete-rows-by-column! (fn [& _] nil)
+                     #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] nil)}
+      (fn []
+        (is (= "success" (get-in (runtime/run-api-node! 99 2) [:results 0 :status])))
+        (is (some #{"sheetz_telematics.bronze.fleet_vehicles"} @ensure-table-calls))))))
+
+(deftest run-api-node-skips-schema-snapshot-write-when-schema-is-unchanged
+  (let [snapshot-writes (atom 0)
+        inferred-fields [{:path "data.id"
+                          :column_name "data_id"
+                          :type "STRING"
+                          :enabled true}]
+        inferred-json (json/generate-string inferred-fields)
+        endpoint {:endpoint_name "fleet/vehicles"
+                  :endpoint_url "/fleet/vehicles"
+                  :enabled true
+                  :pagination_strategy "none"
+                  :schema_mode "infer"
+                  :schema_enforcement_mode "permissive"
+                  :selected_nodes []
+                  :primary_key_fields ["id"]
+                  :bronze_table_name "sheetz_telematics.bronze.fleet_vehicles"}
+        api-node {:source_system "samara"
+                  :base_url "https://api.example.com"
+                  :auth_ref {}
+                  :endpoint_configs [endpoint]}]
+    (with-redefs-fn {#'db/getGraph (fn [_] {})
+                     #'g2/getData (fn [_ _] api-node)
+                     #'bitool.ingest.runtime/find-downstream-target (fn [_ _] {:connection_id 9
+                                                                               :catalog "sheetz_telematics"
+                                                                               :schema "bronze"
+                                                                               :table_name "fleet_vehicles"})
+                     #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'bitool.ingest.runtime/ensure-table! (fn [& _] nil)
+                     #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
+                     #'bitool.ingest.runtime/query-schema-snapshot-rows (fn [& _]
+                                                                          [{:source_system "samara"
+                                                                            :schema_mode "infer"
+                                                                            :schema_enforcement_mode "permissive"
+                                                                            :inferred_fields_json inferred-json}])
+                     #'api/fetch-paged-async (fn [_]
+                                               {:pages (async/to-chan! [{:body {:data []}
+                                                                         :response {:status 200}}
+                                                                        {:stop-reason :eof
+                                                                         :state {}
+                                                                         :http-status 200}])
+                                                :errors (async/to-chan! [])
+                                                :cancel (fn [] nil)})
+                     #'bitool.ingest.runtime/with-batch-commit (fn [_ f] (f))
+                     #'bitool.ingest.runtime/collect-schema-sample! (fn [_ _] {:sample-pages [] :terminal-msg nil})
+                     #'bitool.ingest.runtime/maybe-infer-endpoint-fields (fn [endpoint _]
+                                                                           (assoc endpoint :inferred_fields inferred-fields))
+                     #'bitool.ingest.runtime/persist-endpoint-schema-snapshot! (fn [& _]
+                                                                                (swap! snapshot-writes inc)
+                                                                                nil)
+                     #'bronze/build-page-rows (fn [& _] {:rows [] :bad-records []})
+                     #'bitool.ingest.runtime/delete-rows-by-column! (fn [& _] nil)
+                     #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] nil)}
+      (fn []
+        (is (= "success" (get-in (runtime/run-api-node! 99 2) [:results 0 :status])))
+        (is (zero? @snapshot-writes))))))
+
+(deftest flush-batch-skips-commit-work-for-fully-stale-batch
+  (let [artifact-calls (atom 0)
+        delete-calls   (atom 0)
+        replace-calls  (atom 0)
+        load-calls     (atom 0)
+        flush-batch!   @#'bitool.ingest.runtime/flush-batch!]
+    (with-redefs-fn {#'bitool.ingest.runtime/rows-max-watermark (fn [_] "2026-03-01T00:00:00Z")
+                     #'bitool.ingest.runtime/page-state-next-cursor (fn [_] nil)
+                     #'bitool.ingest.runtime/persist-batch-artifact! (fn [& _]
+                                                                       (swap! artifact-calls inc)
+                                                                       {:artifact_path "noop"
+                                                                        :artifact_checksum "noop"})
+                     #'bitool.ingest.runtime/delete-rows-by-column! (fn [& _] (swap! delete-calls inc))
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] (swap! replace-calls inc))
+                     #'bitool.ingest.runtime/load-rows! (fn [& _] (swap! load-calls inc))}
+      (fn []
+        (let [state {:batch-seq 0
+                     :batch-id-override nil
+                     :checkpoint-row nil
+                     :max-watermark nil
+                     :next-cursor nil
+                     :checkpoint-watermark "2026-03-02T00:00:00Z"
+                     :rows-extracted 10
+                     :rows-written 0
+                     :bad-records-total 0
+                     :bad-records-written 0
+                     :pages-fetched 1
+                     :retry-count 0
+                     :last-http-status 200
+                     :changed-partition-dates []
+                     :manifests []
+                     :timings {}}
+              buffer {:rows [{:record_hash "r1"}]
+                      :bad-records []
+                      :page-artifacts []
+                      :byte-count 100
+                      :page-count 1
+                      :last-state {}}
+              out (flush-batch! 9
+                                {:table-name "main.bronze.fleet_vehicles"
+                                 :bad-records-table "main.audit.bad_records"
+                                 :manifest-table "main.audit.run_batch_manifest"
+                                 :checkpoint-table "main.audit.ingestion_checkpoint"
+                                 :source-system "samara"
+                                 :endpoint-name "fleet/vehicles"
+                                 :run-id "run-1"
+                                 :started-at "2026-03-23T00:00:00Z"
+                                 :endpoint-config {:endpoint_name "fleet/vehicles"}}
+                                buffer
+                                state)]
+          (is (= 0 @artifact-calls))
+          (is (= 0 @delete-calls))
+          (is (= 0 @replace-calls))
+          (is (= 0 @load-calls))
+          (is (= 1 (get-in out [:timings :stale_batch_skip_count]))))))))
+
+(deftest run-api-node-uses-target-table-name-when-endpoint-bronze-name-is-blank
+  (let [ensure-table-calls (atom [])
+        endpoint {:endpoint_name "fleet/vehicles"
+                  :endpoint_url "/fleet/vehicles"
+                  :enabled true
+                  :pagination_strategy "none"
+                  :bronze_table_name ""
+                  :selected_nodes []
+                  :primary_key_fields ["id"]}
+        api-node {:source_system "samara"
+                  :base_url "https://api.example.com"
+                  :auth_ref {}
+                  :endpoint_configs [endpoint]}]
+    (with-redefs-fn {#'db/getGraph (fn [_] {})
+                     #'g2/getData (fn [_ _] api-node)
+                     #'bitool.ingest.runtime/find-downstream-target (fn [_ _] {:connection_id 9
+                                                                               :catalog "sheetz_telematics"
+                                                                               :schema "bronze"
+                                                                               :table_name "vehicles_bronze"})
+                     #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'bitool.ingest.runtime/ensure-table! (fn [_ table-name & _]
+                                                             (swap! ensure-table-calls conj table-name)
+                                                             nil)
+                     #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
+                     #'api/fetch-paged-async (fn [_]
+                                               {:pages (async/to-chan! [{:body {:data []}
+                                                                         :response {:status 200}}
+                                                                        {:stop-reason :eof
+                                                                         :state {}
+                                                                         :http-status 200}])
+                                                :errors (async/to-chan! [])
+                                                :cancel (fn [] nil)})
+                     #'bitool.ingest.runtime/with-batch-commit (fn [_ f] (f))
+                     #'bronze/build-page-rows (fn [& _] {:rows [] :bad-records []})
+                     #'bitool.ingest.runtime/delete-rows-by-column! (fn [& _] nil)
+                     #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] nil)}
+      (fn []
+        (is (= "success" (get-in (runtime/run-api-node! 99 2) [:results 0 :status])))
+        (is (some #{"sheetz_telematics.bronze.vehicles_bronze"} @ensure-table-calls))))))
 
 (deftest run-api-node-treats-freshness-write-failures-as-non-fatal
   (let [endpoint {:endpoint_name "trips"
@@ -932,6 +1483,7 @@
                                                              (when (= table-name "sheetz_telematics.bronze.samara_trips_raw")
                                                                (reset! captured-columns columns)))
                      #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
+                     #'bitool.ingest.runtime/query-schema-snapshot-rows (fn [& _] [])
                      #'api/fetch-paged-async (fn [_]
                                                {:pages (async/to-chan! [{:body {:data [{:id "t1" :vehicle {:id "v1"}}]}
                                                                          :response {:status 200}}
@@ -980,6 +1532,7 @@
                                                              (when (= table-name "sheetz_telematics.bronze.samara_trips_raw")
                                                                (reset! captured-columns columns)))
                      #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
+                     #'bitool.ingest.runtime/query-schema-snapshot-rows (fn [& _] [])
                      #'api/fetch-paged-async (fn [_]
                                                {:pages (async/to-chan! [{:body {:data [{:id "t1" :vehicle {:id "v1"}}]}
                                                                          :response {:status 200}}
@@ -1030,6 +1583,7 @@
                      #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
                      #'bitool.ingest.runtime/ensure-table! (fn [& _] nil)
                      #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
+                     #'bitool.ingest.runtime/query-schema-snapshot-rows (fn [& _] [])
                      #'api/fetch-paged-async (fn [_]
                                                {:pages (async/to-chan! [{:body {:data [{:id "t1" :vehicle {:id "v1"}}]}
                                                                          :response {:status 200}}
@@ -1326,7 +1880,7 @@
                       (mapv :batch_seq))))
           (is (= nil (:last_successful_cursor (first @checkpoint-rows))))
           (is (= "cursor-2" (:last_successful_cursor (second @checkpoint-rows))))
-          (is (= 4 (count @delete-calls))))))))
+          (is (= 0 (count @delete-calls))))))))
 
 (deftest run-api-node-does-not-advance-zero-row-checkpoint-before-run-detail
   (let [checkpoint-rows  (atom [])
@@ -1845,7 +2399,7 @@
                           :changed-partition-dates []
                           :manifests []})))]
     (is (= 1 (:batch-seq out)))
-    (is (= ["preparing" "pending_checkpoint" "committed"] (mapv :status @manifests)))
+    (is (= ["pending_checkpoint" "committed"] (mapv :status @manifests)))
     (is (= 1 (count @checkpoints)))))
 
 (deftest abort-preparing-batches-promotes-pending-checkpoint-when-checkpoint-matches
@@ -2348,7 +2902,7 @@
                                                            (= "succeeded" (second op)))
                                                   idx))
                                               @ops))]
-          (is (= ["preparing" "pending_checkpoint" "committed"] manifest-statuses))
+          (is (= ["pending_checkpoint" "committed"] manifest-statuses))
           (is (number? committed-idx))
           (is (number? status-idx))
           (is (< committed-idx status-idx)))))))
@@ -2694,6 +3248,57 @@
             (is (empty? @ready))
             (is (pos? @calls))))))))
 
+(deftest databricks-add-column-ddl-strips-nullability-keyword
+  (with-redefs-fn {#'bitool.ingest.runtime/connection-dbtype (fn [_] "databricks")}
+    (fn []
+      (is (= "ALTER TABLE main.audit.ingestion_checkpoint ADD COLUMN last_successful_batch_id STRING"
+             (real-add-column-ddl "main.audit.ingestion_checkpoint"
+                                  "last_successful_batch_id"
+                                  "TEXT NULL"
+                                  9)))
+      (is (= "ALTER TABLE main.audit.ingestion_checkpoint ADD COLUMN last_successful_batch_seq INT"
+             (real-add-column-ddl "main.audit.ingestion_checkpoint"
+                                  "last_successful_batch_seq"
+                                  "INT NULL"
+                                  9))))))
+
+(deftest databricks-retention-queries-bind-limit-and-offset-as-int
+  (let [calls (atom [])]
+    (with-redefs-fn {#'bitool.ingest.runtime/connection-dbtype (fn [_] "databricks")
+                     #'bitool.ingest.runtime/sql-opts (fn [_] :fake-ds)
+                     #'jdbc/execute! (fn [_ sqlvec]
+                                       (swap! calls conj sqlvec)
+                                       [])}
+      (fn []
+        (#'bitool.ingest.runtime/query-manifest-rows
+         9
+         "main.audit.run_batch_manifest"
+         {:endpoint-name "fleet/vehicles"
+          :limit 250
+          :offset 7})
+        (#'bitool.ingest.runtime/query-bad-record-rows
+         9
+         "main.audit.bad_records"
+         {:endpoint-name "fleet/vehicles"
+          :limit 1500})
+        (#'bitool.ingest.runtime/query-bad-record-retention-rows
+         9
+         "main.audit.bad_records"
+         {:endpoint-name "fleet/vehicles"
+          :limit 3000
+          :offset 11})
+        (let [[manifest-sql bad-record-sql bad-record-retention-sql] @calls
+              manifest-limit (nth manifest-sql (- (count manifest-sql) 2))
+              manifest-offset (peek manifest-sql)
+              bad-record-limit (peek bad-record-sql)
+              retention-limit (nth bad-record-retention-sql (- (count bad-record-retention-sql) 2))
+              retention-offset (peek bad-record-retention-sql)]
+          (is (= Integer (class manifest-limit)))
+          (is (= Integer (class manifest-offset)))
+          (is (= Integer (class bad-record-limit)))
+          (is (= Integer (class retention-limit)))
+          (is (= Integer (class retention-offset))))))))
+
 (deftest checkpoint-row-for-failure-preserves-last-successful-batch-identity
   (let [existing {:last_successful_watermark "2026-03-14T09:59:00Z"
                   :last_successful_cursor "cursor-1"
@@ -2764,6 +3369,32 @@
         (#'bitool.ingest.runtime/load-rows! 9 "lake.audit.run_batch_manifest" [{:batch_id "b1"}])
         (is (nil? @stage-copy-call))
         (is (= 5 (count @jdbc-call)))))))
+
+(deftest load-rows-normalizes-databricks-temporal-bind-values
+  (let [captured (atom nil)
+        row (array-map :payload_json "{}"
+                       :partition_date (java.sql.Date/valueOf "2026-03-22")
+                       :load_date (java.time.LocalDate/of 2026 3 22)
+                       :extracted_at_utc (java.time.Instant/parse "2026-03-22T22:00:00Z")
+                       :event_time_utc (java.time.OffsetDateTime/parse "2026-03-22T22:00:00Z"))]
+      (with-redefs [bitool.ingest.runtime/connection-dbtype (fn [_] "databricks")
+                  db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                  db/get-opts (fn [& _] :fake-opts)
+                  jdbc/execute! (fn [_ sql-vec]
+                                  (reset! captured sql-vec)
+                                  {:status :ok})]
+      (#'bitool.ingest.runtime/load-rows! 9 "main.bronze.test_raw" [row])
+      (let [[sql & params] @captured]
+        (if (seq params)
+          (do
+            (is (= "2026-03-22" (nth params 1)))
+            (is (= "2026-03-22" (nth params 2)))
+            (is (= "2026-03-22T22:00:00Z" (nth params 3)))
+            (is (= "2026-03-22T22:00Z" (nth params 4))))
+          (do
+            (is (.contains sql "'2026-03-22'"))
+            (is (.contains sql "'2026-03-22T22:00:00Z'"))
+            (is (.contains sql "'2026-03-22T22:00Z'"))))))))
 
 (deftest run-file-node-uses-transport-aware-checksum-detection
   (let [fetch-config (atom nil)
@@ -2892,6 +3523,54 @@
                  :primary_key_fields ["id"]})]
       (is (= 200 (:http_status out)))
       (is (some #(= "$.data[].id" (:path %)) (:inferred_fields out)))))) 
+
+(deftest preview-endpoint-schema-auto-detects-record-array-path
+  (with-redefs [api/do-request (fn [_]
+                                 {:status 200
+                                  :body {:pagination {:hasNextPage false}
+                                         :data [{:id "t1" :vehicle {:id "v1"}}
+                                                {:id "t2" :vehicle {:id "v2"}}]}})]
+    (let [out (runtime/preview-endpoint-schema!
+               {:base_url "https://api.example.com"
+                :auth_ref {}}
+               {:endpoint_name "trips"
+                :endpoint_url "/fleet/trips"
+                :schema_mode "infer"
+                :sample_records 10
+                :max_inferred_columns 10
+                :type_inference_enabled true
+                :pagination_strategy "none"
+                :json_explode_rules []
+                :primary_key_fields ["id"]})]
+      (is (= 200 (:http_status out)))
+      (is (= "$.data[]" (:detected_records_path out)))
+      (is (= [{:path "$.data[]"}] (:applied_json_explode_rules out)))
+      (is (= 2 (:sampled_records out)))
+      (is (some #(= "$.data[].id" (:path %)) (:inferred_fields out)))
+      (is (not-any? #(= "$.pagination.hasNextPage" (:path %)) (:inferred_fields out))))))
+
+(deftest preview-endpoint-schema-keeps-inline-bearer-token-when-secret-ref-is-blank
+  (let [captured-request (atom nil)]
+    (with-redefs [api/do-request (fn [request]
+                                   (reset! captured-request request)
+                                   {:status 200
+                                    :body {:data [{:id "t1"}]}})]
+      (runtime/preview-endpoint-schema!
+       {:base_url "https://api.example.com"
+        :auth_ref {:type "bearer"
+                   :secret_ref ""
+                   :token "mock-samsara-token"}}
+       {:endpoint_name "trips"
+        :endpoint_url "/fleet/trips"
+        :schema_mode "infer"
+        :sample_records 10
+        :max_inferred_columns 10
+        :type_inference_enabled true
+        :pagination_strategy "none"
+        :json_explode_rules [{:path "$.data[]"}]
+        :primary_key_fields ["id"]})
+      (is (= {:type :bearer :token "mock-samsara-token"}
+             (:auth @captured-request))))))
 
 (deftest preview-endpoint-schema-rejects-failed-response
   (with-redefs [api/do-request (fn [_]

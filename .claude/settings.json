@@ -1,12 +1,20 @@
 {
-  "model": "opus",
   "permissions": {
-    "allow": ["Bash(*)",
-              "WebSearch",
+    "allow": [
+      "Bash(*)",
+      "WebSearch",
       "WebFetch(*)",
       "Read(*)",
-      "Write(*)","Bash", "Read", "Write"],
-  
-    "deny": []
-  }
+      "Write(*)",
+      "Bash",
+      "Read",
+      "Write"
+    ],
+    "deny": [],
+    "additionalDirectories": [
+      "/Users/aaryakulkarni/playwright/tests/e2e/helpers",
+      "/Users/aaryakulkarni/playwright/tests/e2e/specs"
+    ]
+  },
+  "model": "opus"
 }

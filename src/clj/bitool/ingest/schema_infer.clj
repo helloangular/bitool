@@ -3,16 +3,67 @@
             [bitool.utils :refer [path->name]]
             [clojure.string :as string]))
 
+(declare join-path)
+
 (defn logical-records-from-body
   [body records-path]
   (if (seq (string/trim (str records-path)))
-    (->> (tf/rows-from-json body {records-path :_record}
-                            {:row-mode :explode-by
-                             :explode-key records-path})
-         (map :_record)
-         (filter some?)
-         vec)
+    (let [;; Normalize path: strip "$.", "[]" suffixes, then split by "."
+          clean-path (-> (str records-path)
+                         (string/replace #"^\$\.?" "")
+                         (string/replace #"\[\]" ""))
+          path-parts (remove string/blank? (string/split clean-path #"\."))
+          data (reduce (fn [m k]
+                         (cond
+                           (and (map? m) (get m k)) (get m k)
+                           (and (map? m) (get m (keyword k))) (get m (keyword k))
+                           ;; Handle arrays: if current value is sequential, map over items
+                           (sequential? m) (mapcat (fn [item]
+                                                     (let [v (or (get item k) (get item (keyword k)))]
+                                                       (if (sequential? v) v (when v [v]))))
+                                                   m)
+                           :else nil))
+                       body path-parts)]
+      (cond
+        (sequential? data) (vec (filter some? data))
+        (some? data) [data]
+        :else [body]))
     [body]))
+
+(defn- candidate-record-array-paths
+  ([value] (candidate-record-array-paths value "$" 0 4))
+  ([value path depth max-depth]
+   (cond
+     (> depth max-depth) []
+
+     (map? value)
+     (mapcat (fn [[k v]]
+               (candidate-record-array-paths v (join-path path (name k)) (inc depth) max-depth))
+             value)
+
+     (sequential? value)
+     (let [items     (vec value)
+           path'     (str path "[]")
+           map-items (filter map? items)
+           candidate (when (seq map-items)
+                       [{:path path'
+                         :depth depth
+                         :map_item_count (count map-items)
+                         :item_count (count items)}])
+           nested    (->> map-items
+                          (take 5)
+                          (mapcat #(candidate-record-array-paths % path' (inc depth) max-depth)))]
+       (vec (concat candidate nested)))
+
+     :else [])))
+
+(defn detect-dominant-records-path
+  [body]
+  (some->> (candidate-record-array-paths body)
+           (sort-by (fn [{:keys [depth map_item_count item_count path]}]
+                      [depth (- map_item_count) (- item_count) (count path) path]))
+           first
+           :path))
 
 (defn- join-path [path segment]
   (cond
@@ -173,16 +224,20 @@
 
 (defn effective-field-descriptors
   [endpoint]
-  (let [manual   (manual-selected-fields (:selected_nodes endpoint))
-        inferred (->> (:inferred_fields endpoint)
-                      (filter #(not= false (:enabled %)))
-                      vec)
+  (let [manual     (manual-selected-fields (:selected_nodes endpoint))
+        inferred   (->> (:inferred_fields endpoint)
+                        (filter #(not= false (:enabled %)))
+                        vec)
+        spec-fields (vec (or (:spec_fields endpoint) []))
         schema-mode (or (:schema_mode endpoint) "manual")]
     (case schema-mode
       "infer" inferred
-      "hybrid" (->> (concat manual inferred)
+      "spec"  (if (seq spec-fields) spec-fields inferred)
+      "hybrid" (->> (concat spec-fields manual inferred)
                     (reduce (fn [acc field]
-                              (assoc acc (:path field) field))
+                              (if (contains? acc (:path field))
+                                acc
+                                (assoc acc (:path field) field)))
                             {})
                     vals
                     vec)
@@ -198,3 +253,108 @@
        :sample_records (or (:sample_records endpoint) 100)
        :max_inferred_columns (or (:max_inferred_columns endpoint) 100)
        :type_inference_enabled (not= false (:type_inference_enabled endpoint))})))
+
+;; ─── OpenAPI Spec → Field Descriptors Bridge ──────────────────────────
+
+(defn- openapi-type->bitool-type
+  "Map an OpenAPI/JSON Schema type+format to the closest BiTool column type."
+  [type-str format-str]
+  (let [t (some-> type-str string/lower-case)
+        f (some-> format-str string/lower-case)]
+    (case t
+      "integer" (if (= f "int64") "BIGINT" "INT")
+      "number"  "DOUBLE"
+      "boolean" "BOOLEAN"
+      "string"  (case f
+                  "date"      "DATE"
+                  "date-time" "TIMESTAMP"
+                  "STRING")
+      "STRING")))
+
+(defn- flatten-openapi-schema
+  "Recursively flatten an OpenAPI object schema into a sequence of field descriptors.
+   Walks nested properties like the runtime inferrer does (path = $.field.subfield).
+   `resolve-fn` resolves $ref within the spec.
+   `parent-required?` tracks whether every ancestor in the path is itself required —
+   a child is only truly required if every parent on the path to the root is also required."
+  ([schema required-set records-path resolve-fn]
+   (flatten-openapi-schema schema required-set records-path resolve-fn "$" 0 4 true))
+  ([schema required-set records-path resolve-fn prefix depth max-depth]
+   (flatten-openapi-schema schema required-set records-path resolve-fn prefix depth max-depth true))
+  ([schema required-set records-path resolve-fn prefix depth max-depth parent-required?]
+   (when (and schema (<= depth max-depth))
+     (let [props (or (:properties schema) {})]
+       (mapcat
+        (fn [[k v]]
+          (let [v          (if resolve-fn (resolve-fn v) v)
+                field-name (name k)
+                path       (if (or (= prefix "$") (= prefix "$[]"))
+                             (str prefix "." field-name)
+                             (str prefix "." field-name))
+                full-path  (if (seq (string/trim (str records-path)))
+                             (str records-path (subs path 1))
+                             path)
+                type-str   (:type v)
+                format-str (:format v)
+                locally-required? (or (contains? required-set field-name)
+                                      (contains? required-set (keyword field-name)))
+                ;; A field is only truly required if it AND every ancestor are required
+                effectively-required? (and parent-required? locally-required?)
+                nullable   (or (true? (:nullable v))
+                               (not effectively-required?))
+                required?  effectively-required?]
+            (cond
+              ;; Nested object — recurse, propagating whether this parent is required
+              (= type-str "object")
+              (let [nested-required (set (or (:required v) []))]
+                (flatten-openapi-schema v nested-required records-path resolve-fn
+                                        path (inc depth) max-depth effectively-required?))
+
+              ;; Array of objects — recurse into items
+              ;; Arrays are inherently nullable containers, so children are not required
+              (and (= type-str "array") (= "object" (:type (:items v))))
+              (let [items       (if resolve-fn (resolve-fn (:items v)) (:items v))
+                    arr-path    (str path "[]")
+                    items-req   (set (or (:required items) []))]
+                (flatten-openapi-schema items items-req records-path resolve-fn
+                                        arr-path (inc depth) max-depth false))
+
+              ;; Scalar field
+              :else
+              [{:path        full-path
+                :column_name (path->name full-path)
+                :source_kind "spec"
+                :enabled     true
+                :type        (openapi-type->bitool-type type-str format-str)
+                :observed_types [(openapi-type->bitool-type type-str format-str)]
+                :nullable    nullable
+                :is_required required?
+                :confidence  1.0
+                :sample_coverage 1.0
+                :depth       depth
+                :array_mode  "scalar"
+                :override_type ""
+                :notes       (or (:description v) "")}])))
+        props)))))
+
+(defn openapi-schema->field-descriptors
+  "Convert a resolved OpenAPI response schema into BiTool inferred_fields format.
+
+   Arguments:
+     schema       - A resolved OpenAPI schema map (no unresolved $refs).
+                    Must have {:type \"object\" :properties {...} :required [...]}
+     records-path - The json_explode_rules path (e.g. \"$.data[]\"), or \"\" for root.
+     resolve-fn   - Optional fn to resolve remaining $refs. Pass nil if fully resolved.
+
+   Returns a vector of field descriptor maps compatible with inferred_fields."
+  [schema records-path resolve-fn]
+  (let [root-is-array? (and (= "array" (:type schema)) (:items schema))
+        effective-schema (if root-is-array?
+                           (if resolve-fn (resolve-fn (:items schema)) (:items schema))
+                           schema)
+        ;; When the root is an array, start paths at $[] to match runtime inferrer
+        ;; (which produces $[].field for top-level array responses).
+        start-prefix (if root-is-array? "$[]" "$")
+        required-set (set (or (:required effective-schema) []))]
+    (vec (flatten-openapi-schema effective-schema required-set (or records-path "")
+                                 resolve-fn start-prefix 0 4))))

@@ -55,7 +55,7 @@
                  [com.taoensso/timbre "6.5.0"]
                  [org.clojure/core.async "1.8.741"]
                  [org.apache.kafka/kafka-clients "3.7.1"]
-
+                 [com.databricks/databricks-jdbc "2.6.40"]
 
 ;;                 [com.datomic/peer "1.0.7075"]
                  [com.github.seancorfield/next.jdbc "1.3.955"]
@@ -65,8 +65,7 @@
                  [while-let "0.2.0"]
                  [selmer "1.12.55"]]
 
-;;  :repositories {"local" "/Users/harishkulkarni/.m2/repository"}
-;;  :repositories [["clojars" "https://repo.clojars.org/"]]
+  :repositories [["databricks" {:url "https://repos.databricks.com/repo"}]]
 
   :min-lein-version "2.0.0"
   
@@ -88,7 +87,8 @@
    :dev           [:project/dev :profiles/dev]
    :test          [:project/dev :project/test :profiles/test]
 
-   :project/dev  {:jvm-opts ["-Dconf=dev-config.edn" ]
+   :project/dev  {:jvm-opts ["-Dconf=dev-config.edn"
+                             "--add-opens=java.base/java.nio=ALL-UNNAMED"]
                   :dependencies [[org.clojure/tools.namespace "1.3.0"]
                                  [pjstadig/humane-test-output "0.11.0"]
                                  [prone "2021-04-23"]
@@ -107,4 +107,16 @@
    :project/test {:jvm-opts ["-Dconf=test-config.edn" ]
                   :resource-paths ["env/test/resources"] }
    :profiles/dev {}
-   :profiles/test {}})
+   :profiles/test {}
+
+   ;; Lean uberjar for Databricks JAR task — only ingestion, no web server
+   :databricks {:uberjar-name "bitool-bronze-ingest.jar"
+                :omit-source true
+                :aot [bitool.databricks-job.bronze-ingest]
+                :main bitool.databricks-job.bronze-ingest
+                :jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"]
+                :dependencies [[org.clojure/clojure "1.12.0"]
+                               [clj-http "3.12.3"]
+                               [cheshire "5.10.0"]
+                               [org.clojure/tools.cli "1.0.214"]
+                               [com.databricks/databricks-jdbc "2.6.40"]]}})

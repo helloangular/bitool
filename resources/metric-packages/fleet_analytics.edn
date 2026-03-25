@@ -1,0 +1,82 @@
+{:name        "fleet_analytics"
+ :display-name "Fleet Analytics"
+ :description  "Vehicle utilization, driver performance, and trip analytics for fleet management"
+ :required-entities ["vehicle" "trip"]
+ :optional-entities ["driver" "vehicle_stat" "vehicle_location"]
+
+ :silver-entities
+ [{:entity      "vehicle"
+   :table       "dim_vehicle"
+   :entity-kind "dimension"
+   :source-endpoint "fleet/vehicles"
+   :business-keys ["vehicle_id"]
+   :columns     [{:source "id"           :target "vehicle_id"    :type "STRING"    :promoted true}
+                 {:source "name"         :target "vehicle_name"  :type "STRING"}
+                 {:source "make"         :target "make"          :type "STRING"}
+                 {:source "model"        :target "model"         :type "STRING"}
+                 {:source "year"         :target "year"          :type "INT"}
+                 {:source "vin"          :target "vin"           :type "STRING"}
+                 {:source "serial"       :target "serial"        :type "STRING"}
+                 {:source "licensePlate" :target "license_plate" :type "STRING"}]
+   :processing-policy {:ordering-strategy "latest_event_time_wins"
+                       :event-time-column "updated_at"
+                       :late-data-mode "merge"}}
+  {:entity      "driver"
+   :table       "dim_driver"
+   :entity-kind "dimension"
+   :source-endpoint "fleet/drivers"
+   :business-keys ["driver_id"]
+   :columns     [{:source "id"       :target "driver_id"   :type "STRING"    :promoted true}
+                 {:source "name"     :target "driver_name" :type "STRING"}
+                 {:source "username" :target "username"    :type "STRING"}
+                 {:source "phone"    :target "phone"       :type "STRING"}
+                 {:source "email"    :target "email"       :type "STRING"}
+                 {:source "status"   :target "status"      :type "STRING"}]
+   :processing-policy {:ordering-strategy "latest_event_time_wins"
+                       :event-time-column "updated_at"
+                       :late-data-mode "merge"}}
+  {:entity      "trip"
+   :table       "fct_trip"
+   :entity-kind "fact"
+   :source-endpoint "fleet/trips"
+   :business-keys ["trip_id"]
+   :columns     [{:source "id"             :target "trip_id"          :type "STRING"    :promoted true}
+                 {:source "driverId"       :target "driver_id"        :type "STRING"}
+                 {:source "vehicleId"      :target "vehicle_id"       :type "STRING"}
+                 {:source "startTime"      :target "start_time"       :type "TIMESTAMP"}
+                 {:source "endTime"        :target "end_time"         :type "TIMESTAMP"}
+                 {:source "distanceMeters" :target "distance_meters"  :type "DOUBLE"}]
+   :processing-policy {:ordering-strategy "latest_event_time_wins"
+                       :event-time-column "updated_at"
+                       :late-data-mode "merge"}}]
+
+ :gold-models
+ [{:table       "fleet_utilization_daily"
+   :grain       "day"
+   :depends-on  ["dim_vehicle" "fct_trip"]
+   :measures    ["active_vehicles" "total_trips" "total_distance_km"]
+   :dimensions  ["report_date" "make"]
+   :sql-template
+   "SELECT
+      CAST(t.start_time AS DATE) AS report_date,
+      v.make,
+      COUNT(DISTINCT v.vehicle_id) AS active_vehicles,
+      COUNT(DISTINCT t.trip_id) AS total_trips,
+      ROUND(SUM(t.distance_meters) / 1000.0, 2) AS total_distance_km
+    FROM {{silver_schema}}.fct_trip t
+    JOIN {{silver_schema}}.dim_vehicle v ON t.vehicle_id = v.vehicle_id
+    GROUP BY 1, 2"}
+  {:table       "driver_performance_daily"
+   :grain       "day"
+   :depends-on  ["dim_driver" "fct_trip"]
+   :measures    ["trips_completed" "distance_driven_km" "avg_speed_kmh"]
+   :dimensions  ["report_date" "driver_name"]
+   :sql-template
+   "SELECT
+      CAST(t.start_time AS DATE) AS report_date,
+      d.driver_name,
+      COUNT(DISTINCT t.trip_id) AS trips_completed,
+      ROUND(SUM(t.distance_meters) / 1000.0, 2) AS distance_driven_km
+    FROM {{silver_schema}}.fct_trip t
+    JOIN {{silver_schema}}.dim_driver d ON t.driver_id = d.driver_id
+    GROUP BY 1, 2"}]}

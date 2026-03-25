@@ -31,9 +31,32 @@
   (when-let [workspace-url (normalize-workspace-url (:host connection))]
     (str workspace-url "/api/2.1/jobs/runs/get")))
 
+(defn- runs-get-output-url [connection]
+  (when-let [workspace-url (normalize-workspace-url (:host connection))]
+    (str workspace-url "/api/2.1/jobs/runs/get-output")))
+
+(defn- stringify-job-param-value [v]
+  (cond
+    (nil? v) nil
+    (string? v) v
+    (keyword? v) (name v)
+    :else (str v)))
+
+(defn- normalize-run-now-params [params]
+  (reduce-kv (fn [acc k v]
+               (let [k (some-> k name)
+                     v (stringify-job-param-value v)]
+                 (if (and (seq k) (some? v))
+                   (assoc acc k v)
+                   acc)))
+             {}
+             (or params {})))
+
 (defn- run-now-body [job-id params]
-  (cond-> {:job_id (parse-job-id job-id)}
-    (seq params) (assoc :job_parameters params)))
+  (let [params-field (or (:__run_now_field params) :job_parameters)
+        params       (normalize-run-now-params (dissoc (or params {}) :__run_now_field))]
+    (cond-> {:job_id (parse-job-id job-id)}
+      (seq params) (assoc params-field params))))
 
 (defn trigger-job!
   [conn-id job-id params]
@@ -64,7 +87,9 @@
                      (get-in response [:body "run_id"]))
          :number_in_job (or (get-in response [:body :number_in_job])
                             (get-in response [:body "number_in_job"]))}
-        (throw (ex-info "Databricks Jobs API trigger failed"
+        (throw (ex-info (str "Databricks Jobs API trigger failed"
+                             " [http_status=" (:status response)
+                             ", response_body=" (pr-str (:body response)) "]")
                         {:connection_id conn-id
                          :job_id job-id
                          :http_status (:status response)
@@ -95,6 +120,36 @@
          :http_status (:status response)
          :body (:body response)}
         (throw (ex-info "Databricks Jobs API get-run failed"
+                        {:connection_id conn-id
+                         :run_id run-id
+                         :http_status (:status response)
+                         :response_body (:body response)}))))))
+
+(defn get-run-output!
+  [conn-id run-id]
+  (let [run-id     (some-> run-id str string/trim not-empty)
+        connection (databricks-connection conn-id)
+        token      (or (:token connection) (:password connection))
+        url        (runs-get-output-url connection)]
+    (when-not run-id
+      (throw (ex-info "Databricks Jobs API get-run-output requires a non-blank run id"
+                      {:connection_id conn-id})))
+    (when (string/blank? token)
+      (throw (ex-info "Databricks connection is missing token for Jobs API get-run-output"
+                      {:connection_id conn-id})))
+    (when-not url
+      (throw (ex-info "Databricks connection is missing host for Jobs API get-run-output"
+                      {:connection_id conn-id})))
+    (let [response (http/get url {:headers {"Authorization" (str "Bearer " token)}
+                                  :query-params {:run_id run-id}
+                                  :accept :json
+                                  :as :json
+                                  :throw-exceptions false})]
+      (if (<= 200 (:status response) 299)
+        {:run_id run-id
+         :http_status (:status response)
+         :body (:body response)}
+        (throw (ex-info "Databricks Jobs API get-run-output failed"
                         {:connection_id conn-id
                          :run_id run-id
                          :http_status (:status response)

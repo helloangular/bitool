@@ -15,13 +15,19 @@ const template = document.createElement("template");
 template.innerHTML = `<link rel="stylesheet" href="./app.css" />
 <link rel="stylesheet" href="./source/styles/smart.default.css" />
 <style>
+  :host {
+    visibility: hidden;
+    background: white;
+    overflow: auto;
+  }
   .columnlist-container {
     display: flex;
-    padding: 0 10px;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: stretch;
     gap: 10px;
     height: 100%;
+    box-sizing: border-box;
+    padding: 24px 10px 10px;
     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
   }
   .smart-button{
@@ -38,16 +44,27 @@ template.innerHTML = `<link rel="stylesheet" href="./app.css" />
     list-style: none;
     width: 100%;
   }
+  .cl-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 0;
+    background: white;
+  }
 </style>
 
 <div class="columnlist-container">
-  <div style="display:flex;justify-content:flex-end">
-    <smart-button content="&#9747;" class="smart-button"></smart-button>
-  </div>
-  <div style="display:flex;">
-    <smart-button content="Save" id="saveButton" class="smart-button" style="font-size:10px;" disabled></smart-button>
-    <smart-button content="filter" id="filterButton" class="smart-button" style="font-size:10px;"></smart-button>
-    <smart-button content="projection" id="projectionButton" class="smart-button" style="font-size:10px;"></smart-button>
+  <div class="cl-actions">
+    <div style="display:flex;">
+      <smart-button content="Save" id="saveButton" class="smart-button" style="font-size:10px;" disabled></smart-button>
+      <smart-button content="filter" id="filterButton" class="smart-button" style="font-size:10px;"></smart-button>
+      <smart-button content="projection" id="projectionButton" class="smart-button" style="font-size:10px;"></smart-button>
+    </div>
+    <smart-button id="closeX" content="&#9747;" class="smart-button" aria-label="Close"></smart-button>
   </div>
   <div id="generalForm">
     <label> 
@@ -82,7 +99,7 @@ class ColumnListComponent extends HTMLElement {
     this.shadowRoot.append(template.content.cloneNode(true));
 
     this.listBox = this.shadowRoot.querySelector("#settingsMenu");
-    this.closeButton = this.shadowRoot.querySelector("smart-button");
+    this.closeButton = this.shadowRoot.querySelector("#closeX");
     this.searchInput = this.shadowRoot.querySelector("#searchInput");
     this.sortButton = this.shadowRoot.querySelector("#sortButton");
     this.saveButton = this.shadowRoot.querySelector("#saveButton");
@@ -106,13 +123,18 @@ class ColumnListComponent extends HTMLElement {
     if (name === "visibility") {
       if (newValue === "open") {
         this.open();
+        this.setUpEventListeners();
         this.updateSelectedRectangle();
+        if (!this.selectedRectangle) {
+          console.warn("ColumnListComponent: no rectangle selected, closing.");
+          this.close();
+          return;
+        }
         this.updateFields();
         this.renderContent();
-        this.setUpEventListeners();
       } else {
         this.close();
-        if (this.style.hidden === "hidden") {
+        if (this.style.visibility === "hidden") {
           this.resetFields();
           EventHandler.removeGroup("ColumnListComponent");
         }

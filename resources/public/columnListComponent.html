@@ -8,9 +8,32 @@
     gap: 10px;
     height: 100%;
   }
+  .cl-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 8px 12px;
+    box-sizing: border-box;
+  }
+  .cl-header h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .close-x {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: #49564d;
+    padding: 0 4px;
+    line-height: 1;
+  }
+  .close-x:hover { color: #17251c; }
 </style>
 
 <div class="columnlist-container">
+  <div class="cl-header">
+    <h3>Columns</h3>
+    <button id="closeX" class="close-x" type="button">&times;</button>
+  </div>
   <smart-list-box id="settingsMenu" selection-mode="none" filterable filter-mode="custom"
     filter-input-placeholder="Search" style="height: 100%; width: 100%">
   </smart-list-box>

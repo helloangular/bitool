@@ -87,18 +87,23 @@
   (fn [request]
     (handler (update request :params merge (:body-params request)))))
 
+(defn- http-debug-logging-enabled? []
+  (contains? #{"true" "1" "yes" "on"}
+             (some-> (get env :bitool_http_debug_logs) str clojure.string/lower-case)))
+
 
 (defn wrap-log-request
   "Middleware to log the request after body has been parsed."
   [handler]
   (fn [request]
-    (tel/log! {:level :info
-               :msg "Incoming Request"
-               :data {:method (:request-method request)
-                      :uri (:uri request)
-                      :headers (:headers request)
-                      :body-params (:body-params request)  ;; Use parsed body
-                      :params (:params request)}})
+    (when (http-debug-logging-enabled?)
+      (tel/log! {:level :debug
+                 :msg "Incoming Request"
+                 :data {:method (:request-method request)
+                        :uri (:uri request)
+                        :headers (:headers request)
+                        :body-params (:body-params request)
+                        :params (:params request)}}))
     (handler request)))
 
 (defn wrap-log-response
@@ -106,29 +111,30 @@
   [handler]
   (fn [request]
     (let [response (handler request)]
-      (log/info "Response:"
-                {:status (:status response)
-                 :uri (:uri request)})
+      (when (http-debug-logging-enabled?)
+        (log/debug "Response:"
+                   {:status (:status response)
+                    :uri (:uri request)}))
       response)))
 
 (defn wrap-log-request-response
   "Middleware to log the incoming request and outgoing response."
   [handler]
   (fn [request]
-    ;; Log the incoming request
-    (log/info "Incoming Request:"
-              {:method (:request-method request)
-               :uri    (:uri request)
-               :headers (:headers request)
-               :params (:params request)})
+    (when (http-debug-logging-enabled?)
+      (log/debug "Incoming Request:"
+                 {:method (:request-method request)
+                  :uri    (:uri request)
+                  :headers (:headers request)
+                  :params (:params request)}))
     (let [response (handler request)]
-      ;; Log the outgoing response
-      (log/info "Outgoing Response:"
-                {:status  (:status response)
-                 :headers (:headers response)
-                 :body    (if (string? (:body response))
-                            (:body response)
-                            "Non-string body (e.g., stream)")})
+      (when (http-debug-logging-enabled?)
+        (log/debug "Outgoing Response:"
+                   {:status  (:status response)
+                    :headers (:headers response)
+                    :body    (if (string? (:body response))
+                               (:body response)
+                               "Non-string body (e.g., stream)")})) 
       response)))
 
 (def muuntaja-instance
@@ -140,19 +146,79 @@
 ;; Must be exactly 16, 24, or 32 bytes (ASCII characters = 1 byte each)
 (def cookie-key (.getBytes "0123456789abcdef")) ;; 16 bytes = AES-128
 
+(defn- parse-host-from-url
+  [value]
+  (when (seq (str value))
+    (try
+      (some-> value java.net.URI. .getHost clojure.string/lower-case)
+      (catch Exception _
+        nil))))
+
+(defn- request-host
+  [request]
+  (let [host-header (or (get-in request [:headers "x-forwarded-host"])
+                        (get-in request [:headers "host"]))]
+    (some-> host-header
+            str
+            (clojure.string/split #",")
+            first
+            clojure.string/trim
+            clojure.string/lower-case
+            (clojure.string/split #":")
+            first)))
+
+(defn- browser-mutation-request?
+  [request]
+  (let [headers (:headers request)
+        method  (:request-method request)]
+    (and (contains? #{:post :put :patch :delete} method)
+         (or (contains? headers "origin")
+             (contains? headers "referer")
+             (contains? headers "sec-fetch-site")))))
+
+(defn- same-origin?
+  [request]
+  (let [headers (:headers request)
+        req-host (request-host request)
+        origin-host (parse-host-from-url (get headers "origin"))
+        referer-host (parse-host-from-url (get headers "referer"))
+        fetch-site (some-> (get headers "sec-fetch-site") str clojure.string/lower-case)
+        origin-ok (or (nil? origin-host) (= origin-host req-host))
+        referer-ok (or (nil? referer-host) (= referer-host req-host))
+        fetch-site-ok (or (nil? fetch-site)
+                          (#{"same-origin" "same-site" "none"} fetch-site))]
+    (and req-host origin-ok referer-ok fetch-site-ok)))
+
+(defn wrap-same-origin-csrf
+  [handler]
+  (fn [request]
+    (if (and (browser-mutation-request? request)
+             (not (same-origin? request)))
+      {:status 403
+       :headers {"Content-Type" "application/json"}
+       :body (cheshire.core/generate-string
+              {:error "Invalid anti-forgery context"})}
+      (handler request))))
+
+(defn- session-doctor-enabled? []
+  (contains? #{"true" "1" "yes" "on"}
+             (some-> (get env :bitool_session_doctor) str clojure.string/lower-case)))
+
 (defn wrap-session-doctor [handler cookie-name]
   (fn [req]
-    (let [in-cookie (get-in req [:cookies cookie-name :value])
-          in-sess   (:session req)]
-      (println ">>> SESSION-DOCTOR: incoming cookie?" (boolean in-cookie)
-               "| incoming :session keys:" (when (map? in-sess) (keys in-sess)))
-      (let [resp (handler req)
-            out-sess (:session resp)
-            out-cookies (:cookies resp)]
-        (println ">>> SESSION-DOCTOR: outgoing :session keys:" (when (map? out-sess) (keys out-sess)))
-        (println ">>> SESSION-DOCTOR: outgoing Set-Cookie keys:"
-                 (when (map? out-cookies) (keys out-cookies)))
-        resp))))
+    (if-not (session-doctor-enabled?)
+      (handler req)
+      (let [in-cookie (get-in req [:cookies cookie-name :value])
+            in-sess   (:session req)]
+        (println ">>> SESSION-DOCTOR: incoming cookie?" (boolean in-cookie)
+                 "| incoming :session keys:" (when (map? in-sess) (keys in-sess)))
+        (let [resp (handler req)
+              out-sess (:session resp)
+              out-cookies (:cookies resp)]
+          (println ">>> SESSION-DOCTOR: outgoing :session keys:" (when (map? out-sess) (keys out-sess)))
+          (println ">>> SESSION-DOCTOR: outgoing Set-Cookie keys:"
+                   (when (map? out-cookies) (keys out-cookies)))
+          resp)))))
 
 (comment
 (defn wrap-base [handler]
@@ -189,18 +255,20 @@
 
 (defn wrap-debug-raw-body [handler]
   (fn [request]
-    (println "=== RAW REQUEST DEBUG ===")
-    (println "Method:" (:request-method request))
-    (println "URI:" (:uri request))
-    (println "Content-Type:" (get-in request [:headers "content-type"]))
-    (println "Query params:" (:query-params request))
-    (println "Form params:" (:form-params request))
-    (println "Body-params:" (:body-params request))
-    (println "Params:" (:params request))
+    (when (http-debug-logging-enabled?)
+      (println "=== RAW REQUEST DEBUG ===")
+      (println "Method:" (:request-method request))
+      (println "URI:" (:uri request))
+      (println "Content-Type:" (get-in request [:headers "content-type"]))
+      (println "Query params:" (:query-params request))
+      (println "Form params:" (:form-params request))
+      (println "Body-params:" (:body-params request))
+      (println "Params:" (:params request)))
     (let [response (handler request)]
-      (println "=== AFTER HANDLER ===")
-      (println "Body-params after:" (:body-params request))
-      (println "Params after:" (:params request))
+      (when (http-debug-logging-enabled?)
+        (println "=== AFTER HANDLER ===")
+        (println "Body-params after:" (:body-params request))
+        (println "Params after:" (:params request)))
       response)))
 
 (comment
@@ -254,8 +322,6 @@
 )
 
 (defn wrap-base [handler]
-  (println "Environment mode:" (if (env :dev) "DEVELOPMENT" "PRODUCTION"))
-  (println "Full env keys:" (keys env))
   (-> (if (env :dev)
         (wrap-reload handler {:dirs ["src"]})  ;; Add hot-reloading in dev
         handler)
@@ -263,6 +329,7 @@
       ;; Exception handling
       exc/wrap-exception-info
       wrap-internal-error
+      wrap-same-origin-csrf
       
       ;; Session & flash
       wrap-flash

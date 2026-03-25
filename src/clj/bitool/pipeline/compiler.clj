@@ -1,0 +1,175 @@
+(ns bitool.pipeline.compiler
+  "Stage 3: PipelineSpec -> Bronze GIL build plan + Silver/Gold proposal mutations.
+   Deterministic — no LLM, no side effects in plan mode.
+   Apply mode persists through existing Bitool APIs."
+  (:require [bitool.db :as db]
+            [bitool.graph2 :as g2]
+            [clojure.string :as string]
+            [clojure.tools.logging :as log]
+            [cheshire.core :as json]))
+
+;; ---------------------------------------------------------------------------
+;; Bronze GIL plan generation
+;; ---------------------------------------------------------------------------
+
+(defn bronze-gil
+  "Generate a GIL document from PipelineSpec bronze-nodes and bronze-edges.
+   This is a pure data structure — no side effects."
+  [{:keys [pipeline-id pipeline-name bronze-nodes bronze-edges]}]
+  {:intent     :build
+   :gil-version "1.0"
+   :graph-name (or pipeline-name pipeline-id)
+   :nodes      (conj (mapv (fn [{:keys [node-ref node-type config]}]
+                             {:node-ref node-ref
+                              :type     node-type
+                              :config   config})
+                           bronze-nodes)
+                     {:node-ref "o1" :type "output"})
+   :edges      (or bronze-edges [["api1" "tg1"] ["tg1" "o1"]])})
+
+;; ---------------------------------------------------------------------------
+;; Bronze apply — uses graph2 directly (thin adapter)
+;; ---------------------------------------------------------------------------
+
+(defn- find-api-node-config [spec]
+  (some (fn [n] (when (= "api-connection" (:node-type n)) (:config n)))
+        (:bronze-nodes spec)))
+
+(defn- find-target-node-config [spec]
+  (some (fn [n] (when (= "target" (:node-type n)) (:config n)))
+        (:bronze-nodes spec)))
+
+(defn apply-bronze!
+  "Create the Bronze graph from a PipelineSpec.
+   Creates graph, adds API source node + Target node, connects edges, saves configs.
+   Returns {:graph-id, :graph-version, :api-node-id, :target-node-id}."
+  [spec {:keys [created-by connection-id]}]
+  (let [graph-name  (or (:pipeline-name spec) (:pipeline-id spec))
+        api-config  (find-api-node-config spec)
+        tg-config   (find-target-node-config spec)
+        _           (when-not api-config
+                      (throw (ex-info "PipelineSpec missing api-connection node" {})))
+        _           (when-not tg-config
+                      (throw (ex-info "PipelineSpec missing target node" {})))
+
+        ;; Step 1: Create graph shell (Output node = id 1)
+        g0          (g2/createGraph graph-name)
+        g1          (db/insertGraph g0)
+        gid         (get-in g1 [:a :id])
+
+        ;; Step 2: Add API source node
+        _           (g2/add-single-node gid nil (or (:api_name api-config) "API Source") "Ap" 100 200)
+        g2          (db/getGraph gid)
+        api-node-id (first (sort (remove #{1} (keys (:n g2)))))
+
+        ;; Step 3: Add Target node
+        _           (g2/add-single-node gid nil "Target" "Tg" 300 200)
+        g3          (db/getGraph gid)
+        tg-node-id  (first (sort (remove #{1 api-node-id} (keys (:n g3)))))
+
+        ;; Step 4: Connect edges: API -> Target -> Output
+        _           (g2/connect-single-node gid api-node-id tg-node-id)
+        _           (g2/connect-single-node gid tg-node-id 1)
+
+        ;; Step 5: Save API config
+        g4          (db/getGraph gid)
+        g5          (g2/save-api g4 api-node-id
+                                 (merge api-config
+                                        {:id api-node-id}))
+        _           (db/insertGraph g5)
+
+        ;; Step 6: Save Target config
+        g6          (db/getGraph gid)
+        tg-params   (cond-> tg-config
+                      connection-id (assoc :connection_id connection-id))
+        g7          (g2/save-target g6 tg-node-id tg-params)
+        _           (db/insertGraph g7)
+
+        final-g     (db/getGraph gid)]
+    {:graph-id      gid
+     :graph-version (get-in final-g [:a :v])
+     :api-node-id   api-node-id
+     :target-node-id tg-node-id}))
+
+;; ---------------------------------------------------------------------------
+;; Silver proposal generation
+;; ---------------------------------------------------------------------------
+
+(defn plan-silver-proposals
+  "Return Silver proposal plans from PipelineSpec.
+   These are data structures — apply-silver-proposals! persists them."
+  [spec {:keys [graph-id api-node-id]}]
+  (mapv (fn [sp]
+          {:graph-id       graph-id
+           :api-node-id    api-node-id
+           :endpoint-name  (:source-endpoint sp)
+           :target-model   (:target-model sp)
+           :entity-kind    (:entity-kind sp)
+           :business-keys  (:business-keys sp)
+           :columns        (:columns sp)
+           :processing-policy (:processing-policy sp)})
+        (:silver-proposals spec)))
+
+(defn apply-silver-proposals!
+  "Create Silver proposals through existing modeling automation.
+   Requires Bronze graph to exist and have been run at least once (for schema).
+   Returns vector of {:proposal-id, :target-model}."
+  [silver-plans {:keys [created-by]}]
+  ;; This calls modeling-automation APIs which require runtime state.
+  ;; For now, return the plans as-is for the preview.
+  ;; Full apply will be wired when modeling-automation is available.
+  (log/info "Silver proposal apply deferred — modeling automation integration pending"
+            {:count (count silver-plans)})
+  (mapv (fn [plan]
+          {:proposal-id nil  ;; will be set when automation is wired
+           :target-model (:target-model plan)
+           :status "planned"})
+        silver-plans))
+
+;; ---------------------------------------------------------------------------
+;; Gold proposal generation
+;; ---------------------------------------------------------------------------
+
+(defn plan-gold-models
+  "Return Gold model plans from PipelineSpec."
+  [spec]
+  (:gold-models spec))
+
+(defn apply-gold-proposals!
+  "Create Gold proposals through existing modeling automation.
+   Requires Silver proposals to be published first.
+   Returns vector of {:proposal-id, :target-model}."
+  [gold-plans {:keys [created-by silver-proposal-ids]}]
+  (log/info "Gold proposal apply deferred — modeling automation integration pending"
+            {:count (count gold-plans)})
+  (mapv (fn [plan]
+          {:proposal-id nil
+           :target-model (:target-model plan)
+           :status "planned"})
+        gold-plans))
+
+;; ---------------------------------------------------------------------------
+;; Full pipeline apply
+;; ---------------------------------------------------------------------------
+
+(defn apply-pipeline!
+  "Apply the full pipeline: create Bronze graph + Silver/Gold proposal plans.
+   Does NOT execute any runs.
+   Returns {:bronze, :silver, :gold, :assumptions}."
+  [spec {:keys [created-by connection-id] :as opts}]
+  (let [;; Step A: Create Bronze graph
+        bronze-result (apply-bronze! spec opts)
+
+        ;; Step B: Plan Silver proposals (not yet applied — needs Bronze run first)
+        silver-plans  (plan-silver-proposals spec bronze-result)
+        silver-result (apply-silver-proposals! silver-plans opts)
+
+        ;; Step C: Plan Gold models (not yet applied — needs Silver publish first)
+        gold-plans    (plan-gold-models spec)
+        gold-result   (apply-gold-proposals! gold-plans
+                                             (assoc opts :silver-proposal-ids
+                                                    (mapv :proposal-id silver-result)))]
+    {:bronze      bronze-result
+     :silver      silver-result
+     :gold        gold-result
+     :assumptions (:assumptions spec)}))

@@ -202,13 +202,16 @@ export async function request(url, options = {}) {
     if (!response.ok) {
       const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
       if (response.status !== 404) alert(errMsg);
-      throw new Error(errMsg);
+      const err = new Error(errMsg);
+      err.responseData = data;
+      err.status = response.status;
+      throw err;
     }
 
     return data;
   } catch (error) {
     console.error("Request error:", error);
-    throw { message: error.message };
+    throw { message: error.message, responseData: error.responseData, status: error.status };
   }
 }
 

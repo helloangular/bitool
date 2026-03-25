@@ -1,5 +1,17 @@
+function findTreeParent(items, label) {
+  for (const item of items) {
+    if (item.label === label) return item;
+    if (item.items) {
+      const found = findTreeParent(item.items, label);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 // Initialize global data
 window.data = {
+  gid: null,
   rectangles: [],
   associations: [],
   selectedRectangle: "",
@@ -8,11 +20,14 @@ window.data = {
     {
       label: "RDBMS",
       items: [
+        { label: "PostgreSQL" },
         { label: "Oracle" },
         { label: "SQL Server" },
-        { label: "PostgreSQL" },
       ],
     },
+    { label: "Snowflake" },
+    { label: "Databricks" },
+    { label: "GCP" },
     {
       label: "NoSQL",
       items: [
@@ -23,8 +38,8 @@ window.data = {
     {
       label: "Kafka",
       items: [
-        { label: "Kafka Stream" },
-        { label: "Kafka Consumer" },
+        { label: "Kafka Stream", items: [] },
+        { label: "Kafka Consumer", items: [] },
       ]
     },
     {
@@ -41,7 +56,7 @@ window.data = {
       ]
     },
     { label: "Hadoop" },
-    { label: "API" },
+    { label: "API", items: [] },
   ],
   connections: [],
   panelItems: [],
@@ -87,6 +102,65 @@ customElements.whenDefined("workflow-dialog").then(() => {
 const menu = document.getElementById('menu');
 const dialog = document.getElementById('dialog');
 const closeDialog = document.getElementById('closeDialog');
+const TOOLBAR_OFFSET_SELECTOR = [
+  "column-list-component",
+  "target-component",
+  "association-editor-component",
+  "join-editor-component",
+  "union-editor-component",
+  "aggregation-editor-component",
+  "filter-component",
+  "function-component",
+  "projection-component",
+  "calculated-column-component",
+  "sorter-editor",
+  "transform-editor",
+  "mapping-editor",
+  "control-flow-component",
+  "kafka-source-component",
+  "file-source-component",
+  "api-component",
+  "api-connection-component",
+  "endpoint-component",
+  "response-builder-component",
+  "validator-component",
+  "auth-component",
+  "db-execute-component",
+  "rate-limiter-component",
+  "cors-component",
+  "logger-component",
+  "cache-component",
+  "event-emitter-component",
+  "circuit-breaker-component",
+  "scheduler-component",
+  "webhook-component",
+].join(", ");
+
+function updateToolbarOffsets() {
+  const toolbar = document.querySelector('.panel-btns');
+  if (!toolbar) return null;
+  const height = Math.ceil(toolbar.getBoundingClientRect().height || toolbar.offsetHeight || 0);
+  document.documentElement.style.setProperty('--toolbar-h', height + 'px');
+  document.querySelectorAll(TOOLBAR_OFFSET_SELECTOR).forEach((panel) => {
+    if (getComputedStyle(panel).position !== "fixed") return;
+    panel.style.top = `${height}px`;
+    panel.style.height = `calc(100vh - ${height}px)`;
+  });
+  return toolbar;
+}
+
+function initToolbarOffsetTracking() {
+  const toolbar = updateToolbarOffsets();
+  if (!toolbar || window.__bitoolToolbarOffsetTracking) return;
+  window.__bitoolToolbarOffsetTracking = true;
+  requestAnimationFrame(updateToolbarOffsets);
+  setTimeout(updateToolbarOffsets, 50);
+  setTimeout(updateToolbarOffsets, 250);
+  new ResizeObserver(updateToolbarOffsets).observe(toolbar);
+  window.addEventListener('load', updateToolbarOffsets);
+  window.addEventListener('resize', updateToolbarOffsets);
+  window.visualViewport?.addEventListener('resize', updateToolbarOffsets);
+}
 
 // Open the dialog when the menu item is clicked
 if (menu) {
@@ -102,7 +176,53 @@ if (closeDialog) {
   });
 }
 
+if (document.readyState !== 'loading') {
+  initToolbarOffsetTracking();
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+  initToolbarOffsetTracking();
+
+  // Load saved connections into tree
+  fetch("/listConnections")
+    .then(r => r.json())
+    .then(data => {
+      if (!data.connections) return;
+      // Group connections by treeParent
+      const grouped = {};
+      for (const conn of data.connections) {
+        if (!conn.treeParent) continue;
+        if (!grouped[conn.treeParent]) grouped[conn.treeParent] = [];
+        const child = { label: conn.label, conn_id: conn.conn_id };
+        if (conn.dbtype) child.dbtype = conn.dbtype;
+        if (conn.nodetype) child.nodetype = conn.nodetype;
+        grouped[conn.treeParent].push(child);
+      }
+      // Build new treeItems with deep-copied parent nodes so smart-tree detects changes
+      const rebuildItems = (items) => items.map(item => {
+        const copy = { ...item };
+        if (copy.items) {
+          copy.items = rebuildItems(copy.items);
+          if (grouped[copy.label]) {
+            copy.items = [...copy.items, ...grouped[copy.label]];
+            delete grouped[copy.label];
+          }
+        } else if (grouped[copy.label]) {
+          copy.items = [...grouped[copy.label]];
+          delete grouped[copy.label];
+        }
+        return copy;
+      });
+      window.data.treeItems = rebuildItems(window.data.treeItems);
+      const tryRender = () => {
+        const tree = document.querySelector("tree-component");
+        if (tree && tree.renderItems) tree.renderItems();
+        else setTimeout(tryRender, 200);
+      };
+      tryRender();
+    })
+    .catch(e => console.warn("Failed to load connections:", e));
+
   const graphForms = document.querySelectorAll('.graph-form');
 
   graphForms.forEach(form => {
@@ -132,6 +252,7 @@ document.addEventListener('DOMContentLoaded', function () {
         form.reset();
 
         window.data.panelItems = [data];
+        window.data.gid = data?.id ?? window.data.gid;
         localStorage.setItem('jqdata', JSON.stringify(window.data));
 
         const dialog = document.getElementById('dialog');
@@ -320,4 +441,87 @@ document.addEventListener('save-query', (e) => {
 
 window.printCurrentRectangle = () => {
   return window.data.rectangles.find(r => r.id === window.data.selectedRectangle);
+}
+
+// ── Model List (Open existing model) ──
+
+window.openModelList = async function () {
+  const dialog = document.getElementById('modelListDialog');
+  const loading = document.getElementById('modelListLoading');
+  const table = document.getElementById('modelListTable');
+  const tbody = document.getElementById('modelListBody');
+  const empty = document.getElementById('modelListEmpty');
+  const search = document.getElementById('modelSearchInput');
+
+  // Reset state
+  loading.style.display = 'block';
+  table.style.display = 'none';
+  empty.style.display = 'none';
+  search.value = '';
+  tbody.innerHTML = '';
+  dialog.opened = true;
+
+  try {
+    const response = await fetch('/listModels');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const models = await response.json();
+    models.sort((a, b) => (b.id || 0) - (a.id || 0));
+
+    loading.style.display = 'none';
+
+    if (!models.length) {
+      empty.style.display = 'block';
+      return;
+    }
+
+    const renderRows = (filter) => {
+      const term = (filter || '').toLowerCase();
+      tbody.innerHTML = '';
+      let count = 0;
+      models.forEach(m => {
+        if (term && !(m.name || '').toLowerCase().includes(term) && !String(m.id).includes(term)) return;
+        count++;
+        const tr = document.createElement('tr');
+        tr.style.cssText = 'cursor:pointer;';
+        tr.innerHTML =
+          `<td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #f3f4f6;">${m.id}</td>` +
+          `<td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #f3f4f6;font-weight:500;">${m.name || '(unnamed)'}</td>` +
+          `<td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #f3f4f6;color:#6b7280;">v${m.version}</td>`;
+        tr.addEventListener('mouseenter', () => { tr.style.background = '#f0f5ff'; });
+        tr.addEventListener('mouseleave', () => { tr.style.background = ''; });
+        tr.addEventListener('click', () => loadModel(m.id));
+        tbody.appendChild(tr);
+      });
+      empty.style.display = count === 0 ? 'block' : 'none';
+      table.style.display = count === 0 ? 'none' : 'table';
+    };
+
+    renderRows('');
+    search.addEventListener('input', () => renderRows(search.value));
+
+  } catch (err) {
+    loading.textContent = 'Failed to load models';
+    console.error('openModelList error:', err);
+  }
+};
+
+async function loadModel(gid) {
+  try {
+    const response = await fetch('/graph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gid: gid })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+
+    window.data.panelItems = Array.isArray(data) ? data : [data];
+    window.data.gid = gid;
+    localStorage.setItem('jqdata', JSON.stringify(window.data));
+
+    document.getElementById('modelListDialog').opened = false;
+  } catch (err) {
+    console.error('loadModel error:', err);
+    alert('Failed to load model: ' + err.message);
+  }
 }

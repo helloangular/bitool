@@ -5,19 +5,30 @@ const template = document.createElement("template");
 template.innerHTML = `
 <style>
   .rectangle-container {
-    width: 90px; /* Fixed width */
-    height: 20px; /* Fixed height */
+    width: 90px;
+    height: 20px;
     padding: 10px;
-    border: 3px solid #004466;
-    border-radius: 6px;
+    border: 1px solid #e2e4ea;
+    border-radius: 8px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    text-align: center; /* Center-align the text */
-    overflow: hidden; /* Hide overflowing content */
-    word-wrap: break-word; /* Ensure text wraps within the container */
-    white-space: normal; /* Allow text to wrap */
+    text-align: center;
+    overflow: hidden;
+    word-wrap: break-word;
+    white-space: normal;
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    color: #1a1d26;
+    transition: 0.15s ease;
+  }
+  .rectangle-container:hover {
+    border-color: #3b7ddd;
+    box-shadow: 0 2px 8px rgba(59,125,221,0.15);
   }
   .icon {
     width: 20px;
@@ -26,6 +37,7 @@ template.innerHTML = `
   .rectangle-container.endpoint-node {
     width: 230px;
     padding: 8px 10px;
+    border-left: 3px solid #3b7ddd;
   }
   #alias-info.endpoint-alias {
     width: 100%;
@@ -42,13 +54,15 @@ template.innerHTML = `
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-family: monospace;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #1a1d26;
   }
   .endpoint-icon {
     flex: 0 0 auto;
     width: 20px;
     text-align: center;
-    font-size: 16px;
+    font-size: 14px;
     line-height: 1;
   }
 </style>
@@ -109,11 +123,12 @@ class RectangleComponent extends HTMLElement {
   }
 
   setBorder(type) {
+    const border = `1.5px ${type} #3b7ddd`;
     if (this.container) {
-      this.container.style.border = `3px ${type} #004466`;
+      this.container.style.border = border;
     } else {
       const el = this.shadow.querySelector(".rectangle-container");
-      if (el) el.style.border = `3px ${type} #004466`;
+      if (el) el.style.border = border;
     }
   }
 
@@ -337,6 +352,27 @@ class RectangleComponent extends HTMLElement {
     const routeLabel = (this.endpointLabel || "").trim();
     const displayLabel = routeLabel || alias;
 
+    // Apply btype-specific left accent color
+    const btypeColors = {
+      // Source nodes - blue
+      T: "#3b7ddd", V: "#3b7ddd", Ap: "#3b7ddd", Kf: "#3b7ddd", Fs: "#3b7ddd",
+      // Transform nodes - purple
+      Fi: "#7c5cfc", P: "#7c5cfc", Fu: "#7c5cfc", A: "#7c5cfc", S: "#7c5cfc",
+      J: "#7c5cfc", U: "#7c5cfc", Mp: "#7c5cfc", C: "#7c5cfc",
+      // API/Endpoint nodes - cyan
+      Ep: "#0ea5c7", Wh: "#0ea5c7", Rb: "#0ea5c7",
+      // Infra nodes - amber
+      Au: "#d97706", Vd: "#d97706", Rl: "#d97706", Cr: "#d97706",
+      Lg: "#d97706", Cq: "#d97706", Ev: "#d97706", Ci: "#d97706",
+      Dx: "#d97706", Sc: "#d97706",
+      // Target - green
+      Tg: "#0fa968",
+      // Output - dark
+      O: "#1a1d26",
+    };
+    const accentColor = btypeColors[btype] || "#3b7ddd";
+    this.container.style.borderLeft = `3px solid ${accentColor}`;
+
     aliasEl.classList.remove("endpoint-alias");
     this.container.classList.remove("endpoint-node");
 
@@ -379,23 +415,31 @@ class FloaterMenu extends HTMLElement {
     style.textContent = `
       .menu {
         position: absolute;
-        background-color: white;
-        border: 1px solid #ccc;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        padding: 10px;
+        background-color: #ffffff;
+        border: 1px solid #e2e4ea;
+        border-radius: 10px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+        padding: 6px;
         display: none;
         flex-direction: column;
+        font-family: 'DM Sans', -apple-system, sans-serif;
         z-index: 1000;
       }
       .menu-item {
-        padding: 8px;
+        padding: 7px 12px;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
+        border-radius: 6px;
+        font-size: 12.5px;
+        font-weight: 500;
+        color: #1a1d26;
+        transition: 0.15s;
       }
       .menu-item:hover {
-        background-color: #f0f0f0;
+        background-color: #f0f1f4;
+        color: #3b7ddd;
       }
     `;
 
@@ -411,8 +455,10 @@ class FloaterMenu extends HTMLElement {
       'delete'].forEach((label) => {
         const item = this.createMenuItemAndAddListener(label);
         if (label === 'delete') {
-          item.style.borderTop = '1px solid #ddd';
-          item.style.color = '#c00';
+          item.style.borderTop = '1px solid #eceef2';
+          item.style.marginTop = '2px';
+          item.style.paddingTop = '7px';
+          item.style.color = '#e5484d';
         }
         menu.appendChild(item);
       });
@@ -504,6 +550,7 @@ class FloaterMenu extends HTMLElement {
         logger:            'logger-component',
         cache:             'cache-component',
         'circuit-breaker': 'circuit-breaker-component',
+        target:            'target-component',
       };
       const elementSelector = map[label] || 'filter-component';
       const el = document.querySelector(elementSelector);

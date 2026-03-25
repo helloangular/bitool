@@ -18,7 +18,7 @@ export function renderTree(treeEl, treeItems, options = {}) {
       options.onContextMenuReady(items);
     }
     if (typeof options.onDragReady === "function") {
-      options.onDragReady(groups);
+      options.onDragReady([...groups, ...items]);
     }
   };
 

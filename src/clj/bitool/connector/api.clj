@@ -11,6 +11,7 @@
     [bitool.connector.auth :as auth]
     [bitool.api.jsontf :as tf]
     [bitool.macros :refer :all]
+    [clojure.string :as string]
     [taoensso.timbre :as log]))
 
 ;; =============================================================================
@@ -302,10 +303,21 @@
           (or base-params {})
           out-key-map))
 
+(defn- join-url
+  [base-url endpoint]
+  (let [base-url (str (or base-url ""))
+        endpoint (str (or endpoint ""))]
+    (cond
+      (string/blank? base-url) endpoint
+      (string/blank? endpoint) base-url
+      (or (string/ends-with? base-url "/")
+          (string/starts-with? endpoint "/")) (str base-url endpoint)
+      :else (str base-url "/" endpoint))))
+
 (defn- next-url+request
   "Decide the next request URL, query, and body from current state."
   [{:keys [base-url endpoint state first? pagination query-builder body-builder out-key-map pagination-location]}]
-  (let [url   (or (:next-url state) (str base-url endpoint))
+  (let [url   (or (:next-url state) (join-url base-url endpoint))
         paged-params (cond
                        first? nil
                        (= pagination :link-header) {}
@@ -330,7 +342,7 @@
   [{:keys [state' resp base-url endpoint]}]
   (when-let [np (paginate/next-page (assoc state' :response resp))]
     {:state-next (merge (dissoc state' :response :next-url) np)
-     :url-next   (or (:next-url np) (str base-url endpoint))}))
+     :url-next   (or (:next-url np) (join-url base-url endpoint))}))
 
 ;; finish!
 (defn- finish! [{:keys [pages-ch errors-ch resp state reason]}]
@@ -351,7 +363,7 @@
   (let [out-map (or out-key-map (inverse-map (or state-key-map {})))]
     (go-loop [state  (merge {:type pagination} (or initial-state {}))
               first? true
-              url    (str base-url endpoint)]
+              url    (join-url base-url endpoint)]
       (if (async/poll! stop-ch)
         (finish! {:pages-ch pages-ch :errors-ch errors-ch
                   :resp nil :state state :reason :cancelled})

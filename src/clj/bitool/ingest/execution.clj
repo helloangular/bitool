@@ -33,7 +33,7 @@
 (def ^:private dedupe-active-statuses ["queued" "leased" "running" "recovering_orphan"])
 
 (def ^:private retryable-failure-classes
-  #{"transient_network" "rate_limited" "target_conflict" "worker_orphaned"})
+  #{"transient_network" "rate_limited" "target_conflict" "worker_orphaned" "transient_platform_error"})
 
 (defn- db-opts
   [conn]
@@ -312,6 +312,12 @@
                           "error_message TEXT NULL, "
                           "request_params TEXT NULL, "
                           "created_at_utc TIMESTAMPTZ NOT NULL DEFAULT now())")
+                     "CREATE TABLE IF NOT EXISTS ops_worker_drain (
+                        worker_id        TEXT PRIMARY KEY,
+                        drain_requested  BOOLEAN NOT NULL DEFAULT true,
+                        requested_by     TEXT NOT NULL,
+                        requested_at_utc TIMESTAMPTZ NOT NULL DEFAULT now()
+                      )"
                      (str "CREATE TABLE IF NOT EXISTS " execution-orphan-recovery-event-table " ("
                           "id BIGSERIAL PRIMARY KEY, "
                           "request_id UUID NOT NULL REFERENCES " execution-request-table "(request_id), "
@@ -388,8 +394,22 @@
 
 (defn- ensure-active-release!
   [conn graph-id environment]
-  (or (load-active-release conn graph-id environment)
-      (let [graph-version-row (ensure-graph-version-row! conn graph-id)]
+  (let [graph-version-row (ensure-graph-version-row! conn graph-id)
+        active-release    (load-active-release conn graph-id environment)]
+    (if (and active-release
+             (= (long (:graph_version_id active-release))
+                (long (:id graph-version-row)))
+             (= (long (:graph_version active-release))
+                (long (:graph_version graph-version-row))))
+      active-release
+      (do
+        (when active-release
+          (jdbc/execute!
+           conn
+           [(str "UPDATE " graph-release-table "
+                  SET status = 'superseded'
+                  WHERE id = ?")
+            (:id active-release)]))
         (jdbc/execute-one!
          (db-opts conn)
          [(str "INSERT INTO " graph-release-table
@@ -399,7 +419,7 @@
           graph-id
           environment
           (:id graph-version-row)
-          (:graph_version graph-version-row)]))))
+          (:graph_version graph-version-row)])))))
 
 (defn- active-request-by-key
   [conn request-key]
@@ -505,23 +525,19 @@
     :kafka (parse-int-env :execution-kafka-max-retries 3)
     :file (parse-int-env :execution-file-max-retries 3)
     :scheduler (parse-int-env :execution-scheduler-max-retries 0)
+    :silver_release (parse-int-env :execution-modeling-max-retries 2)
+    :gold_release (parse-int-env :execution-modeling-max-retries 2)
     0))
 
-(defn- enqueue-request!
-  [request-kind graph-id node-id {:keys [environment endpoint-name trigger-type request-params max-retries workspace-key]}]
-  (let [environment         (or environment "default")
-        endpoint-name       (normalize-endpoint-name endpoint-name)
-        trigger-type        (or trigger-type "manual")
-        request-key         (string/join "::" [(name request-kind) graph-id node-id environment (or endpoint-name "")])
-        request-id          (UUID/randomUUID)
-        run-id              (UUID/randomUUID)
-        dependency-blockers (control-plane/dependency-blockers graph-id)
-        workspace-context   (if-let [workspace-key (some-> workspace-key str string/trim not-empty)]
-                              (control-plane/workspace-context workspace-key {:required? true})
-                              (control-plane/graph-workspace-context graph-id))
-        request-params      (or request-params {})
-        params-json         (json/generate-string request-params)
-        max-retries         (max 0 (int (or max-retries (default-max-retries request-kind))))]
+(defn- resolve-workspace-context
+  [graph-id workspace-key]
+  (if-let [workspace-key (some-> workspace-key str string/trim not-empty)]
+    (control-plane/workspace-context workspace-key {:required? true})
+    (control-plane/graph-workspace-context graph-id)))
+
+(defn- validate-enqueue-context!
+  [graph-id workspace-context]
+  (let [dependency-blockers (control-plane/dependency-blockers graph-id)]
     (when (seq dependency-blockers)
       (throw (ex-info "Graph has unmet upstream dependencies"
                       {:graph_id graph-id
@@ -538,120 +554,172 @@
                       {:graph_id graph-id
                        :workspace_key (:workspace_key workspace-context)
                        :tenant_key (:tenant_key workspace-context)
-                       :status 409})))
+                       :status 409})))))
+
+(defn- enqueue-request!
+  [request-kind graph-id node-id {:keys [environment endpoint-name trigger-type request-params max-retries workspace-key request-key-override tx-context-resolver]}]
+  (let [environment                (or environment "default")
+        endpoint-name              (normalize-endpoint-name endpoint-name)
+        trigger-type               (or trigger-type "manual")
+        request-key                (or request-key-override
+                                       (string/join "::" [(name request-kind) graph-id node-id environment (or endpoint-name "")]))
+        request-id                 (UUID/randomUUID)
+        run-id                     (UUID/randomUUID)
+        request-params             (or request-params {})
+        max-retries                (max 0 (int (or max-retries (default-max-retries request-kind))))
+        base-workspace-context     (when-not tx-context-resolver
+                                     (resolve-workspace-context graph-id workspace-key))]
+    (when-not tx-context-resolver
+      (validate-enqueue-context! graph-id base-workspace-context))
     (let [{:keys [source-system credential-ref source-max-concurrency credential-max-concurrency]}
           (when (= request-kind :api)
-            (api-request-concurrency-context graph-id node-id endpoint-name))
-          queue-partition (queue-partition-for request-key (:workspace_key workspace-context))
-          workload-class  (request-workload-class request-kind trigger-type request-params)]
+            (api-request-concurrency-context graph-id node-id endpoint-name))]
       (jdbc/with-transaction [tx db/ds]
         (when (contains? #{:api :kafka :file} request-kind)
           (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))"
                              (source-request-scope-key request-kind graph-id node-id environment)]))
         (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" request-key])
-        (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" (:tenant_key workspace-context)])
-        (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" (:workspace_key workspace-context)])
-        (if-let [existing (active-request-by-key tx request-key)]
-          (request->response existing)
-          (if-let [overlap (when (contains? #{:api :kafka :file} request-kind)
-                             (active-source-request-overlap tx request-kind graph-id node-id environment endpoint-name))]
-            (if (nil? endpoint-name)
-              (throw (ex-info (str (string/upper-case (name request-kind))
-                                   " node already has an active endpoint-scoped ingestion request; cannot start an all-endpoints run")
-                              {:graph_id graph-id
-                               :node_id node-id
-                               :environment environment
-                               :active_request_id (str (:request_id overlap))
-                               :active_run_id (str (:run_id overlap))
-                               :active_endpoint_name (:endpoint_name overlap)
-                               :status 409}))
-              (request->response overlap))
-          (let [workspace-queued-count (-> (jdbc/execute-one!
-                                            (db-opts tx)
-                                            [(str "SELECT COUNT(*) AS cnt FROM " execution-request-table "
-                                                   WHERE workspace_key = ?
-                                                     AND status = 'queued'")
-                                             (:workspace_key workspace-context)])
-                                           :cnt
-                                           long)
-                tenant-queued-count (-> (jdbc/execute-one!
-                                         (db-opts tx)
-                                         [(str "SELECT COUNT(*) AS cnt FROM " execution-request-table "
-                                                WHERE tenant_key = ?
-                                                  AND status = 'queued'")
-                                          (:tenant_key workspace-context)])
-                                        :cnt
-                                        long)
-                _ (when (>= workspace-queued-count (long (:max_queued_requests workspace-context)))
-                    (throw (ex-info "Workspace queue is at capacity"
-                                    {:graph_id graph-id
-                                     :workspace_key (:workspace_key workspace-context)
-                                     :tenant_key (:tenant_key workspace-context)
-                                     :max_queued_requests (:max_queued_requests workspace-context)
-                                     :status 429})))
-                _ (when (>= tenant-queued-count (long (or (:tenant_max_queued_requests workspace-context) 1000)))
-                    (throw (ex-info "Tenant queue is at capacity"
-                                    {:graph_id graph-id
-                                     :workspace_key (:workspace_key workspace-context)
-                                     :tenant_key (:tenant_key workspace-context)
-                                     :tenant_max_queued_requests (:tenant_max_queued_requests workspace-context)
-                                     :status 429})))
-                release-row (ensure-active-release! tx graph-id environment)
-                request-row (jdbc/execute-one!
+        (let [resolved-context (if tx-context-resolver
+                                 (merge {:graph-id graph-id
+                                         :node-id node-id
+                                         :environment environment
+                                         :endpoint-name endpoint-name
+                                         :request-params request-params}
+                                        (tx-context-resolver tx {:graph-id graph-id
+                                                                 :node-id node-id
+                                                                 :environment environment
+                                                                 :endpoint-name endpoint-name
+                                                                 :request-params request-params}))
+                                 {:graph-id graph-id
+                                  :node-id node-id
+                                  :environment environment
+                                  :endpoint-name endpoint-name
+                                  :request-params request-params})
+              graph-id         (:graph-id resolved-context)
+              node-id          (:node-id resolved-context)
+              environment      (or (:environment resolved-context) environment)
+              endpoint-name    (normalize-endpoint-name (:endpoint-name resolved-context))
+              request-params   (or (:request-params resolved-context) request-params)
+              workspace-context (or base-workspace-context
+                                    (resolve-workspace-context graph-id workspace-key))
+              queue-partition  (queue-partition-for request-key (:workspace_key workspace-context))
+              workload-class   (request-workload-class request-kind trigger-type request-params)
+              params-json      (json/generate-string request-params)]
+          (when-not graph-id
+            (throw (ex-info "Execution request is missing graph context"
+                            {:request_kind request-kind
+                             :request_key request-key
+                             :status 409})))
+          (when-not node-id
+            (throw (ex-info "Execution request is missing node context"
+                            {:request_kind request-kind
+                             :request_key request-key
+                             :graph_id graph-id
+                             :status 409})))
+          (validate-enqueue-context! graph-id workspace-context)
+          (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" (:tenant_key workspace-context)])
+          (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" (:workspace_key workspace-context)])
+          (if-let [existing (active-request-by-key tx request-key)]
+            (request->response existing)
+            (if-let [overlap (when (contains? #{:api :kafka :file} request-kind)
+                               (active-source-request-overlap tx request-kind graph-id node-id environment endpoint-name))]
+              (if (nil? endpoint-name)
+                (throw (ex-info (str (string/upper-case (name request-kind))
+                                     " node already has an active endpoint-scoped ingestion request; cannot start an all-endpoints run")
+                                {:graph_id graph-id
+                                 :node_id node-id
+                                 :environment environment
+                                 :active_request_id (str (:request_id overlap))
+                                 :active_run_id (str (:run_id overlap))
+                                 :active_endpoint_name (:endpoint_name overlap)
+                                 :status 409}))
+                (request->response overlap))
+              (let [workspace-queued-count (-> (jdbc/execute-one!
+                                                (db-opts tx)
+                                                [(str "SELECT COUNT(*) AS cnt FROM " execution-request-table "
+                                                       WHERE workspace_key = ?
+                                                         AND status = 'queued'")
+                                                 (:workspace_key workspace-context)])
+                                               :cnt
+                                               long)
+                    tenant-queued-count (-> (jdbc/execute-one!
+                                             (db-opts tx)
+                                             [(str "SELECT COUNT(*) AS cnt FROM " execution-request-table "
+                                                    WHERE tenant_key = ?
+                                                      AND status = 'queued'")
+                                              (:tenant_key workspace-context)])
+                                            :cnt
+                                            long)
+                    _ (when (>= workspace-queued-count (long (:max_queued_requests workspace-context)))
+                        (throw (ex-info "Workspace queue is at capacity"
+                                        {:graph_id graph-id
+                                         :workspace_key (:workspace_key workspace-context)
+                                         :tenant_key (:tenant_key workspace-context)
+                                         :max_queued_requests (:max_queued_requests workspace-context)
+                                         :status 429})))
+                    _ (when (>= tenant-queued-count (long (or (:tenant_max_queued_requests workspace-context) 1000)))
+                        (throw (ex-info "Tenant queue is at capacity"
+                                        {:graph_id graph-id
+                                         :workspace_key (:workspace_key workspace-context)
+                                         :tenant_key (:tenant_key workspace-context)
+                                         :tenant_max_queued_requests (:tenant_max_queued_requests workspace-context)
+                                         :status 429})))
+                    release-row (ensure-active-release! tx graph-id environment)
+                    request-row (jdbc/execute-one!
+                                 (db-opts tx)
+                                 [(str "INSERT INTO " execution-request-table
+                                       " (request_id, request_key, request_kind, tenant_key, workspace_key, graph_id, graph_version_id, graph_version,
+                                          environment, node_id, trigger_type, endpoint_name, source_system, credential_ref,
+                                          source_max_concurrency, credential_max_concurrency,
+                                          request_params, queue_partition, workload_class, status, max_retries)
+                                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+                                          RETURNING *")
+                                  request-id
+                                  request-key
+                                  (name request-kind)
+                                  (:tenant_key workspace-context)
+                                  (:workspace_key workspace-context)
+                                  graph-id
+                                  (:graph_version_id release-row)
+                                  (:graph_version release-row)
+                                  environment
+                                  node-id
+                                  trigger-type
+                                  endpoint-name
+                                  source-system
+                                  credential-ref
+                                  source-max-concurrency
+                                  credential-max-concurrency
+                                  params-json
+                                  queue-partition
+                                  workload-class
+                                  max-retries])
+                    run-row (jdbc/execute-one!
                              (db-opts tx)
-                             [(str "INSERT INTO " execution-request-table
-                                   " (request_id, request_key, request_kind, tenant_key, workspace_key, graph_id, graph_version_id, graph_version,
-                                      environment, node_id, trigger_type, endpoint_name, source_system, credential_ref,
-                                      source_max_concurrency, credential_max_concurrency,
-                                      request_params, queue_partition, workload_class, status, max_retries)
-                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+                             [(str "INSERT INTO " execution-run-table
+                                   " (run_id, request_id, tenant_key, workspace_key, graph_id, graph_version_id, graph_version, environment,
+                                      request_kind, queue_partition, workload_class, source_system, credential_ref,
+                                      node_id, trigger_type, endpoint_name, status)
+                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')
                                       RETURNING *")
+                              run-id
                               request-id
-                              request-key
-                              (name request-kind)
                               (:tenant_key workspace-context)
                               (:workspace_key workspace-context)
                               graph-id
                               (:graph_version_id release-row)
                               (:graph_version release-row)
                               environment
-                              node-id
-                              trigger-type
-                              endpoint-name
-                              source-system
-                              credential-ref
-                              source-max-concurrency
-                              credential-max-concurrency
-                              params-json
+                              (name request-kind)
                               queue-partition
                               workload-class
-                              max-retries])
-                run-row (jdbc/execute-one!
-                         (db-opts tx)
-                         [(str "INSERT INTO " execution-run-table
-                               " (run_id, request_id, tenant_key, workspace_key, graph_id, graph_version_id, graph_version, environment,
-                                  request_kind, queue_partition, workload_class, source_system, credential_ref,
-                                  node_id, trigger_type, endpoint_name, status)
-                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')
-                                  RETURNING *")
-                          run-id
-                          request-id
-                          (:tenant_key workspace-context)
-                          (:workspace_key workspace-context)
-                          graph-id
-                          (:graph_version_id release-row)
-                          (:graph_version release-row)
-                          environment
-                          (name request-kind)
-                          queue-partition
-                          workload-class
-                          source-system
-                          credential-ref
-                          node-id
-                          trigger-type
-                          endpoint-name])]
-            (assoc (request->response (merge request-row {:run_id (:run_id run-row)}))
-                   :created? true))))))))
+                              source-system
+                              credential-ref
+                              node-id
+                              trigger-type
+                              endpoint-name])]
+                (assoc (request->response (merge request-row {:run_id (:run_id run-row)}))
+                       :created? true)))))))))
 
 (defn enqueue-api-request!
   [graph-id api-node-id {:keys [endpoint-name] :as opts}]
@@ -696,6 +764,100 @@
                      :max-retries (:max-retries opts)
                      :request-params (merge (select-keys opts [:endpoint-name])
                                             (:request-params opts))}))
+
+(defn- modeling-request-key
+  [request-kind binding]
+  (string/join "::" [(name request-kind) (:layer binding) (:target_model binding) "default" ""]))
+
+(defn- modeling-target-node-id
+  [graph-artifact graph]
+  (let [node-map (parse-json-safe (:node_map_json graph-artifact))]
+    (or (some-> (get node-map :target) long)
+        (some-> (get node-map "target") long)
+        (first (for [[node-id node] (:n graph)
+                     :when (= "Tg" (get-in node [:na :btype]))]
+                 node-id)))))
+
+(defn- resolve-modeling-enqueue-context!
+  ([binding]
+   (resolve-modeling-enqueue-context! db/ds binding))
+  ([conn binding]
+  (let [resolve-release!    (requiring-resolve 'bitool.modeling.automation/resolve-active-release)
+        get-graph-artifact! (requiring-resolve 'bitool.modeling.automation/get-graph-artifact)
+        release-row         (resolve-release! conn binding)
+        graph-artifact      (get-graph-artifact! conn (:graph_artifact_id release-row))
+        _                   (when-not graph-artifact
+                              (throw (ex-info "Release has no graph artifact"
+                                              {:release_id (:release_id release-row)
+                                               :status 409})))
+        graph-id            (:graph_id graph-artifact)
+        graph               (db/getGraph graph-id)
+        _                   (when-not graph
+                              (throw (ex-info "Graph not found"
+                                              {:graph_id graph-id
+                                               :release_id (:release_id release-row)
+                                               :status 404})))
+        target-node-id      (modeling-target-node-id graph-artifact graph)
+        _                   (when-not target-node-id
+                              (throw (ex-info "Generated graph has no target node"
+                                              {:release_id (:release_id release-row)
+                                               :graph_id graph-id
+                                               :status 409})))]
+    {:release-row release-row
+     :graph-id graph-id
+     :target-node-id target-node-id
+     :binding binding})))
+
+(defn- modeling-enqueue-response
+  [result]
+  (let [request-params (:request_params result)]
+    (assoc result
+           :request_status (:status result)
+           :deduped (not (:created? result))
+           :release_binding (:release_binding request-params)
+           :resolved_release_id (:resolved_release_id request-params)
+           :resolved_graph_id (:resolved_graph_id request-params)
+           :resolved_target_node_id (:resolved_target_node_id request-params))))
+
+(defn enqueue-silver-release-request!
+  [binding {:keys [trigger-type created-by max-retries workspace-key request-params] :as _opts}]
+  (let [result (enqueue-request! :silver_release nil nil
+                                 {:trigger-type (or trigger-type "manual")
+                                  :max-retries (or max-retries (default-max-retries :silver_release))
+                                  :workspace-key workspace-key
+                                  :request-key-override (modeling-request-key :silver_release binding)
+                                  :request-params request-params
+                                  :tx-context-resolver (fn [tx _]
+                                                         (let [ctx (resolve-modeling-enqueue-context! tx binding)]
+                                                           {:graph-id (:graph-id ctx)
+                                                            :node-id (:target-node-id ctx)
+                                                            :request-params (merge request-params
+                                                                                   {:release_binding binding
+                                                                                    :resolved_release_id (:release_id (:release-row ctx))
+                                                                                    :resolved_graph_id (:graph-id ctx)
+                                                                                    :resolved_target_node_id (:target-node-id ctx)
+                                                                                    :created_by (or created-by "system")})}))})]
+    (modeling-enqueue-response result)))
+
+(defn enqueue-gold-release-request!
+  [binding {:keys [trigger-type created-by max-retries workspace-key request-params] :as _opts}]
+  (let [result (enqueue-request! :gold_release nil nil
+                                 {:trigger-type (or trigger-type "manual")
+                                  :max-retries (or max-retries (default-max-retries :gold_release))
+                                  :workspace-key workspace-key
+                                  :request-key-override (modeling-request-key :gold_release binding)
+                                  :request-params request-params
+                                  :tx-context-resolver (fn [tx _]
+                                                         (let [ctx (resolve-modeling-enqueue-context! tx binding)]
+                                                           {:graph-id (:graph-id ctx)
+                                                            :node-id (:target-node-id ctx)
+                                                            :request-params (merge request-params
+                                                                                   {:release_binding binding
+                                                                                    :resolved_release_id (:release_id (:release-row ctx))
+                                                                                    :resolved_graph_id (:graph-id ctx)
+                                                                                    :resolved_target_node_id (:target-node-id ctx)
+                                                                                    :created_by (or created-by "system")})}))})]
+    (modeling-enqueue-response result)))
 
 (defn- sql-in-clause
   [values]
@@ -748,6 +910,12 @@
                                     GROUP BY credential_ref
                                   ) credential_active ON credential_active.credential_ref = r.credential_ref
                                   WHERE r.status = 'queued'
+                                    AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM ops_worker_drain d
+                                      WHERE d.worker_id = ?
+                                        AND COALESCE(d.drain_requested, true) = true
+                                    )
                                     AND r.available_at_utc <= now()
                                     AND COALESCE(w.active, TRUE) = TRUE
                                     AND COALESCE(t.active, TRUE) = TRUE
@@ -769,7 +937,7 @@
                                 FOR UPDATE OF candidate SKIP LOCKED
                               )
                               RETURNING *")
-        params           (vec (concat [sql-str worker-id (str lease-seconds)]
+        params           (vec (concat [sql-str worker-id (str lease-seconds) worker-id]
                                       allowed-partitions
                                       allowed-workloads))]
     (jdbc/execute-one! (db-opts db/ds) params)))
@@ -915,6 +1083,12 @@
       (string? (:failure_class data)) (:failure_class data)
       (= status 429) "rate_limited"
       (#{401 403} status) "auth_expired"
+      (re-find #"syntax error|semantic error|table.*not found|column.*not found|permission denied|access denied" lower)
+      "permanent_model_error"
+      (re-find #"cluster.*terminated|spot.*interrupted|workspace.*unavailable|internal error.*databricks" lower)
+      "transient_platform_error"
+      (re-find #"no active published release|pinned release not found|no.*job_id configured|release no longer exists" lower)
+      "config_error"
       (re-find #"missing bronze_table_name|must not be blank|unsupported|graph not found|no downstream target|valid identifier" lower)
       "config_error"
       (or (:schema_drift data)
@@ -1112,7 +1286,7 @@
                                    (= "manual" trigger-type) "interactive"
                                    :else "api"))
           :execute (fn [request-row _]
-                     (let [result ((requiring-resolve 'bitool.ingest.runtime/run-api-node!)
+                     (let [result ((requiring-resolve 'bitool.ingest.runtime/execute-api-request!)
                                    (:graph_id request-row)
                                    (:node_id request-row)
                                    (merge {:endpoint-name (:endpoint_name request-row)}
@@ -1160,6 +1334,26 @@
                       (:node_id request-row)
                       (merge {:endpoint-name (:endpoint_name request-row)}
                              request-params)))})
+        (plugins/register-execution-handler!
+         :silver_release
+         {:description "Built-in Silver modeling release execution handler"
+          :workload-classifier (fn [{:keys [trigger-type]}]
+                                 (if (= "manual" trigger-type) "interactive" "modeling"))
+          :execute (fn [request-row request-params]
+                     ((requiring-resolve 'bitool.modeling.automation/execute-queued-silver-release!)
+                      (:resolved_release_id request-params)
+                      {:created_by (or (:created_by request-params) "system")
+                       :execution_request_id (:request_id request-row)}))})
+        (plugins/register-execution-handler!
+         :gold_release
+         {:description "Built-in Gold modeling release execution handler"
+          :workload-classifier (fn [{:keys [trigger-type]}]
+                                 (if (= "manual" trigger-type) "interactive" "modeling"))
+          :execute (fn [request-row request-params]
+                     ((requiring-resolve 'bitool.modeling.automation/execute-queued-gold-release!)
+                      (:resolved_release_id request-params)
+                      {:created_by (or (:created_by request-params) "system")
+                       :execution_request_id (:request_id request-row)}))})
         (reset! builtin-execution-handlers-registered? true)))))
 
 (defn- execute-request*!
@@ -1431,7 +1625,22 @@
            (jdbc/execute!
              (db-opts db/ds)
              [(str "SELECT * FROM " node-run-table " WHERE run_id = ? ORDER BY id ASC")
-              (UUID/fromString (str run-id))])))))
+             (UUID/fromString (str run-id))])))))
+
+(defn get-execution-request
+  [request-id]
+  (ensure-execution-tables!)
+  (when-let [request-row (jdbc/execute-one!
+                          (db-opts db/ds)
+                          [(str "SELECT r.*, er.run_id
+                                 FROM " execution-request-table " r
+                                 LEFT JOIN " execution-run-table " er ON er.request_id = r.request_id
+                                 WHERE r.request_id = ?")
+                           (UUID/fromString (str request-id))])]
+    (-> request-row
+        (update :request_id str)
+        (update :run_id str)
+        (update :request_params parse-json-safe))))
 
 (mount/defstate ^{:on-reload :noop} execution-metadata
   :start

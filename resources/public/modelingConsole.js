@@ -1,5 +1,5 @@
 import EventHandler from "./library/eventHandler.js";
-import { request, customConfirm } from "./library/utils.js";
+import { request, customConfirm, getPanelItems } from "./library/utils.js";
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -94,6 +94,26 @@ template.innerHTML = `
   .badge-running { background: #bfdbfe; color: #1e3a8a; }
   .badge-completed { background: #bbf7d0; color: #14532d; }
   .badge-failed { background: #fecaca; color: #991b1b; }
+  .badge-warning { background: #fef3c7; color: #92400e; }
+  .mapping-expression-note { display: block; margin-top: 4px; color: #6b7280; font-size: 11px; font-family: "SFMono-Regular", Consolas, monospace; }
+  .mapping-action-group { display: flex; gap: 6px; }
+  .expr-modal {
+    position: fixed; inset: 0; background: rgba(17, 24, 39, 0.45); z-index: 160;
+    display: none; align-items: center; justify-content: center; padding: 24px;
+  }
+  .expr-modal.open { display: flex; }
+  .expr-dialog {
+    width: min(1100px, 100%); max-height: min(88vh, 900px); overflow: hidden;
+    background: #fff; border: 1px solid rgba(0,0,0,0.14); box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    display: flex; flex-direction: column;
+  }
+  .expr-dialog-head {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+    padding: 16px 18px 12px 18px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;
+  }
+  .expr-dialog-head p { margin: 4px 0 0 0; color: #6b7280; font-size: 12px; }
+  .expr-dialog-body { padding: 0; overflow: auto; }
+  .expr-dialog-body expression-component { display: block; }
 
   /* Status bar */
   .status-bar { display: flex; align-items: center; gap: 8px; min-height: 24px; color: #6b7280; font-size: 13px; margin-top: 8px; }
@@ -170,6 +190,7 @@ template.innerHTML = `
   .toolbar select, .toolbar input { width: auto; min-width: 140px; }
 
   .flex-between { display: flex; justify-content: space-between; align-items: center; }
+  .field-help { margin-top: 4px; font-size: 12px; color: #6b7280; }
 </style>
 
 <div class="shell">
@@ -261,17 +282,26 @@ template.innerHTML = `
       <div class="grid" id="silverProposalFields">
         <div>
           <label for="propNodeId">Source Node ID</label>
-          <input id="propNodeId" type="number" placeholder="Node ID from graph" />
+          <select id="propNodeId">
+            <option value="">Select a Bronze source node</option>
+          </select>
+          <div id="propNodeHelp" class="field-help">Options come from the open graph and include node ids.</div>
         </div>
         <div>
           <label for="propEndpoint">Endpoint Name</label>
-          <input id="propEndpoint" type="text" placeholder="e.g. orders, users" />
+          <select id="propEndpoint" disabled>
+            <option value="">Select an endpoint</option>
+          </select>
+          <div id="propEndpointHelp" class="field-help">Select a source node first.</div>
         </div>
       </div>
       <div class="grid" id="goldProposalFields" style="display:none;">
         <div>
-          <label for="propSilverProposalId">Silver Proposal ID</label>
-          <input id="propSilverProposalId" type="number" placeholder="Existing Silver proposal ID" />
+          <label for="propSilverProposalId">Silver Proposal</label>
+          <select id="propSilverProposalId">
+            <option value="">Select a Silver proposal</option>
+          </select>
+          <div id="propSilverHelp" class="field-help">Published or approved Silver proposals for this graph.</div>
         </div>
       </div>
       <div style="margin-top:12px; display:flex; gap:8px;">
@@ -339,13 +369,94 @@ template.innerHTML = `
         </div>
       </div>
 
+      <div class="card" id="processingPolicyCard">
+        <div class="flex-between">
+          <div>
+            <h3>Processing Policy</h3>
+            <p style="font-size:13px;color:#6b7280;margin:4px 0 0 0;">Configure business keys, ordering, and reprocessing for late or out-of-order data.</p>
+          </div>
+        </div>
+        <div class="grid" style="margin-top:12px;">
+          <div>
+            <label for="policyBusinessKeys">Business Keys</label>
+            <input id="policyBusinessKeys" type="text" placeholder="trip_id, vehicle_id" />
+            <div class="field-help">Comma-separated target columns used for latest-state dedupe and merge semantics.</div>
+          </div>
+          <div>
+            <label for="policyOrderingStrategy">Ordering Strategy</label>
+            <select id="policyOrderingStrategy">
+              <option value="">None</option>
+              <option value="latest_event_time_wins">Latest event time wins</option>
+              <option value="latest_sequence_wins">Latest sequence wins</option>
+              <option value="event_time_then_sequence">Event time, then sequence</option>
+              <option value="append_only">Append only</option>
+            </select>
+          </div>
+          <div>
+            <label for="policyEventTime">Event Time Column</label>
+            <select id="policyEventTime">
+              <option value="">None</option>
+            </select>
+          </div>
+          <div>
+            <label for="policySequence">Sequence Column</label>
+            <select id="policySequence">
+              <option value="">None</option>
+            </select>
+          </div>
+          <div>
+            <label for="policyLateMode">Late Data Mode</label>
+            <select id="policyLateMode">
+              <option value="">Default</option>
+              <option value="merge">Merge</option>
+              <option value="append">Append</option>
+            </select>
+          </div>
+          <div>
+            <label for="policyTooLate">Too-Late Behavior</label>
+            <select id="policyTooLate">
+              <option value="">Default</option>
+              <option value="accept">Accept</option>
+              <option value="quarantine">Quarantine</option>
+              <option value="drop">Drop</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid" style="margin-top:12px;">
+          <div>
+            <label for="policyLateToleranceValue">Late Data Tolerance</label>
+            <div style="display:flex; gap:8px;">
+              <input id="policyLateToleranceValue" type="number" min="0" placeholder="10" />
+              <select id="policyLateToleranceUnit">
+                <option value="">Unit</option>
+                <option value="minutes">minutes</option>
+                <option value="hours">hours</option>
+                <option value="days">days</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="policyReprocessValue">Reprocess Window</label>
+            <div style="display:flex; gap:8px;">
+              <input id="policyReprocessValue" type="number" min="0" placeholder="24" />
+              <select id="policyReprocessUnit">
+                <option value="">Unit</option>
+                <option value="minutes">minutes</option>
+                <option value="hours">hours</option>
+                <option value="days">days</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Mapping / transform info -->
       <div class="card" id="mappingCard" style="display:none;">
         <h3>Transformation Mapping</h3>
         <p id="mappingSubtitle" style="font-size:13px;color:#6b7280;margin:0 0 8px 0;">Bronze → Silver field mapping with type coercions and transformations.</p>
         <table id="mappingTable">
           <thead>
-            <tr><th>Source Field</th><th>Target Column</th><th>Transform</th><th>Cast</th></tr>
+            <tr><th>Source Field</th><th>Target Column</th><th>Transform</th><th>Cast</th><th></th></tr>
           </thead>
           <tbody id="mappingBody"></tbody>
         </table>
@@ -445,12 +556,16 @@ template.innerHTML = `
         <div><label>Status</label><span id="execStatus">--</span></div>
         <div><label>Started</label><span id="execStarted" style="font-size:13px;">--</span></div>
         <div><label>Duration</label><span id="execDuration" style="font-size:13px;">--</span></div>
+        <div><label>Rows Affected</label><span id="execRowCount" style="font-size:13px;">--</span></div>
+        <div><label>Backend</label><span id="execBackend" style="font-size:13px;">--</span></div>
       </div>
       <div id="execLog" style="font-family:monospace; font-size:12px; background:#1e1e2e; color:#cdd6f4; padding:12px; max-height:200px; overflow-y:auto; white-space:pre-wrap;"></div>
       <div style="margin-top:8px; display:flex; gap:8px;">
         <button id="pollRunBtn" class="small secondary" type="button">Poll Status</button>
         <button id="stopPollBtn" class="small danger" type="button" style="display:none;">Stop Polling</button>
+        <button id="previewDataBtn" class="small secondary" type="button" style="display:none;">Preview Data</button>
       </div>
+      <div id="execPreview" style="display:none; margin-top:12px; overflow-x:auto;"></div>
     </div>
   </div>
 
@@ -474,6 +589,22 @@ template.innerHTML = `
       <div class="sql-preview" id="sqlContent" style="min-height:200px;">-- No SQL available. Compile a proposal first.</div>
     </div>
   </div>
+
+  <div id="expressionModal" class="expr-modal">
+    <div class="expr-dialog">
+      <div class="expr-dialog-head">
+        <div>
+          <h3 id="expressionModalTitle">Expression Editor</h3>
+          <p id="expressionModalHint">Use functions, columns, operators, and freeform SQL expressions for this mapping.</p>
+        </div>
+        <div class="actions">
+          <button id="expressionCancelBtn" class="small secondary" type="button">Cancel</button>
+          <button id="expressionSaveBtn" class="small primary-blue" type="button">Apply Expression</button>
+        </div>
+      </div>
+      <div class="expr-dialog-body" id="expressionMount"></div>
+    </div>
+  </div>
 </div>
 `;
 
@@ -486,8 +617,10 @@ function badgeClass(status) {
   const map = {
     draft: "badge-draft", proposed: "badge-proposed", compiled: "badge-compiled",
     validated: "badge-validated", approved: "badge-approved", published: "badge-published",
-    rejected: "badge-rejected", running: "badge-running", completed: "badge-completed",
-    failed: "badge-failed", changes_requested: "badge-warning",
+    rejected: "badge-rejected", running: "badge-running", submitted: "badge-running",
+    pending: "badge-running", completed: "badge-completed", succeeded: "badge-completed",
+    failed: "badge-failed", timed_out: "badge-failed", cancelled: "badge-failed",
+    changes_requested: "badge-warning",
   };
   return map[s] || "badge-draft";
 }
@@ -516,6 +649,121 @@ const SF_TYPES = [
   "NUMBER(10,4)", "VARCHAR(256)", "VARCHAR(1000)", "VARCHAR(4000)", "VARCHAR(16777216)"
 ];
 
+const SOURCE_NODE_TYPES = new Set(["Ap", "Kf", "Fs"]);
+
+function sourceConfigKey(sourceNode) {
+  switch (sourceNode?.btype) {
+    case "Ap": return "endpoint_configs";
+    case "Kf": return "topic_configs";
+    case "Fs": return "file_configs";
+    default: return null;
+  }
+}
+
+function sourceTypeLabel(sourceNode) {
+  switch (sourceNode?.btype) {
+    case "Ap": return "API";
+    case "Kf": return "Kafka";
+    case "Fs": return "File";
+    default: return "Source";
+  }
+}
+
+function displaySourceName(sourceNode) {
+  return sourceNode?.api_name
+    || sourceNode?.source_system
+    || sourceNode?.business_name
+    || sourceNode?.alias
+    || sourceNode?.name
+    || sourceTypeLabel(sourceNode);
+}
+
+function sourceOptionLabel(sourceNode) {
+  return `#${sourceNode.id} ${sourceTypeLabel(sourceNode)} ${displaySourceName(sourceNode)}`.trim();
+}
+
+function enabledSourceConfigs(sourceNode) {
+  const configKey = sourceConfigKey(sourceNode);
+  if (!configKey) return [];
+  return (Array.isArray(sourceNode?.[configKey]) ? sourceNode[configKey] : [])
+    .filter((cfg) => cfg && cfg.enabled !== false)
+    .map((cfg) => ({
+      ...cfg,
+      endpoint_name: cfg.endpoint_name || cfg.topic_name || cfg.path || cfg.file_pattern || "",
+    }))
+    .filter((cfg) => cfg.endpoint_name);
+}
+
+function normalizeTransformType(type) {
+  return String(type || "").trim().toUpperCase();
+}
+
+function parseTransformItem(text) {
+  const raw = String(text || "").trim();
+  const match = raw.match(/^([A-Z_]+)\s*\((.*)\)$/i);
+  if (!match) return { type: normalizeTransformType(raw), params: [] };
+  const type = normalizeTransformType(match[1]);
+  const paramText = String(match[2] || "").trim();
+  if (!paramText || /^no parameters$/i.test(paramText)) return { type, params: [] };
+  return {
+    type,
+    params: paramText.split(",").map((part) => part.trim()).filter(Boolean),
+  };
+}
+
+function quoteSqlIdentifier(value) {
+  return `"${String(value || "").replace(/"/g, '""')}"`;
+}
+
+function isPostgresqlProposal(proposal) {
+  return String(proposal?.target_warehouse || "").trim().toLowerCase() === "postgresql";
+}
+
+function sourceReferenceMatches(expression) {
+  return Array.from(String(expression || "").matchAll(/(?:bronze|silver)\.(?:"((?:[^"]|"")*)"|([A-Za-z_][A-Za-z0-9_]*))/g));
+}
+
+function buildExpressionFromTransforms(baseExpression, transforms) {
+  let expression = String(baseExpression || "").trim();
+  if (!expression) throw new Error("A base source expression is required before transforms can be applied.");
+
+  for (const transformText of Array.isArray(transforms) ? transforms : []) {
+    const { type, params } = parseTransformItem(transformText);
+    switch (type) {
+      case "TRIM":
+        expression = `TRIM(${expression})`;
+        break;
+      case "TO_DATE":
+        expression = `CAST(${expression} AS DATE)`;
+        break;
+      case "TO_VARCHAR":
+      case "TO_STRING":
+      case "TOSTRING":
+        expression = `CAST(${expression} AS VARCHAR)`;
+        break;
+      case "UPPER":
+      case "UPPERCASE":
+        expression = `UPPER(${expression})`;
+        break;
+      case "LOWER":
+      case "LOWERCASE":
+        expression = `LOWER(${expression})`;
+        break;
+      case "SUBSTRING": {
+        if (params.length < 1 || params.length > 2 || params.some((param) => !/^\d+$/.test(param))) {
+          throw new Error("SUBSTRING requires one or two numeric parameters.");
+        }
+        expression = `SUBSTRING(${expression}, ${params.join(", ")})`;
+        break;
+      }
+      default:
+        throw new Error(`Unsupported transform type: ${type}`);
+    }
+  }
+
+  return expression;
+}
+
 // ────────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────────
@@ -529,7 +777,14 @@ class ModelingConsole extends HTMLElement {
     this._compiledArtifact = null;
     this._schemaDirty = false;
     this._pollTimer = null;
+    this._pollCount = 0;
     this._currentRunId = null;
+    this._currentRequestId = null;
+    this._activePollRoute = null;
+    this._sourceNodeCache = new Map();
+    this._activeTransformTargetColumn = null;
+    this._activeExpressionTargetColumn = null;
+    this._mappingExpressionEditor = null;
   }
 
   static get observedAttributes() { return ["visibility"]; }
@@ -584,8 +839,11 @@ class ModelingConsole extends HTMLElement {
     this.$silverProposalFields = q("#silverProposalFields");
     this.$goldProposalFields = q("#goldProposalFields");
     this.$propNodeId = q("#propNodeId");
+    this.$propNodeHelp = q("#propNodeHelp");
     this.$propEndpoint = q("#propEndpoint");
+    this.$propEndpointHelp = q("#propEndpointHelp");
     this.$propSilverProposalId = q("#propSilverProposalId");
+    this.$propSilverHelp = q("#propSilverHelp");
     this.$filterStatus = q("#filterStatus");
     this.$filterLimit = q("#filterLimit");
 
@@ -600,6 +858,17 @@ class ModelingConsole extends HTMLElement {
     this.$schemaBody = q("#schemaBody");
     this.$addColumnBtn = q("#addColumnBtn");
     this.$saveSchemaBtn = q("#saveSchemaBtn");
+    this.$processingPolicyCard = q("#processingPolicyCard");
+    this.$policyBusinessKeys = q("#policyBusinessKeys");
+    this.$policyOrderingStrategy = q("#policyOrderingStrategy");
+    this.$policyEventTime = q("#policyEventTime");
+    this.$policySequence = q("#policySequence");
+    this.$policyLateMode = q("#policyLateMode");
+    this.$policyTooLate = q("#policyTooLate");
+    this.$policyLateToleranceValue = q("#policyLateToleranceValue");
+    this.$policyLateToleranceUnit = q("#policyLateToleranceUnit");
+    this.$policyReprocessValue = q("#policyReprocessValue");
+    this.$policyReprocessUnit = q("#policyReprocessUnit");
     this.$mappingCard = q("#mappingCard");
     this.$mappingSubtitle = q("#mappingSubtitle");
     this.$mappingBody = q("#mappingBody");
@@ -631,11 +900,29 @@ class ModelingConsole extends HTMLElement {
     this.$execStarted = q("#execStarted");
     this.$execDuration = q("#execDuration");
     this.$execLog = q("#execLog");
+    this.$execRowCount = q("#execRowCount");
+    this.$execBackend = q("#execBackend");
     this.$pollRunBtn = q("#pollRunBtn");
     this.$stopPollBtn = q("#stopPollBtn");
+    this.$previewDataBtn = q("#previewDataBtn");
+    this.$execPreview = q("#execPreview");
 
     this.$sqlContent = q("#sqlContent");
     this.$copySqlBtn = q("#copySqlBtn");
+    this.$transformEditor = document.querySelector("transform-editor");
+    this.$expressionModal = q("#expressionModal");
+    this.$expressionModalTitle = q("#expressionModalTitle");
+    this.$expressionModalHint = q("#expressionModalHint");
+    this.$expressionCancelBtn = q("#expressionCancelBtn");
+    this.$expressionSaveBtn = q("#expressionSaveBtn");
+    this.$expressionMount = q("#expressionMount");
+
+    if (this.$expressionMount && !this._mappingExpressionEditor) {
+      this._mappingExpressionEditor = document.createElement("expression-component");
+      this.$expressionMount.appendChild(this._mappingExpressionEditor);
+      const insertValuesButton = this._mappingExpressionEditor.shadowRoot?.querySelector("#insertValuesBtn");
+      if (insertValuesButton) insertValuesButton.style.display = "none";
+    }
   }
 
   // ── Events ──
@@ -648,6 +935,9 @@ class ModelingConsole extends HTMLElement {
       this._currentProposal = null;
       this._compiledArtifact = null;
       this._refreshLayerCopy();
+      if (this._currentLayer() === "silver") {
+        void this._refreshSilverProposalInputs();
+      }
       this._switchTab("proposals");
       this._loadProposals();
     });
@@ -667,12 +957,28 @@ class ModelingConsole extends HTMLElement {
     on(this.$refreshProposalsBtn, "click", () => this._loadProposals());
     on(this.$filterStatus, "change", () => this._loadProposals());
     on(this.$filterLimit, "change", () => this._loadProposals());
+    on(this.$propNodeId, "change", () => this._handleSourceNodeChange());
 
     // Detail
     on(this.$backToList, "click", () => this._switchTab("proposals"));
     on(this.$addColumnBtn, "click", () => this._addSchemaColumn());
     on(this.$saveSchemaBtn, "click", () => this._saveSchema());
     on(this.$viewSqlBtn, "click", () => this._switchTab("sql"));
+    [
+      this.$policyBusinessKeys,
+      this.$policyOrderingStrategy,
+      this.$policyEventTime,
+      this.$policySequence,
+      this.$policyLateMode,
+      this.$policyTooLate,
+      this.$policyLateToleranceValue,
+      this.$policyLateToleranceUnit,
+      this.$policyReprocessValue,
+      this.$policyReprocessUnit,
+    ].filter(Boolean).forEach((el) => {
+      on(el, "input", () => this._markSchemaDirty());
+      on(el, "change", () => this._markSchemaDirty());
+    });
 
     // Review
     on(this.$reviewDecision, "change", () => {
@@ -684,9 +990,19 @@ class ModelingConsole extends HTMLElement {
     on(this.$refreshReleasesBtn, "click", () => this._loadReleases());
     on(this.$pollRunBtn, "click", () => this._pollRun());
     on(this.$stopPollBtn, "click", () => this._stopPolling());
+    on(this.$previewDataBtn, "click", () => this._previewTargetData());
 
     // SQL
     on(this.$copySqlBtn, "click", () => this._copySql());
+    on(this.$expressionCancelBtn, "click", () => this._closeExpressionEditor());
+    on(this.$expressionSaveBtn, "click", () => this._applyExpressionEditor());
+    on(this.$expressionModal, "click", (e) => {
+      if (e.target === this.$expressionModal) this._closeExpressionEditor();
+    });
+
+    if (this.$transformEditor) {
+      on(this.$transformEditor, "transform-data", (e) => this._handleTransformData(e));
+    }
   }
 
   _currentLayer() {
@@ -711,6 +1027,7 @@ class ModelingConsole extends HTMLElement {
         publishRoute: "/publishGoldProposal",
         executeRoute: "/executeGoldRelease",
         pollRoute: "/pollGoldModelRun",
+        previewRoute: "/previewTargetData",
         newProposalHelp: "Select an existing Silver proposal to generate a Gold mart proposal. The system will derive grouped dimensions and aggregate measures for human review.",
         emptyCopy: "Create a new proposal from an existing Silver proposal to get started.",
       };
@@ -731,6 +1048,7 @@ class ModelingConsole extends HTMLElement {
       publishRoute: "/publishSilverProposal",
       executeRoute: "/executeSilverRelease",
       pollRoute: "/pollSilverModelRun",
+      previewRoute: "/previewTargetData",
       newProposalHelp: "Select a source node and endpoint to generate a Silver schema proposal. The system will profile the Bronze data and propose a canonical Silver schema for human review.",
       emptyCopy: "Create a new proposal from a Bronze source node to get started.",
     };
@@ -747,6 +1065,136 @@ class ModelingConsole extends HTMLElement {
     this.$reviewSchemaTitle.textContent = `Proposed ${cfg.layerLabel} Schema`;
     this.$silverProposalFields.style.display = cfg.layer === "silver" ? "grid" : "none";
     this.$goldProposalFields.style.display = cfg.layer === "gold" ? "grid" : "none";
+  }
+
+  _collectSourceNodes() {
+    const roots = getPanelItems();
+    const seenObjects = new WeakSet();
+    const seenIds = new Set();
+    const queue = Array.isArray(roots) ? [...roots] : [roots];
+    const nodes = [];
+
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current || typeof current !== "object") continue;
+      if (seenObjects.has(current)) continue;
+      seenObjects.add(current);
+
+      if (SOURCE_NODE_TYPES.has(current.btype) && current.id != null && !seenIds.has(String(current.id))) {
+        seenIds.add(String(current.id));
+        nodes.push(current);
+      }
+
+      if (Array.isArray(current)) {
+        queue.push(...current);
+        continue;
+      }
+
+      for (const value of Object.values(current)) {
+        if (value && typeof value === "object") queue.push(value);
+      }
+    }
+
+    return nodes.sort((a, b) => Number(a.id) - Number(b.id));
+  }
+
+  _renderSourceNodeOptions(selectedId = "") {
+    const sourceNodes = this._collectSourceNodes();
+    const options = ['<option value="">Select a Bronze source node</option>'];
+    for (const node of sourceNodes) {
+      const selected = String(node.id) === String(selectedId) ? " selected" : "";
+      options.push(`<option value="${this._esc(node.id)}"${selected}>${this._esc(sourceOptionLabel(node))}</option>`);
+    }
+    this.$propNodeId.innerHTML = options.join("");
+    this.$propNodeId.disabled = sourceNodes.length === 0;
+    this.$propNodeHelp.textContent = sourceNodes.length
+      ? "Options come from the open graph and include node ids."
+      : "No Bronze source nodes found in the open graph.";
+    return sourceNodes;
+  }
+
+  async _loadSourceNode(nodeId) {
+    if (!nodeId) return null;
+    const key = String(nodeId);
+    if (this._sourceNodeCache.has(key)) return this._sourceNodeCache.get(key);
+    const node = await request(`/getItem?id=${encodeURIComponent(nodeId)}`);
+    this._sourceNodeCache.set(key, node);
+    return node;
+  }
+
+  _renderEndpointOptions(endpointConfigs, selectedEndpoint = "") {
+    const options = ['<option value="">Select an endpoint</option>'];
+    for (const cfg of endpointConfigs) {
+      const selected = cfg.endpoint_name === selectedEndpoint ? " selected" : "";
+      options.push(`<option value="${this._esc(cfg.endpoint_name)}"${selected}>${this._esc(cfg.endpoint_name)}</option>`);
+    }
+    this.$propEndpoint.innerHTML = options.join("");
+    this.$propEndpoint.disabled = endpointConfigs.length === 0;
+    // Explicitly set .value — innerHTML selected attribute can be unreliable in shadow DOM
+    if (selectedEndpoint && endpointConfigs.some((cfg) => cfg.endpoint_name === selectedEndpoint)) {
+      this.$propEndpoint.value = selectedEndpoint;
+    } else if (endpointConfigs.length === 1) {
+      this.$propEndpoint.value = endpointConfigs[0].endpoint_name;
+    }
+    this.$propEndpointHelp.textContent = endpointConfigs.length
+      ? "Select the exact enabled source config to profile."
+      : "This source node has no enabled endpoint configs.";
+  }
+
+  async _handleSourceNodeChange() {
+    const nodeId = this.$propNodeId.value.trim();
+    const previousEndpoint = this.$propEndpoint.value.trim();
+    if (!nodeId) {
+      this._renderEndpointOptions([]);
+      return;
+    }
+
+    try {
+      const sourceNode = await this._loadSourceNode(nodeId);
+      const endpointConfigs = enabledSourceConfigs(sourceNode);
+      const selectedEndpoint = endpointConfigs.some((cfg) => cfg.endpoint_name === previousEndpoint)
+        ? previousEndpoint
+        : (endpointConfigs[0]?.endpoint_name || "");
+      this._renderEndpointOptions(endpointConfigs, selectedEndpoint);
+      this.$propNodeHelp.textContent = `${sourceTypeLabel(sourceNode)} node #${sourceNode.id} from the open graph.`;
+    } catch (e) {
+      this._renderEndpointOptions([]);
+      this.$propNodeHelp.textContent = `Failed to load node #${nodeId}: ${e.message || e}`;
+    }
+  }
+
+  async _refreshSilverProposalInputs() {
+    const currentNodeId = this.$propNodeId.value.trim();
+    const sourceNodes = this._renderSourceNodeOptions(currentNodeId);
+    const nextNodeId = sourceNodes.some((node) => String(node.id) === String(currentNodeId))
+      ? currentNodeId
+      : String(sourceNodes[0]?.id || "");
+    this.$propNodeId.value = nextNodeId;
+    await this._handleSourceNodeChange();
+  }
+
+  async _loadSilverProposalOptions() {
+    try {
+      const gid = this._getGid();
+      const params = new URLSearchParams();
+      if (gid) params.set("gid", gid);
+      const data = await request(`/silverProposals?${params.toString()}`);
+      const proposals = (Array.isArray(data) ? data : (data?.proposals || []))
+        .filter((p) => p.proposal_id || p.id);
+      const options = ['<option value="">Select a Silver proposal</option>'];
+      for (const p of proposals) {
+        const pid = p.proposal_id || p.id;
+        const source = p.source_endpoint_name || p.endpoint_name || p.proposal?.endpoint_name || "--";
+        const status = p.status || "draft";
+        options.push(`<option value="${pid}">#${pid} — ${this._esc(source)} (${status})</option>`);
+      }
+      this.$propSilverProposalId.innerHTML = options.join("");
+      this.$propSilverHelp.textContent = proposals.length
+        ? "Published or approved Silver proposals for this graph."
+        : "No Silver proposals found for this graph.";
+    } catch (e) {
+      this.$propSilverHelp.textContent = "Failed to load Silver proposals: " + (e.message || e);
+    }
   }
 
   _proposalLayer(p = this._currentProposal) {
@@ -769,6 +1217,452 @@ class ModelingConsole extends HTMLElement {
     return p?.created_at_utc || p?.created_at || p?.updated_at || null;
   }
 
+  _proposalState() {
+    return this._currentProposal?.proposal || this._currentProposal || {};
+  }
+
+  _setProposalState(nextProposal) {
+    if (!this._currentProposal) {
+      this._currentProposal = nextProposal;
+      return;
+    }
+    if (this._currentProposal.proposal) {
+      this._currentProposal = { ...this._currentProposal, proposal: nextProposal };
+      return;
+    }
+    this._currentProposal = nextProposal;
+  }
+
+  _proposalSourceAlias(proposal = this._proposalState()) {
+    return proposal?.source_alias || proposal?.source_layer || (this._proposalLayer() === "gold" ? "silver" : "bronze");
+  }
+
+  _simpleSourceExpressionForColumn(sourceColumn, proposal = this._proposalState()) {
+    const sourceAlias = this._proposalSourceAlias(proposal);
+    if (!sourceColumn || !sourceAlias) return "";
+    if (isPostgresqlProposal(proposal)) {
+      return `${sourceAlias}.${quoteSqlIdentifier(sourceColumn)}`;
+    }
+    return `${sourceAlias}.${sourceColumn}`;
+  }
+
+  _mappingTargetColumn(mapping) {
+    return mapping?.target_column || mapping?.silver_column || mapping?.column_name || mapping?.name || "";
+  }
+
+  _mappingTransforms(mapping) {
+    return Array.isArray(mapping?.transform)
+      ? mapping.transform
+      : (Array.isArray(mapping?.transforms) ? mapping.transforms : []);
+  }
+
+  _mappingBaseExpression(mapping, proposal = this._proposalState()) {
+    if (!mapping) return "";
+    const explicitBase = mapping.base_expression || mapping.source_expression_base || mapping._base_expression;
+    if (explicitBase) return explicitBase;
+    const sourceColumn = Array.isArray(mapping.source_columns) ? mapping.source_columns[0] : "";
+    const directRef = this._simpleSourceExpressionForColumn(sourceColumn, proposal);
+    if (directRef) return directRef;
+    const expression = String(mapping.expression || "").trim();
+    return /^(?:bronze|silver)\.(?:[A-Za-z_][A-Za-z0-9_]*|"(?:[^"]|"")+")$/.test(expression) ? expression : "";
+  }
+
+  _expressionSourceCandidates(proposal = this._proposalState()) {
+    const state = proposal?.proposal || proposal || {};
+    const items = [...(state.columns || []), ...(state.mappings || state.field_mappings || [])];
+    const seen = new Set();
+    return items.flatMap((item) => {
+      const expression = String(item.base_expression || item.source_expression_base || item._base_expression || item.expression || "").trim();
+      const targetColumn = this._mappingTargetColumn(item);
+      const sourceColumns = Array.isArray(item.source_columns) ? item.source_columns.filter(Boolean) : [];
+      if (!expression || seen.has(`${targetColumn}::${expression}`)) return [];
+      seen.add(`${targetColumn}::${expression}`);
+      return [{
+        targetColumn,
+        expression,
+        sourceColumns: sourceColumns.length ? sourceColumns : (targetColumn ? [targetColumn] : []),
+      }];
+    });
+  }
+
+  _expressionEditorItems(proposal = this._proposalState()) {
+    return this._expressionSourceCandidates(proposal).map((item) => ({
+      business_name: item.expression,
+      technical_name: item.targetColumn || item.expression,
+      column_type: "column",
+      af: "Expression",
+    }));
+  }
+
+  _extractSourceColumnsFromExpression(expression, proposal = this._proposalState()) {
+    const refs = new Set();
+    sourceReferenceMatches(expression).forEach((match) => {
+      const quoted = match[1] ? match[1].replace(/""/g, '"') : "";
+      const plain = match[2] || "";
+      const value = quoted || plain;
+      if (value) refs.add(value);
+    });
+
+    const expr = String(expression || "");
+    this._expressionSourceCandidates(proposal).forEach((candidate) => {
+      if (candidate.expression && expr.includes(candidate.expression)) {
+        candidate.sourceColumns.forEach((col) => refs.add(col));
+      }
+    });
+    return [...refs];
+  }
+
+  _mappingTransformSummary(mapping) {
+    const transforms = this._mappingTransforms(mapping);
+    return transforms.length ? transforms.join(" -> ") : (mapping?.expression || "--");
+  }
+
+  _columnNamesFromDraft(proposal = this._proposalState()) {
+    const schemaRows = Array.from(this.$schemaBody?.querySelectorAll("tr") || []);
+    const rowNames = schemaRows
+      .map((tr) => tr.querySelector('[data-field="column_name"]')?.value?.trim())
+      .filter(Boolean);
+    if (rowNames.length) return rowNames;
+    return (proposal?.columns || [])
+      .map((col) => this._mappingTargetColumn(col))
+      .filter(Boolean);
+  }
+
+  _timestampColumnCandidates(proposal = this._proposalState()) {
+    const draftNames = new Set(this._columnNamesFromDraft(proposal));
+    return (proposal?.columns || [])
+      .filter((col) => {
+        const type = String(col.type || col.data_type || "").toUpperCase();
+        const role = String(col.role || "").toLowerCase();
+        const columnName = this._mappingTargetColumn(col);
+        return draftNames.has(columnName) && (
+          role === "timestamp"
+          || type === "TIMESTAMP"
+          || type === "TIMESTAMPTZ"
+          || /(?:event_?time|updated_?at|created_?at|timestamp)/i.test(columnName)
+        );
+      })
+      .map((col) => this._mappingTargetColumn(col));
+  }
+
+  _processingPolicyDefault(proposal = this._proposalState()) {
+    const materializationKeys = Array.isArray(proposal?.materialization?.keys) ? proposal.materialization.keys.filter(Boolean) : [];
+    const timestampColumn = this._timestampColumnCandidates(proposal)[0] || "";
+    const processingPolicy = proposal?.processing_policy || {};
+    return {
+      business_keys: Array.isArray(processingPolicy.business_keys) ? processingPolicy.business_keys.filter(Boolean) : materializationKeys,
+      ordering_strategy: processingPolicy.ordering_strategy || ((materializationKeys.length && timestampColumn) ? "latest_event_time_wins" : ""),
+      event_time_column: processingPolicy.event_time_column || timestampColumn,
+      sequence_column: processingPolicy.sequence_column || "",
+      late_data_mode: processingPolicy.late_data_mode || (proposal?.materialization?.mode === "merge" ? "merge" : ""),
+      too_late_behavior: processingPolicy.too_late_behavior || "",
+      late_data_tolerance: processingPolicy.late_data_tolerance || {},
+      reprocess_window: processingPolicy.reprocess_window || {},
+    };
+  }
+
+  _renderSelectOptions(selectEl, options, selectedValue = "", noneLabel = "None") {
+    if (!selectEl) return;
+    const normalized = String(selectedValue || "");
+    const items = [`<option value="">${this._esc(noneLabel)}</option>`];
+    const seen = new Set();
+    options.filter(Boolean).forEach((value) => {
+      const key = String(value);
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push(`<option value="${this._esc(key)}"${key === normalized ? " selected" : ""}>${this._esc(key)}</option>`);
+    });
+    selectEl.innerHTML = items.join("");
+  }
+
+  _renderProcessingPolicy(p) {
+    const proposal = p?.proposal || p || {};
+    const policy = this._processingPolicyDefault(proposal);
+    const columnNames = this._columnNamesFromDraft(proposal);
+    const timestampCandidates = this._timestampColumnCandidates(proposal);
+    const eventOptions = timestampCandidates.length ? timestampCandidates : columnNames;
+
+    this._renderSelectOptions(this.$policyEventTime, eventOptions, policy.event_time_column, "None");
+    this._renderSelectOptions(this.$policySequence, columnNames, policy.sequence_column, "None");
+    this.$policyBusinessKeys.value = (policy.business_keys || []).join(", ");
+    this.$policyOrderingStrategy.value = policy.ordering_strategy || "";
+    this.$policyLateMode.value = policy.late_data_mode || "";
+    this.$policyTooLate.value = policy.too_late_behavior || "";
+    this.$policyLateToleranceValue.value = policy.late_data_tolerance?.value ?? "";
+    this.$policyLateToleranceUnit.value = policy.late_data_tolerance?.unit || "";
+    this.$policyReprocessValue.value = policy.reprocess_window?.value ?? "";
+    this.$policyReprocessUnit.value = policy.reprocess_window?.unit || "";
+  }
+
+  _collectWindowConfig(valueEl, unitEl) {
+    const value = valueEl?.value?.trim() || "";
+    const unit = unitEl?.value || "";
+    if (!value && !unit) return null;
+    return {
+      value: value ? Number(value) : null,
+      unit: unit || null,
+    };
+  }
+
+  _collectProcessingPolicyFromForm() {
+    const businessKeys = String(this.$policyBusinessKeys?.value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const policy = {
+      business_keys: businessKeys,
+      ordering_strategy: this.$policyOrderingStrategy?.value || null,
+      event_time_column: this.$policyEventTime?.value || null,
+      sequence_column: this.$policySequence?.value || null,
+      late_data_mode: this.$policyLateMode?.value || null,
+      too_late_behavior: this.$policyTooLate?.value || null,
+      late_data_tolerance: this._collectWindowConfig(this.$policyLateToleranceValue, this.$policyLateToleranceUnit),
+      reprocess_window: this._collectWindowConfig(this.$policyReprocessValue, this.$policyReprocessUnit),
+    };
+
+    if (!Object.values(policy).some((value) => {
+      if (Array.isArray(value)) return value.length;
+      if (value && typeof value === "object") return Object.values(value).some(Boolean);
+      return Boolean(value);
+    })) {
+      return null;
+    }
+    return policy;
+  }
+
+  _mappingCastSummary(mapping) {
+    const transforms = this._mappingTransforms(mapping).map((item) => normalizeTransformType(parseTransformItem(item).type));
+    if (transforms.includes("TO_DATE")) return "DATE";
+    if (transforms.includes("TO_VARCHAR") || transforms.includes("TO_STRING") || transforms.includes("TOSTRING")) return "VARCHAR";
+    if (/CAST\(.* AS DATE\)/i.test(String(mapping?.expression || ""))) return "DATE";
+    if (/CAST\(.* AS (?:VARCHAR|STRING)\)/i.test(String(mapping?.expression || ""))) return "VARCHAR";
+    return "--";
+  }
+
+  _updateSchemaExpressionInput(targetColumn, expression) {
+    const rows = Array.from(this.$schemaBody.querySelectorAll("tr"));
+    const row = rows.find((tr) => tr.querySelector('[data-field="column_name"]')?.value.trim() === targetColumn);
+    const expressionInput = row?.querySelector('[data-field="source_expression"]');
+    if (expressionInput) expressionInput.value = expression;
+  }
+
+  _editMappingTransforms(targetColumn) {
+    const proposal = this._proposalState();
+    const mappings = proposal.mappings || proposal.field_mappings || [];
+    const mapping = mappings.find((item) => this._mappingTargetColumn(item) === targetColumn);
+    if (!mapping) {
+      alert(`No mapping found for ${targetColumn}.`);
+      return;
+    }
+    const baseExpression = this._mappingBaseExpression(mapping, proposal);
+    if (!baseExpression) {
+      alert(`Transforms currently require a simple source column reference for ${targetColumn}.`);
+      return;
+    }
+    if (!this.$transformEditor) {
+      alert("Transform editor is not available on this page.");
+      return;
+    }
+
+    this._activeTransformTargetColumn = targetColumn;
+    this.$transformEditor.setAttribute("item", JSON.stringify({
+      business_name: targetColumn,
+      technical_name: targetColumn,
+      transform: this._mappingTransforms(mapping),
+    }));
+    this.$transformEditor.setAttribute("visibility", "open");
+  }
+
+  _handleTransformData(event) {
+    const targetColumn = event?.detail?.businessName || this._activeTransformTargetColumn;
+    if (!targetColumn || !this._currentProposal) return;
+    const proposal = this._proposalState();
+    const mappings = [...(proposal.mappings || proposal.field_mappings || [])];
+    const columns = [...(proposal.columns || [])];
+    const mappingIndex = mappings.findIndex((item) => this._mappingTargetColumn(item) === targetColumn);
+    if (mappingIndex < 0) return;
+
+    const mapping = mappings[mappingIndex];
+    const baseExpression = this._mappingBaseExpression(mapping, proposal);
+    if (!baseExpression) {
+      alert(`Transforms currently require a simple source column reference for ${targetColumn}.`);
+      return;
+    }
+
+    try {
+      const transforms = Array.isArray(event?.detail?.transformations) ? event.detail.transformations : [];
+      const expression = buildExpressionFromTransforms(baseExpression, transforms);
+      mappings[mappingIndex] = {
+        ...mapping,
+        base_expression: baseExpression,
+        transform: [...transforms],
+        expression,
+      };
+
+      const columnIndex = columns.findIndex((col) => this._mappingTargetColumn(col) === targetColumn);
+      if (columnIndex >= 0) {
+        columns[columnIndex] = {
+          ...columns[columnIndex],
+          base_expression: baseExpression,
+          transform: [...transforms],
+          expression,
+        };
+      }
+
+      const nextProposal = {
+        ...proposal,
+        columns,
+        mappings,
+      };
+      if (proposal.field_mappings && !proposal.mappings) nextProposal.field_mappings = mappings;
+      this._setProposalState(nextProposal);
+      this._updateSchemaExpressionInput(targetColumn, expression);
+      this._renderMapping(this._currentProposal);
+      this._markSchemaDirty();
+      this._setDetailStatus(`Updated transforms for ${targetColumn}.`);
+    } catch (e) {
+      this._setDetailStatus(`Transform update failed for ${targetColumn}: ${e.message || e}`);
+    } finally {
+      this._activeTransformTargetColumn = null;
+    }
+  }
+
+  _openExpressionEditor(targetColumn) {
+    const proposal = this._proposalState();
+    const mappings = proposal.mappings || proposal.field_mappings || [];
+    const mapping = mappings.find((item) => this._mappingTargetColumn(item) === targetColumn);
+    if (!mapping || !this._mappingExpressionEditor) return;
+
+    this._activeExpressionTargetColumn = targetColumn;
+    this.$expressionModalTitle.textContent = `Expression Editor: ${targetColumn}`;
+    this.$expressionModalHint.textContent = `Use source expressions from the ${this._proposalSourceAlias(proposal)} layer, plus functions and operators, to define ${targetColumn}.`;
+    this._mappingExpressionEditor.selectedRectangle = {
+      alias: this._proposalSourceAlias(proposal),
+      items: this._expressionEditorItems(proposal),
+    };
+    this._mappingExpressionEditor.updateColumnCount?.();
+    this._mappingExpressionEditor.expressionArea?.setTextContent(String(mapping.expression || "").trim());
+    this.$expressionModal.classList.add("open");
+  }
+
+  _closeExpressionEditor() {
+    this.$expressionModal.classList.remove("open");
+    this._activeExpressionTargetColumn = null;
+  }
+
+  _applyExpressionEditor() {
+    const targetColumn = this._activeExpressionTargetColumn;
+    if (!targetColumn || !this._currentProposal || !this._mappingExpressionEditor) return;
+    const expression = String(this._mappingExpressionEditor.expressionArea?.getTextContent?.() || "").trim();
+    if (!expression) {
+      alert("Expression cannot be blank.");
+      return;
+    }
+
+    const proposal = this._proposalState();
+    const mappings = [...(proposal.mappings || proposal.field_mappings || [])];
+    const columns = [...(proposal.columns || [])];
+    const mappingIndex = mappings.findIndex((item) => this._mappingTargetColumn(item) === targetColumn);
+    if (mappingIndex < 0) return;
+
+    const mapping = mappings[mappingIndex];
+    const baseExpression = this._mappingBaseExpression(mapping, proposal);
+    const transforms = this._mappingTransforms(mapping);
+    const extractedSourceColumns = this._extractSourceColumnsFromExpression(expression, proposal);
+    const nextMapping = {
+      ...mapping,
+      expression,
+      source_columns: extractedSourceColumns.length ? extractedSourceColumns : (Array.isArray(mapping.source_columns) ? [...mapping.source_columns] : []),
+    };
+
+    if (expression === baseExpression) {
+      nextMapping.base_expression = baseExpression;
+      delete nextMapping.transform;
+    } else if (transforms.length && baseExpression) {
+      try {
+        const generatedExpression = buildExpressionFromTransforms(baseExpression, transforms);
+        if (generatedExpression === expression) {
+          nextMapping.transform = [...transforms];
+          nextMapping.base_expression = baseExpression;
+        } else {
+          delete nextMapping.transform;
+          delete nextMapping.base_expression;
+        }
+      } catch (_) {
+        delete nextMapping.transform;
+        delete nextMapping.base_expression;
+      }
+    } else {
+      delete nextMapping.transform;
+      delete nextMapping.base_expression;
+    }
+
+    mappings[mappingIndex] = nextMapping;
+
+    const columnIndex = columns.findIndex((col) => this._mappingTargetColumn(col) === targetColumn);
+    if (columnIndex >= 0) {
+      const nextColumn = {
+        ...columns[columnIndex],
+        expression,
+        source_columns: nextMapping.source_columns,
+      };
+      if (nextMapping.base_expression) nextColumn.base_expression = nextMapping.base_expression;
+      else delete nextColumn.base_expression;
+      if (Array.isArray(nextMapping.transform)) nextColumn.transform = [...nextMapping.transform];
+      else delete nextColumn.transform;
+      columns[columnIndex] = nextColumn;
+    }
+
+    const nextProposal = { ...proposal, columns, mappings };
+    if (proposal.field_mappings && !proposal.mappings) nextProposal.field_mappings = mappings;
+    this._setProposalState(nextProposal);
+    this._schemaDirty = true;
+    this.$saveSchemaBtn.disabled = false;
+    this._renderMapping(this._currentProposal);
+    this._updateSchemaExpressionInput(targetColumn, expression);
+    this._setDetailStatus(`Updated expression for ${targetColumn}.`);
+    this._closeExpressionEditor();
+  }
+
+  _syncMappingsFromColumns(proposal, columns) {
+    const proposalMappings = proposal.mappings || proposal.field_mappings || [];
+    if (!proposalMappings.length) return proposalMappings;
+    return proposalMappings.map((mapping) => {
+      const targetColumn = this._mappingTargetColumn(mapping);
+      const column = columns.find((col) => this._mappingTargetColumn(col) === targetColumn);
+      if (!column) return mapping;
+
+      const nextMapping = {
+        ...mapping,
+        expression: column.expression || column.source_expression || mapping.expression || "",
+        source_columns: Array.isArray(column.source_columns) && column.source_columns.length
+          ? [...column.source_columns]
+          : (Array.isArray(mapping.source_columns) ? [...mapping.source_columns] : []),
+      };
+      const transforms = Array.isArray(column.transform)
+        ? column.transform
+        : this._mappingTransforms(mapping);
+      const baseExpression = column.base_expression || mapping.base_expression || this._mappingBaseExpression(mapping, proposal);
+
+      if (transforms.length && baseExpression) {
+        try {
+          const generatedExpression = buildExpressionFromTransforms(baseExpression, transforms);
+          if (generatedExpression === nextMapping.expression) {
+            nextMapping.transform = [...transforms];
+            nextMapping.base_expression = baseExpression;
+          } else {
+            delete nextMapping.transform;
+            delete nextMapping.base_expression;
+          }
+        } catch (_) {
+          delete nextMapping.transform;
+          delete nextMapping.base_expression;
+        }
+      }
+      return nextMapping;
+    });
+  }
+
   // ── Tab switching ──
   _switchTab(tab) {
     this.shadowRoot.querySelectorAll(".tabs .tab[data-tab]").forEach((t) => {
@@ -777,6 +1671,7 @@ class ModelingConsole extends HTMLElement {
     this.shadowRoot.querySelectorAll(".tab-panel[data-panel]").forEach((p) => {
       p.classList.toggle("active", p.dataset.panel === tab);
     });
+    if (tab === "proposals") this._loadProposals();
     if (tab === "releases") this._loadReleases();
     if (tab === "review") this._renderReview();
     if (tab === "sql") this._renderSqlTab();
@@ -849,11 +1744,21 @@ class ModelingConsole extends HTMLElement {
     }
   }
 
-  _toggleNewProposalForm(show) {
+  async _toggleNewProposalForm(show) {
     this.$newProposalCard.style.display = show ? "block" : "none";
     if (show) {
-      if (this._currentLayer() === "gold") this.$propSilverProposalId.focus();
-      else this.$propNodeId.focus();
+      if (this._currentLayer() === "gold") {
+        this.$submitProposalBtn.disabled = true;
+        await this._loadSilverProposalOptions();
+        this.$submitProposalBtn.disabled = false;
+        this.$propSilverProposalId.focus();
+      }
+      else {
+        this.$submitProposalBtn.disabled = true;
+        await this._refreshSilverProposalInputs();
+        this.$submitProposalBtn.disabled = false;
+        this.$propNodeId.focus();
+      }
     }
   }
 
@@ -879,7 +1784,7 @@ class ModelingConsole extends HTMLElement {
       const result = await request(cfg.proposeRoute, { method: "POST", body });
       this._toggleNewProposalForm(false);
       this.$propNodeId.value = "";
-      this.$propEndpoint.value = "";
+      this._renderEndpointOptions([]);
       this.$propSilverProposalId.value = "";
       await this._loadProposals();
       const pid = result?.proposal_id || result?.id;
@@ -923,28 +1828,63 @@ class ModelingConsole extends HTMLElement {
     const p = this._currentProposal;
     if (!p) return;
     const cfg = this._proposalConfig(p);
+    const latestValidationStatus = p.latest_validation?.status
+      ? ` | Latest validation: ${p.latest_validation.status}`
+      : "";
 
     this.$detailTitle.textContent = `Proposal #${p.proposal_id || p.id} — ${this._proposalSourceName(p)}`;
-    this.$detailMeta.textContent = `Layer: ${cfg.layerLabel} | Status: ${p.status || "draft"} | Source node: ${p.source_node_id || p.api_node_id || "--"} | Created: ${fmtDate(this._proposalCreatedAt(p))} | By: ${p.created_by || "--"}`;
+    this.$detailMeta.textContent = `Layer: ${cfg.layerLabel} | Status: ${p.status || "draft"}${latestValidationStatus} | Source node: ${p.source_node_id || p.api_node_id || "--"} | Created: ${fmtDate(this._proposalCreatedAt(p))} | By: ${p.created_by || "--"}`;
 
-    this._renderPipeline(this.$pipelineSteps, p.status);
+    this._renderPipeline(this.$pipelineSteps, p);
     this._renderSchema(p);
+    this._renderProcessingPolicy(p);
     this._renderMapping(p);
     this._renderDetailActions(p);
     this._renderValidation(p);
   }
 
-  _renderPipeline(container, status) {
-    const steps = ["proposed", "compiled", "validated", "approved", "published"];
-    const statusIdx = steps.indexOf((status || "").toLowerCase());
+  _pipelineState(p) {
+    const proposalStatus = String(p?.status || "draft").toLowerCase();
+    const latestValidationStatus = String(p?.latest_validation?.status || p?.validation?.status || "").toLowerCase();
+
+    if (proposalStatus === "rejected") {
+      return { doneSteps: new Set(["propose", "edit", "compile", "validate"]), currentStep: null, errorStep: "review" };
+    }
+    if (proposalStatus === "changes_requested") {
+      return { doneSteps: new Set(["propose", "edit", "compile", "validate"]), currentStep: "edit", errorStep: "review" };
+    }
+    if (proposalStatus === "draft" && latestValidationStatus === "invalid") {
+      return { doneSteps: new Set(["propose", "edit", "compile"]), currentStep: null, errorStep: "validate" };
+    }
+
+    switch (proposalStatus) {
+      case "published":
+        return { doneSteps: new Set(["propose", "edit", "compile", "validate", "review", "publish"]), currentStep: "execute", errorStep: null };
+      case "approved":
+        return { doneSteps: new Set(["propose", "edit", "compile", "validate", "review"]), currentStep: "publish", errorStep: null };
+      case "validated":
+        return { doneSteps: new Set(["propose", "edit", "compile", "validate"]), currentStep: "review", errorStep: null };
+      case "compiled":
+        return { doneSteps: new Set(["propose", "edit", "compile"]), currentStep: "validate", errorStep: null };
+      case "proposed":
+        return { doneSteps: new Set(["propose", "edit"]), currentStep: "compile", errorStep: null };
+      default:
+        return { doneSteps: new Set(), currentStep: "propose", errorStep: null };
+    }
+  }
+
+  _renderPipeline(container, proposal) {
+    const { doneSteps, currentStep, errorStep } = this._pipelineState(proposal);
     container.querySelectorAll(".pipeline-step").forEach((el) => {
       const stepName = el.dataset.step;
-      const stepMap = { propose: 0, edit: 0, compile: 1, validate: 2, review: 3, publish: 4, execute: 5 };
-      const idx = stepMap[stepName] ?? -1;
       el.classList.remove("done", "current", "error");
-      if (status === "rejected" && stepName === "review") el.classList.add("error");
-      else if (idx < statusIdx) el.classList.add("done");
-      else if (idx === statusIdx) el.classList.add("current");
+      if (errorStep === stepName) {
+        el.classList.add("error");
+      } else if (doneSteps.has(stepName)) {
+        el.classList.add("done");
+      } else if (currentStep === stepName) {
+        el.classList.add("current");
+      }
     });
   }
 
@@ -1062,12 +2002,15 @@ class ModelingConsole extends HTMLElement {
     const p = this._currentProposal;
     if (!p) return;
     const cfg = this._proposalConfig(p);
+    const proposalState = p.proposal || p || {};
     const columns = this._collectSchemaFromTable();
+    const mappings = this._syncMappingsFromColumns(proposalState, columns);
     this.$saveSchemaBtn.disabled = true;
     this._setDetailStatus("Saving schema changes...", true);
 
     try {
-      const proposal = { ...(p.proposal || {}), columns };
+      const proposal = { ...proposalState, columns, mappings, processing_policy: this._collectProcessingPolicyFromForm(proposalState) };
+      if (proposalState.field_mappings && !proposalState.mappings) proposal.field_mappings = mappings;
       const result = await request(cfg.updateRoute, {
         method: "POST",
         body: { proposal_id: p.proposal_id || p.id, proposal },
@@ -1091,13 +2034,28 @@ class ModelingConsole extends HTMLElement {
     this.$mappingCard.style.display = "block";
     this.$mappingBody.innerHTML = "";
     mappings.forEach((m) => {
+      const targetColumn = this._mappingTargetColumn(m);
+      const transformSummary = this._mappingTransformSummary(m);
+      const castSummary = this._mappingCastSummary(m);
+      const canEditTransforms = Boolean(this._mappingBaseExpression(m, proposal));
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${this._esc(m.source_field || m.bronze_field || (m.source_columns || []).join(", ") || "")}</td>
-        <td>${this._esc(m.target_column || m.silver_column || "")}</td>
-        <td>${this._esc(m.transform || m.expression || "--")}</td>
-        <td>${this._esc(m.cast || m.type_cast || "--")}</td>
+        <td>${this._esc(targetColumn)}</td>
+        <td>
+          ${this._esc(transformSummary)}
+          <span class="mapping-expression-note">${this._esc(m.expression || "--")}</span>
+        </td>
+        <td>${this._esc(m.cast || m.type_cast || castSummary)}</td>
+        <td>
+          <div class="mapping-action-group">
+            <button class="small secondary" type="button" data-edit-expression="${this._esc(targetColumn)}">Expression</button>
+            <button class="small secondary" type="button" data-edit-transform="${this._esc(targetColumn)}" ${canEditTransforms ? "" : "disabled"}>Transform</button>
+          </div>
+        </td>
       `;
+      tr.querySelector('[data-edit-expression]')?.addEventListener("click", () => this._openExpressionEditor(targetColumn));
+      tr.querySelector('[data-edit-transform]')?.addEventListener("click", () => this._editMappingTransforms(targetColumn));
       this.$mappingBody.appendChild(tr);
     });
   }
@@ -1148,17 +2106,47 @@ class ModelingConsole extends HTMLElement {
       return;
     }
     this.$validationCard.style.display = "block";
-    const results = val.results || val.checks || (Array.isArray(val) ? val : []);
-    if (!results.length) {
+
+    // Backend stores errors in schema_errors/warnings; normalize to a single list
+    const schemaErrors = (val.schema_errors || []).map(e => ({ ...e, result: "fail" }));
+    const warnings = (val.warnings || []).map(w => ({ ...w, result: "warn" }));
+    const sampleError = val.sample_execution?.error
+      ? [{ kind: val.sample_execution.error.kind || "sample_execution", message: val.sample_execution.error.message, result: "fail" }]
+      : [];
+    const legacyResults = val.results || val.checks || (Array.isArray(val) ? val : []);
+    const allResults = [...schemaErrors, ...sampleError, ...warnings, ...legacyResults];
+
+    const validationStatus = val.status || p.latest_validation?.status || "";
+
+    if (!allResults.length && !validationStatus) {
       this.$validationResults.innerHTML = '<p style="color:#6b7280;font-size:13px;">No validation results available.</p>';
       return;
     }
-    let html = '<table style="font-size:12px;"><thead><tr><th>Check</th><th>Result</th><th>Message</th></tr></thead><tbody>';
-    for (const r of results) {
+
+    let html = "";
+
+    // Show overall status
+    if (validationStatus) {
+      const isValid = validationStatus === "valid";
+      html += `<p style="font-size:14px;font-weight:600;margin-bottom:8px;color:${isValid ? "#16a34a" : "#dc2626"};">
+        Validation status: ${this._esc(validationStatus.toUpperCase())}</p>`;
+    }
+
+    if (!allResults.length) {
+      html += '<p style="color:#6b7280;font-size:13px;">No detailed check results.</p>';
+      this.$validationResults.innerHTML = html;
+      return;
+    }
+
+    html += '<table style="font-size:12px;"><thead><tr><th>Kind</th><th>Result</th><th>Message</th></tr></thead><tbody>';
+    for (const r of allResults) {
       const pass = r.passed || r.result === "pass" || r.status === "pass";
+      const isWarn = r.result === "warn";
+      const badgeClass = pass ? "badge-validated" : isWarn ? "badge-warning" : "badge-failed";
+      const label = pass ? "PASS" : isWarn ? "WARN" : "FAIL";
       html += `<tr>
-        <td>${this._esc(r.check || r.name || "")}</td>
-        <td><span class="badge ${pass ? "badge-validated" : "badge-failed"}">${pass ? "PASS" : "FAIL"}</span></td>
+        <td>${this._esc(r.kind || r.check || r.name || "")}</td>
+        <td><span class="badge ${badgeClass}">${label}</span></td>
         <td>${this._esc(r.message || r.detail || "")}</td>
       </tr>`;
     }
@@ -1175,7 +2163,13 @@ class ModelingConsole extends HTMLElement {
       this._setDetailStatus("Compilation complete.");
       await this._openProposal(pid);
     } catch (e) {
-      this._setDetailStatus("Compile failed: " + (e.message || e));
+      const errors = e.responseData?.data?.errors || [];
+      if (errors.length) {
+        const lines = errors.map(err => this._esc(`${err.kind || "error"}: ${err.message || JSON.stringify(err)}`));
+        this.$detailStatus.innerHTML = `<span>${this._esc("Compile failed: " + (e.message || e))}<br>${lines.join("<br>")}</span>`;
+      } else {
+        this._setDetailStatus("Compile failed: " + (e.message || e));
+      }
     }
   }
 
@@ -1267,11 +2261,16 @@ class ModelingConsole extends HTMLElement {
     // Pipeline
     this.$reviewPipeline.innerHTML = "";
     const steps = ["Propose", "Compile", "Validate", "Review", "Publish"];
-    const statusOrder = ["proposed", "compiled", "validated", "approved", "published"];
-    const currentIdx = statusOrder.indexOf((p.status || "").toLowerCase());
+    const stepNames = ["propose", "compile", "validate", "review", "publish"];
+    const { doneSteps, currentStep, errorStep } = this._pipelineState(p);
     steps.forEach((label, i) => {
       const div = document.createElement("div");
-      div.className = "pipeline-step" + (i < currentIdx ? " done" : i === currentIdx ? " current" : "");
+      const stepName = stepNames[i];
+      let cls = "";
+      if (errorStep === stepName) cls = " error";
+      else if (doneSteps.has(stepName)) cls = " done";
+      else if (currentStep === stepName) cls = " current";
+      div.className = "pipeline-step" + cls;
       div.innerHTML = `<span class="step-num">${i + 1}</span> ${label}`;
       this.$reviewPipeline.appendChild(div);
     });
@@ -1299,14 +2298,20 @@ class ModelingConsole extends HTMLElement {
     // Validation
     const val = p.validation || p.validation_results || p.latest_validation?.validation;
     if (val) {
-      const checks = val.results || val.checks || (Array.isArray(val) ? val : []);
-      const passed = checks.filter((c) => c.passed || c.result === "pass").length;
-      const total = checks.length;
+      const schemaErrors = (val.schema_errors || []).map(e => ({ ...e, result: "fail" }));
+      const warnings = (val.warnings || []).map(w => ({ ...w, result: "warn" }));
+      const sampleError = val.sample_execution?.error
+        ? [{ kind: val.sample_execution.error.kind || "sample_execution", message: val.sample_execution.error.message, result: "fail" }]
+        : [];
+      const legacyChecks = val.results || val.checks || (Array.isArray(val) ? val : []);
+      const allChecks = [...schemaErrors, ...sampleError, ...warnings, ...legacyChecks];
+      const failed = allChecks.filter(c => !(c.passed || c.result === "pass"));
+      const validationStatus = val.status || p.latest_validation?.status || "";
       this.$reviewValidation.innerHTML = `
         <div class="card" style="margin:0;">
-          <h4>Validation: ${passed}/${total} checks passed</h4>
-          ${checks.filter((c) => !(c.passed || c.result === "pass")).map((c) =>
-            `<p style="color:#dc2626;font-size:12px;">FAIL: ${this._esc(c.check || c.name || "")} — ${this._esc(c.message || "")}</p>`
+          <h4>Validation: ${validationStatus === "valid" ? "VALID" : validationStatus === "invalid" ? "INVALID" : `${allChecks.length - failed.length}/${allChecks.length} checks passed`}</h4>
+          ${failed.map((c) =>
+            `<p style="color:#dc2626;font-size:12px;">${this._esc(c.result === "warn" ? "WARN" : "FAIL")}: ${this._esc(c.kind || c.check || c.name || "")} — ${this._esc(c.message || "")}</p>`
           ).join("")}
         </div>
       `;
@@ -1314,10 +2319,39 @@ class ModelingConsole extends HTMLElement {
       this.$reviewValidation.innerHTML = '<p style="font-size:13px;color:#6b7280;">No validation results. Validate the proposal before review.</p>';
     }
 
-    // Reset decision
-    this.$reviewDecision.value = "";
-    this.$reviewNotes.value = "";
-    this.$submitReviewBtn.disabled = true;
+    // Check if proposal is in a reviewable state
+    const reviewableStatuses = new Set(["validated", "reviewed", "approved", "published"]);
+    const proposalStatus = (p.status || "draft").toLowerCase();
+    const isReviewable = reviewableStatuses.has(proposalStatus);
+
+    const review = p.review || p.proposal?.review || {};
+    const statusDecision =
+      p.status === "published" ? "approved"
+        : (p.status === "approved" || p.status === "rejected" || p.status === "changes_requested") ? p.status
+          : "";
+    const storedDecision = (review.state || statusDecision || "").toLowerCase();
+    const storedNotes = review.notes || p.proposal?.review?.notes || "";
+    const allowedDecision = ["approved", "changes_requested", "rejected"].includes(storedDecision) ? storedDecision : "";
+
+    this.$reviewDecision.value = allowedDecision;
+    this.$reviewNotes.value = storedNotes;
+    this.$reviewDecision.disabled = !isReviewable;
+    this.$submitReviewBtn.disabled = !isReviewable || !allowedDecision;
+
+    // Show warning if not yet reviewable
+    const warningId = "review-status-warning";
+    const existing = this.$reviewContent.querySelector(`#${warningId}`);
+    if (existing) existing.remove();
+    if (!isReviewable) {
+      const warning = document.createElement("div");
+      warning.id = warningId;
+      warning.style.cssText = "background:#fef3c7;border:1px solid #f59e0b;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#92400e;";
+      const stepHint = proposalStatus === "compiled" ? "Validate the proposal first."
+        : proposalStatus === "proposed" || proposalStatus === "draft" ? "Compile and validate the proposal first."
+        : `Current status: "${proposalStatus}". Proposal must be validated before review.`;
+      warning.textContent = `Review is not available yet. ${stepHint}`;
+      this.$reviewContent.prepend(warning);
+    }
   }
 
   async _submitReview() {
@@ -1331,8 +2365,9 @@ class ModelingConsole extends HTMLElement {
     if (decision !== "approved" && !notes) { alert("Notes are required for rejection or change requests."); return; }
 
     this.$submitReviewBtn.disabled = true;
+    this._setDetailStatus(`Submitting review: ${decision}...`, true);
     try {
-      await request(cfg.reviewRoute, {
+      const result = await request(cfg.reviewRoute, {
         method: "POST",
         body: {
           proposal_id: p.proposal_id || p.id,
@@ -1340,11 +2375,33 @@ class ModelingConsole extends HTMLElement {
           review_notes: notes,
         },
       });
-      alert(`Review submitted: ${decision}`);
+      const nextStatus = String(result?.status || decision || "").toLowerCase();
       await this._openProposal(p.proposal_id || p.id);
+      await this._loadProposals();
       this._renderReview();
+      this._setDetailStatus(
+        nextStatus === "approved"
+          ? "Review submitted: approved. Next step: Publish Release."
+          : nextStatus === "changes_requested"
+            ? "Review submitted: changes requested. Proposal returned for edits."
+            : nextStatus === "rejected"
+              ? "Review submitted: rejected."
+              : `Review submitted: ${result?.status || decision}.`
+      );
+      if (nextStatus === "approved") {
+        this._switchTab("detail");
+        const publishBtn = Array.from(this.$detailActions.querySelectorAll("button"))
+          .find((btn) => btn.textContent.trim() === "Publish Release");
+        publishBtn?.focus();
+      }
     } catch (e) {
-      alert("Review failed: " + (e.message || e));
+      const msg = (e.message || String(e));
+      const is409 = msg.includes("409") || msg.includes("not ready for review");
+      const displayMsg = is409
+        ? "Proposal is not ready for review. Make sure it has been validated first (Propose → Compile → Validate → Review)."
+        : "Review failed: " + msg;
+      this._setDetailStatus(displayMsg);
+      alert(displayMsg);
       this.$submitReviewBtn.disabled = false;
     }
   }
@@ -1376,11 +2433,12 @@ class ModelingConsole extends HTMLElement {
 
     for (const r of releases) {
       const layer = this._proposalLayer(r);
+      const releaseId = r.release_id || r.active_release?.release_id;
       const tr = document.createElement("tr");
       tr.classList.add("clickable");
       const safeRunStatus = this._esc(r.run_status || "published");
       tr.innerHTML = `
-        <td>${this._esc(r.release_id || "--")}</td>
+        <td>${this._esc(releaseId || "--")}</td>
         <td>#${this._esc(r.proposal_id || r.id || "--")}</td>
         <td>${this._esc(this._proposalSourceName(r))}</td>
         <td>${this._esc(layer)}</td>
@@ -1390,12 +2448,12 @@ class ModelingConsole extends HTMLElement {
       `;
       const actionsCell = tr.querySelector(".release-actions");
 
-      if (r.release_id) {
+      if (releaseId) {
         const execBtn = document.createElement("button");
         execBtn.className = "small success";
         execBtn.textContent = "Execute";
         execBtn.type = "button";
-        execBtn.addEventListener("click", (e) => { e.stopPropagation(); this._executeRelease(r.release_id, this._proposalConfig(r)); });
+        execBtn.addEventListener("click", (e) => { e.stopPropagation(); this._executeRelease(releaseId, this._proposalConfig(r)); });
         actionsCell.appendChild(execBtn);
       }
 
@@ -1414,20 +2472,37 @@ class ModelingConsole extends HTMLElement {
     const confirmed = await customConfirm(`Execute release #${releaseId}? This will run the compiled SQL against the target warehouse.`);
     if (!confirmed) return;
 
+    this._switchTab("releases");
     this.$executionCard.style.display = "block";
     this.$execRunId.textContent = "Starting...";
     this.$execStatus.innerHTML = '<span class="badge badge-running">STARTING</span>';
+    this.$execStarted.textContent = "--";
+    this.$execDuration.textContent = "--";
+    this.$execRowCount.textContent = "--";
+    this.$execBackend.textContent = "--";
     this.$execLog.textContent = "Submitting execution request...\n";
+    this.$previewDataBtn.style.display = "none";
+    this.$execPreview.style.display = "none";
+    this.$execPreview.innerHTML = "";
+    this._currentRequestId = null;
+    this._currentRunId = null;
+    this._activePollRoute = cfg.pollRoute;
 
     try {
       const result = await request(cfg.executeRoute, {
         method: "POST",
         body: { release_id: releaseId },
       });
-      this._currentRunId = result?.model_run_id || result?.run_id;
-      this.$execRunId.textContent = this._currentRunId || "--";
-      this.$execStatus.innerHTML = '<span class="badge badge-running">RUNNING</span>';
-      this.$execLog.textContent += `Execution started. Run ID: ${this._currentRunId}\n`;
+      this._currentRequestId = result?.request_id || null;
+      this._currentRunId = result?.model_run_id || null;
+      this.$execRunId.textContent = this._currentRequestId || this._currentRunId || result?.run_id || "--";
+      const initialStatus = String(result?.request_status || result?.status || "queued").toLowerCase();
+      this.$execStatus.innerHTML = `<span class="badge ${badgeClass(initialStatus)}">${initialStatus.toUpperCase()}</span>`;
+      if (this._currentRequestId) this.$execLog.textContent += `Request ID: ${this._currentRequestId}\n`;
+      if (result?.run_id) this.$execLog.textContent += `Execution Run ID: ${result.run_id}\n`;
+      if (this._currentRunId) this.$execLog.textContent += `Model Run ID: ${this._currentRunId}\n`;
+      if (result?.deduped) this.$execLog.textContent += "Request deduped against an already active execution.\n";
+      if (result?.backend) this.$execLog.textContent += `Backend: ${result.backend}\n`;
 
       // Start auto-polling
       this._startPolling();
@@ -1438,23 +2513,78 @@ class ModelingConsole extends HTMLElement {
   }
 
   async _pollRun() {
-    if (!this._currentRunId) { alert("No active run to poll."); return; }
+    if (!this._currentRequestId && !this._currentRunId) { alert("No active run to poll."); return; }
     try {
-      const result = await request(this._proposalConfig().pollRoute, {
+      const body = this._currentRequestId
+        ? { request_id: this._currentRequestId }
+        : { model_run_id: this._currentRunId };
+      const pollRoute = this._activePollRoute || this._proposalConfig().pollRoute;
+      const result = await request(pollRoute, {
         method: "POST",
-        body: { model_run_id: this._currentRunId },
+        body,
       });
-      const status = result?.status || result?.run_status || "unknown";
+      if (result?.request_id) this._currentRequestId = result.request_id;
+      if (result?.model_run_id) {
+        this._currentRunId = result.model_run_id;
+        this.$execRunId.textContent = this._currentRunId;
+      } else if (this._currentRequestId) {
+        this.$execRunId.textContent = this._currentRequestId;
+      }
+
+      const status = result?.status || result?.request_status || result?.run_status || "unknown";
       this.$execStatus.innerHTML = `<span class="badge ${badgeClass(status)}">${status.toUpperCase()}</span>`;
-      this.$execStarted.textContent = fmtDate(result?.started_at);
-      this.$execDuration.textContent = result?.duration || result?.elapsed || "--";
+
+      // Started time — backend uses created_at_utc
+      const started = result?.created_at_utc || result?.started_at_utc || result?.started_at;
+      this.$execStarted.textContent = fmtDate(started);
+
+      // Duration — compute from created_at_utc and completed_at_utc
+      const completed = result?.completed_at_utc || result?.completed_at;
+      if (started && completed) {
+        const ms = new Date(completed) - new Date(started);
+        if (ms >= 0) {
+          const secs = Math.round(ms / 1000);
+          this.$execDuration.textContent = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+        }
+      } else if (started) {
+        const ms = Date.now() - new Date(started);
+        if (ms >= 0) {
+          const secs = Math.round(ms / 1000);
+          this.$execDuration.textContent = secs < 60 ? `${secs}s (running)` : `${Math.floor(secs / 60)}m ${secs % 60}s (running)`;
+        }
+      }
+
+      // Backend
+      const backend = result?.execution_backend || result?.backend;
+      if (backend) this.$execBackend.textContent = backend;
+
+      // Row counts from response_json
+      const respJson = result?.response_json;
+      if (respJson) {
+        const jdbcResult = respJson?.result;
+        if (Array.isArray(jdbcResult) && jdbcResult.length > 0) {
+          // JDBC returns [{:next.jdbc/update-count N}] for DML
+          const updateCount = jdbcResult[0]?.["next.jdbc/update-count"] ?? jdbcResult[0]?.update_count ?? jdbcResult[0]?.["update-count"];
+          if (updateCount != null) {
+            this.$execRowCount.textContent = String(updateCount);
+          } else {
+            this.$execRowCount.textContent = `${jdbcResult.length} result(s)`;
+          }
+        } else if (respJson?.error) {
+          this.$execRowCount.textContent = "error";
+        }
+      }
 
       const log = result?.log || result?.output || result?.message || "";
       if (log) this.$execLog.textContent += log + "\n";
 
-      if (["completed", "failed", "error", "cancelled"].includes(status.toLowerCase())) {
+      const terminal = ["completed", "succeeded", "failed", "error", "cancelled", "timed_out"];
+      if (terminal.includes(status.toLowerCase())) {
         this._stopPolling();
         this.$execLog.textContent += `\n--- Run ${status} ---\n`;
+        if (status.toLowerCase() === "succeeded") {
+          this.$previewDataBtn.style.display = "inline-block";
+        }
       }
     } catch (e) {
       this.$execLog.textContent += `Poll error: ${e.message || e}\n`;
@@ -1463,14 +2593,63 @@ class ModelingConsole extends HTMLElement {
 
   _startPolling() {
     this._stopPolling();
+    this._pollCount = 0;
     this.$stopPollBtn.style.display = "inline-block";
-    this._pollTimer = setInterval(() => this._pollRun(), 5000);
+    this._pollTimer = setInterval(() => {
+      this._pollCount += 1;
+      if (this._pollCount > 360) {
+        this._stopPolling();
+        this.$execStatus.innerHTML = '<span class="badge badge-failed">POLL TIMEOUT</span>';
+        this.$execLog.textContent += "\n--- Auto polling timed out; use Poll Status to continue checking this run. ---\n";
+        return;
+      }
+      this._pollRun();
+    }, 5000);
     this._pollRun(); // immediate first poll
   }
 
   _stopPolling() {
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+    this._pollCount = 0;
     this.$stopPollBtn.style.display = "none";
+  }
+
+  async _previewTargetData() {
+    const p = this._currentProposal;
+    if (!p) { alert("No proposal selected."); return; }
+    const pid = p.proposal_id || p.id;
+    this.$previewDataBtn.disabled = true;
+    this.$execPreview.style.display = "block";
+    this.$execPreview.innerHTML = '<span class="spinner"></span> Loading preview...';
+    try {
+      const cfg = this._proposalConfig(p);
+      const data = await request(`${cfg.previewRoute}?proposal_id=${pid}&limit=10`);
+      const rows = data?.rows || [];
+      if (!rows.length) {
+        this.$execPreview.innerHTML = "<em>No rows found in target table.</em>";
+        return;
+      }
+      const cols = Object.keys(rows[0]);
+      let html = `<div style="font-size:12px;margin-bottom:4px;"><strong>${data.target_table || "Target"}</strong> — ${data.row_count} row(s)</div>`;
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>';
+      for (const c of cols) html += `<th style="border:1px solid #ddd;padding:4px 6px;background:#f5f5f5;text-align:left;">${this._esc(c)}</th>`;
+      html += "</tr></thead><tbody>";
+      for (const row of rows) {
+        html += "<tr>";
+        for (const c of cols) {
+          const v = row[c];
+          const text = v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+          html += `<td style="border:1px solid #ddd;padding:4px 6px;">${this._esc(text)}</td>`;
+        }
+        html += "</tr>";
+      }
+      html += "</tbody></table>";
+      this.$execPreview.innerHTML = html;
+    } catch (e) {
+      this.$execPreview.innerHTML = `<span style="color:#dc2626;">Preview failed: ${this._esc(e.message || e)}</span>`;
+    } finally {
+      this.$previewDataBtn.disabled = false;
+    }
   }
 
   // ── SQL Tab ──
@@ -1511,9 +2690,12 @@ class ModelingConsole extends HTMLElement {
 
   // ── Utilities ──
   _getGid() {
-    // Try to get graph ID from session / panelItems
-    const items = window.data?.panelItems || [];
-    if (items.length && items[0]?.id) return items[0].id;
+    const explicitGid = window.data?.gid;
+    if (explicitGid != null && explicitGid !== "") return explicitGid;
+
+    // Fallback for a just-created unsaved graph where panelItems still holds the graph shell.
+    const items = getPanelItems();
+    if (items.length === 1 && !items[0]?.btype && items[0]?.id) return items[0].id;
     return null;
   }
 
@@ -1525,7 +2707,9 @@ class ModelingConsole extends HTMLElement {
     if (!s) return "";
     const d = document.createElement("div");
     d.textContent = String(s);
-    return d.innerHTML;
+    return d.innerHTML
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 }
 

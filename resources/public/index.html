@@ -7,6 +7,12 @@
   <title>Custom Web Component with HTMLElements</title>
   <link rel="stylesheet" href="./app.css" />
   <link rel="stylesheet" href="./source/styles/smart.default.css" />
+  <style>
+    .toolbar-offset-panel {
+      top: var(--toolbar-h, 0px) !important;
+      height: calc(100vh - var(--toolbar-h, 0px)) !important;
+    }
+  </style>
 </head>
 
 <body style="display: flex;margin:0;height:100vh;">
@@ -62,7 +68,7 @@
     <div class="tooltip">
       <button data-label="api-connection" data-conn_id="123" data-schema="schema"
         onclick="addRectangle('api-connection')">&Alpha;</button>
-      <span class="tooltiptext">API</span>
+      <span class="tooltiptext">API Connection</span>
     </div>
     <div class="tooltip">
       <button id="openGraphqlBuilderBtn" data-label="graphql-builder"
@@ -190,10 +196,10 @@
   <tree-component
     style="display: flex; justify-content: center; align-items: center;  height: 87vh; width: 100%; position: fixed; bottom: 0; left: 0;"></tree-component>
 
-  <column-list-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <column-list-component class="toolbar-offset-panel" style="height: calc(100vh - var(--toolbar-h, 0px)); width: 30%; position: fixed; top: var(--toolbar-h, 0px); right: 0; background-color: white; z-index: 20;">
   </column-list-component>
   
-  <target-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <target-component class="toolbar-offset-panel" style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </target-component>
 
   <smart-window class="association-dialog" label="Select Text Association Target">
@@ -205,80 +211,80 @@
   <smart-window class="insert-values-dialog" label="Insert Values" style="width:30%;height:64%;left:40%;top:10%;">
   </smart-window>
 
-  <association-editor-component
+  <association-editor-component class="toolbar-offset-panel"
     style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </association-editor-component>
 
-  <join-editor-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <join-editor-component class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </join-editor-component>
 
-  <union-editor-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <union-editor-component class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </union-editor-component>
 
-  <aggregation-editor-component
+  <aggregation-editor-component class="toolbar-offset-panel"
     style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </aggregation-editor-component>
 
-  <filter-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <filter-component class="toolbar-offset-panel" style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </filter-component>
 
-  <function-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <function-component class="toolbar-offset-panel" style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </function-component>
 
-  <projection-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <projection-component class="toolbar-offset-panel" style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </projection-component>
 
-  <calculated-column-component
+  <calculated-column-component class="toolbar-offset-panel"
     style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </calculated-column-component>
 
-  <sorter-editor style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <sorter-editor class="toolbar-offset-panel" style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </sorter-editor>
 
-  <transform-editor style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <transform-editor class="toolbar-offset-panel" style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white; z-index: 140;">
   </transform-editor>
 
-  <mapping-editor style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <mapping-editor class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </mapping-editor>
 
   <lambda-function-builder
     style="height: 90%;width: 80%;position: absolute;top: 50%;left: 50%;transform: translate(-50%, -50%);background-color: white;">
   </lambda-function-builder>
 
-  <control-flow-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <control-flow-component class="toolbar-offset-panel" style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </control-flow-component>
 
-  <api-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <api-component class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </api-component>
   
-  <api-connection-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <api-connection-component class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </api-connection-component>
 
-  <endpoint-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <endpoint-component class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </endpoint-component>
-  <response-builder-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <response-builder-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </response-builder-component>
-  <validator-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <validator-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </validator-component>
-  <scheduler-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <scheduler-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </scheduler-component>
-  <webhook-component style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <webhook-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </webhook-component>
-  <auth-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <auth-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </auth-component>
-  <db-execute-component style="display:none; height: 100vh; width: 50%; position: fixed; top: 0;right: 0;background-color: white;">
+  <db-execute-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 50%; position: fixed; top: 0;right: 0;background-color: white;">
   </db-execute-component>
-  <rate-limiter-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <rate-limiter-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </rate-limiter-component>
-  <cors-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <cors-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </cors-component>
-  <logger-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <logger-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </logger-component>
-  <cache-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <cache-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </cache-component>
-  <event-emitter-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <event-emitter-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </event-emitter-component>
-  <circuit-breaker-component style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
+  <circuit-breaker-component class="toolbar-offset-panel" style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </circuit-breaker-component>
 
   <smart-window id="renameDialog" label="Change Name" style="width:400px;height:400px;position:fixed;left:40%;top:20%">

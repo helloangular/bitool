@@ -22,7 +22,7 @@ class ApiConnectionComponent extends HTMLElement {
     this.state = null;
   }
 
-  static get observedAttributes() { return ["visibility"]; }
+  static get observedAttributes() { return ["visibility", "data-conn-id"]; }
 
   connectedCallback() {
     this.loadTemplate();
@@ -63,15 +63,67 @@ class ApiConnectionComponent extends HTMLElement {
   disconnectedCallback() { EventHandler.removeGroup("API"); }
 
   attributeChangedCallback(name, oldVal, newVal) {
-    if (name !== "visibility") return;
-    if (newVal === "open") {
-      this.open();
-      this.resetFields();
-      this.initializeState();
-      this.setupEventListeners();
-    } else {
-      this.close();
-      if (this.style.visibility === "hidden") EventHandler.removeGroup("API");
+    if (name === "visibility") {
+      if (newVal === "open") {
+        this.open();
+        this.resetFields();
+        this.initializeState();
+        this.setupEventListeners();
+        // If conn-id is set, load saved connection data
+        const connId = this.getAttribute("data-conn-id");
+        if (connId) this._loadConnectionData(connId);
+      } else {
+        this.close();
+        if (this.style.visibility === "hidden") EventHandler.removeGroup("API");
+      }
+    }
+  }
+
+  async _loadConnectionData(connId) {
+    try {
+      const resp = await fetch(`/getConnectionDetail?conn_id=${connId}`);
+      const data = await resp.json();
+      if (!data || data.error) return;
+
+      // Populate fields from saved connection
+      const fields = {
+        api_name: data.connection_name || "",
+        specification_url: data.host || "",
+        authentication: data.schema || "",
+        username: data.username || "",
+        password: data.password || "",
+        bearer_token: data.password || "",
+        api_key: data.password || "",
+        key_name: data.sid || "",
+      };
+
+      // Try to load selected endpoints from service field
+      if (data.service) {
+        try {
+          const eps = JSON.parse(data.service);
+          if (Array.isArray(eps)) fields.endpoint_url = eps;
+        } catch (_) {}
+      }
+
+      // Update state and UI
+      for (const [key, val] of Object.entries(fields)) {
+        if (val && this.state) this.state.set(key, val);
+        const input = this.shadowRoot?.querySelector(`[name="${key}"], #${key}`);
+        if (input) input.value = val;
+      }
+
+      // Set the api_name field specifically
+      const nameInput = this.shadowRoot?.querySelector("#apiName, [name='api_name']");
+      if (nameInput) nameInput.value = fields.api_name;
+
+      // Set spec URL
+      const specInput = this.shadowRoot?.querySelector("#specificationUrl, [name='specification_url']");
+      if (specInput) specInput.value = fields.specification_url;
+
+      this.saveButton.disabled = true;
+      this._editConnId = connId;
+    } catch (e) {
+      console.warn("Failed to load API connection data:", e);
     }
   }
 

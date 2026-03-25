@@ -5,6 +5,11 @@ template.innerHTML = `
   <link rel="stylesheet" href="./app.css" />
   <link rel="stylesheet" href="./source/styles/smart.default.css" />
   <style>
+    :host {
+      display: none;
+      z-index: 140;
+      box-sizing: border-box;
+    }
     .container {
       display: flex;
       flex-direction: column;
@@ -66,6 +71,7 @@ template.innerHTML = `
         <option value="">Select Transformation</option>
         <option value="TRIM">TRIM</option>
         <option value="TO_DATE">TO_DATE</option>
+        <option value="TO_VARCHAR">TO_VARCHAR</option>
         <option value="UPPERCASE">UPPERCASE</option>
         <option value="LOWERCASE">LOWERCASE</option>
         <option value="SUBSTRING">SUBSTRING</option>

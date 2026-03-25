@@ -104,6 +104,28 @@
         (is (= "ops" (nth insert-call 3)))
         (is (= 42 (nth insert-call 8)))))))
 
+(deftest record-execution-usage-supports-sql-timestamps
+  (let [calls (atom [])
+        started-at (java.sql.Timestamp/from (java.time.Instant/parse "2026-03-14T10:00:00Z"))
+        finished-at (java.sql.Timestamp/from (java.time.Instant/parse "2026-03-14T10:00:05Z"))]
+    (with-redefs [jdbc/execute! (fn [_ params]
+                                  (swap! calls conj params)
+                                  [])]
+      (operations/record-execution-usage!
+       {:tenant-key "tenant-a"
+        :workspace-key "ops"
+        :request-kind "api"
+        :workload-class "manual"
+        :queue-partition "p01"
+        :status "failed"
+        :rows-written 0
+        :retry-count 0
+        :started-at started-at
+        :finished-at finished-at})
+      (let [insert-call (last @calls)]
+        (is (= "tenant-a" (nth insert-call 2)))
+        (is (= 5000 (nth insert-call 9)))))))
+
 (deftest usage-dashboard-applies-filters-and-limit
   (let [sql-params (atom nil)]
     (with-redefs [jdbc/execute! (fn [_ params]

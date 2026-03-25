@@ -6,6 +6,8 @@
             [bitool.ingest.execution :as execution]
             [bitool.ingest.runtime :as runtime]
             [bitool.ingest.scheduler :as scheduler]
+            [bitool.modeling.automation :as modeling]
+            [cheshire.core :as json]
             [bitool.platform.plugins]
             [clojure.string :as string]
             [clojure.test :refer :all]
@@ -69,9 +71,9 @@
 
 (deftest execute-request-api-forwards-endpoint-name-from-queued-row
   (let [captured (atom nil)]
-    (with-redefs [runtime/run-api-node! (fn [graph-id node-id opts]
-                                          (reset! captured [graph-id node-id opts])
-                                          {:status "success"})]
+    (with-redefs [runtime/execute-api-request! (fn [graph-id node-id opts]
+                                                 (reset! captured [graph-id node-id opts])
+                                                 {:status "success"})]
       (is (= {:status "success"}
              (#'execution/execute-request*!
               {:request_kind "api"
@@ -81,9 +83,9 @@
       (is (= [42 7 {:endpoint-name "drivers"}] @captured)))))
 
 (deftest execute-request-api-throws-when-all-endpoints-fail
-  (with-redefs [runtime/run-api-node! (fn [_ _ _]
-                                        {:status "failed"
-                                         :results [{:endpoint_name "trips" :status "failed"}]})]
+  (with-redefs [runtime/execute-api-request! (fn [_ _ _]
+                                               {:status "failed"
+                                                :results [{:endpoint_name "trips" :status "failed"}]})]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"failed for all endpoints"
                           (#'execution/execute-request*!
@@ -134,6 +136,21 @@
              :node_id 7
              :request_params "{\"hello\":\"world\"}"})))
     (is (= "world" (get-in @captured [1 :hello])))))
+
+(deftest execute-request-silver-release-delegates-to-modeling-queue-helper
+  (let [captured (atom nil)]
+    (with-redefs [modeling/execute-queued-silver-release! (fn [release-id opts]
+                                                            (reset! captured [release-id opts])
+                                                            {:status "succeeded"
+                                                             :model_run_id 12})]
+      (is (= {:status "succeeded" :model_run_id 12}
+             (#'execution/execute-request*!
+              {:request_kind "silver_release"
+               :request_id "req-1"
+               :graph_id 42
+               :node_id 7
+               :request_params "{\"resolved_release_id\":91,\"created_by\":\"alice\"}"})))
+      (is (= [91 {:created_by "alice" :execution_request_id "req-1"}] @captured)))))
 
 (deftest execute-request-scheduler-completes-enqueued-slot
   (let [completed (atom nil)
@@ -228,6 +245,120 @@
               (is (= "samara" (:source_system req-row)))
               (is (= "cred-ref" (:credential_ref req-row)))
               (is (= "queued" (:status req-row))))))))))
+
+(deftest ensure-active-release-refreshes-to-latest-graph-version
+  (if-not (postgres-available?)
+    (is true "Skipping active-release refresh test; local Postgres is not available")
+    (with-isolated-execution-tables
+      (fn [tables]
+        (let [opts     (jdbc/with-options db/ds {:builder-fn rs/as-unqualified-lower-maps})
+              graph-id  (+ 710000 (rand-int 100000))
+              env      "default"
+              v3-row   (jdbc/execute-one!
+                        opts
+                        [(str "INSERT INTO " (:graph-version tables) "
+                               (graph_id, graph_version, graph_name, graph_definition, definition_checksum)
+                               VALUES (?, ?, ?, ?, ?)
+                               RETURNING *")
+                         graph-id 3 "refresh-test" "{:a {:v 3}}" (apply str (repeat 64 "c"))])
+              v4-row   (jdbc/execute-one!
+                        opts
+                        [(str "INSERT INTO " (:graph-version tables) "
+                               (graph_id, graph_version, graph_name, graph_definition, definition_checksum)
+                               VALUES (?, ?, ?, ?, ?)
+                               RETURNING *")
+                         graph-id 4 "refresh-test" "{:a {:v 4}}" (apply str (repeat 64 "d"))])
+              current* (atom {:id graph-id
+                              :version 3
+                              :name "refresh-test"
+                              :definition "{:a {:v 3}}"})]
+          (with-redefs [execution/latest-graph-row (fn [_ _] @current*)]
+            (let [active-v3 (#'execution/ensure-active-release! db/ds graph-id env)
+                  _         (reset! current* {:id graph-id
+                                              :version 4
+                                              :name "refresh-test"
+                                              :definition "{:a {:v 4}}"})
+                  active-v4 (#'execution/ensure-active-release! db/ds graph-id env)
+                  rows      (jdbc/execute!
+                             opts
+                             [(str "SELECT graph_version_id, graph_version, status
+                                    FROM " (:graph-release tables) "
+                                    WHERE graph_id = ?
+                                    ORDER BY id")
+                              graph-id])]
+              (is (= (:id v3-row) (:graph_version_id active-v3)))
+              (is (= 3 (:graph_version active-v3)))
+              (is (= (:id v4-row) (:graph_version_id active-v4)))
+              (is (= 4 (:graph_version active-v4)))
+              (is (= [{:graph_version_id (:id v3-row) :graph_version 3 :status "superseded"}
+                      {:graph_version_id (:id v4-row) :graph_version 4 :status "active"}]
+                     rows)))))))))
+
+(deftest enqueue-silver-release-request-uses-binding-centric-request-key-and-resolves-under-transaction
+  (if-not (postgres-available?)
+    (is true "Skipping modeling enqueue integration test; local Postgres is not available")
+    (with-isolated-execution-tables
+      (fn [tables]
+        (let [opts             (jdbc/with-options db/ds {:builder-fn rs/as-unqualified-lower-maps})
+              graph-id          (+ 900000 (rand-int 100000))
+              tx-resolution?    (atom false)
+              graph-version-id  (:id (jdbc/execute-one!
+                                      opts
+                                      [(str "INSERT INTO " (:graph-version tables) "
+                                             (graph_id, graph_version, graph_name, graph_definition, definition_checksum)
+                                             VALUES (?, ?, ?, ?, ?)
+                                             RETURNING id")
+                                       graph-id 4 "silver-release-queue" "{}" (apply str (repeat 64 "h"))]))]
+          (with-redefs [control-plane/dependency-blockers (fn [_] [])
+                        control-plane/graph-workspace-context (fn [_]
+                                                               {:workspace_key "ops"
+                                                                :tenant_key "tenant-a"
+                                                                :max_queued_requests 100
+                                                                :tenant_max_queued_requests 1000
+                                                                :active true
+                                                                :tenant_active true})
+                        execution/ensure-active-release! (fn [_ _ _]
+                                                           {:graph_version_id graph-version-id
+                                                            :graph_version 4})
+                        modeling/resolve-active-release (fn
+                                                         ([binding]
+                                                          (throw (ex-info "Expected enqueue-time resolution to use tx arity"
+                                                                          {:binding binding})))
+                                                         ([tx binding]
+                                                          (is tx)
+                                                          (reset! tx-resolution? true)
+                                                          {:release_id 700
+                                                           :graph_artifact_id 88
+                                                           :layer (:layer binding)
+                                                           :target_model (:target_model binding)}))
+                        modeling/get-graph-artifact (fn
+                                                      ([graph-artifact-id]
+                                                       (throw (ex-info "Expected graph artifact lookup to use tx arity"
+                                                                       {:graph_artifact_id graph-artifact-id})))
+                                                      ([tx _]
+                                                       (is tx)
+                                                       {:graph_artifact_id 88
+                                                        :graph_id graph-id
+                                                        :node_map_json "{\"target\":15}"}))
+                        db/getGraph (fn [_]
+                                      {:n {15 {:na {:btype "Tg"}}}})]
+            (let [result (execution/enqueue-silver-release-request!
+                          {:layer "silver" :target_model "silver_trip" :mode "follow_active"}
+                          {:trigger-type "manual" :created-by "alice"})
+                  req-row (jdbc/execute-one!
+                           opts
+                           [(str "SELECT request_key, request_kind, graph_id, node_id, request_params
+                                  FROM " (:execution-request tables) " WHERE request_id = ?")
+                            (UUID/fromString (:request_id result))])
+                  params  (json/parse-string (:request_params req-row) true)]
+              (is (= true (:created? result)))
+              (is (= "silver_release::silver::silver_trip::default::" (:request_key req-row)))
+              (is (= "silver_release" (:request_kind req-row)))
+              (is (= graph-id (:graph_id req-row)))
+              (is (= 15 (:node_id req-row)))
+              (is (= 700 (:resolved_release_id params)))
+              (is (= "silver" (get-in params [:release_binding :layer])))
+              (is (true? @tx-resolution?)))))))))
 
 (deftest enqueue-api-request-reuses-recovering-orphan-request-key
   (if-not (postgres-available?)
@@ -481,6 +612,12 @@
   (is (= "config_error"
          (#'execution/classify-failure
           (ex-info "Column name must be a valid identifier" {}))))
+  (is (= "permanent_model_error"
+         (#'execution/classify-failure
+          (ex-info "syntax error at or near FROM" {}))))
+  (is (= "transient_platform_error"
+         (#'execution/classify-failure
+          (ex-info "Databricks cluster terminated unexpectedly" {}))))
   (is (= "unknown"
          (#'execution/classify-failure
           (ex-info "Failed to parse JDBC URL" {}))))

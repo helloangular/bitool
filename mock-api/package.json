@@ -1,0 +1,12 @@
+{
+  "name": "mock-samsara-api",
+  "version": "1.0.0",
+  "description": "Mock Samsara Fleet API server for E2E testing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

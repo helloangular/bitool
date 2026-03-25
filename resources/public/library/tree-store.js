@@ -22,7 +22,7 @@ export function findItemData(label, items = getTreeItems()) {
     if (item.label === label) {
       return item;
     }
-    if (item.items && item.items.length > 0) {
+    if (item.items) {
       const found = findItemData(label, item.items);
       if (found) return found;
     }
@@ -38,7 +38,7 @@ export function mapItems(item, treeItems, data) {
         ...treeItem,
         items: [...treeItem.items, data],
       };
-    } else if (treeItem.items && treeItem.items.length > 0) {
+    } else if (treeItem.items) {
       return {
         ...treeItem,
         items: mapItems(item, treeItem.items, data),

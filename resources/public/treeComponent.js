@@ -37,6 +37,17 @@ class TreeComponent extends HTMLElement {
 
     this.isResizing = false;
     this._columnListObserver = null;
+    this.fromAnchor = null;
+  }
+
+  _connectorDebugEnabled() {
+    return Boolean(window.BITOOL_DEBUG_CONNECTORS);
+  }
+
+  _connectorDebug(...args) {
+    if (this._connectorDebugEnabled()) {
+      console.warn("[TreeConnector]", ...args);
+    }
   }
 
   connectedCallback() {
@@ -136,7 +147,7 @@ class TreeComponent extends HTMLElement {
         if (dx !== 0 || dy !== 0) this.isMoved = true;
         this.connector._scheduleUpdate();
         this.panzoom.checkAutoPan(ev.clientX, ev.clientY);
-      } else if (this.isShiftPressed && this.followUp.previewLine) {
+      } else if (this.followUp.previewLine) {
         this.followUp.preview(ev)
       } else if (this.isMouseDownForPan) {
         this.panzoom.update(ev);
@@ -195,14 +206,28 @@ class TreeComponent extends HTMLElement {
         this.activeRect.style.transition = '';
         this.connector._scheduleUpdate();
         console.log("Position changed.")
-      } else if (this.isShiftPressed && this.followUp.previewLine) {
-        this.to = this.shadowRoot.elementFromPoint(ev.clientX, ev.clientY);
+      } else if (this.followUp.previewLine) {
+        this.to = this._findRectangleAtPoint(ev.clientX, ev.clientY);
+        this._connectorDebug("pointerup", {
+          fromId: this.from?.getAttribute?.("id"),
+          toId: this.to?.getAttribute?.("id"),
+          fromConnId: this.from?.getAttribute?.("conn_id"),
+          toConnId: this.to?.getAttribute?.("conn_id"),
+          clientX: ev.clientX,
+          clientY: ev.clientY,
+        });
         if (this.from && this.to && this.to.getAttribute("conn_id") !== this.from.getAttribute("conn_id")) {
           this.followUp.end();
-          this.connector.connect(this.from.getAttribute("conn_id"), this.to.getAttribute("conn_id"), {arrow: false, stroke: '#2b6cb0', strokeWidth: 2});
+          this.connector.connect(this.from.getAttribute("conn_id"), this.to.getAttribute("conn_id"), {
+            ...this._connectionOptionsForRectangles(this.from, this.to),
+          });
           this.saveRectJoins(this.from.getAttribute("id"), this.to.getAttribute("id"));
           this.from = this.to = null;
+          this.fromAnchor = null;
           console.log("Line drawn");
+        } else if (this.followUp.previewLine) {
+          this.followUp.end();
+          this.fromAnchor = null;
         }
       } else if (this.isResizing) {
         this.isResizing = false;
@@ -231,11 +256,37 @@ class TreeComponent extends HTMLElement {
 
     EventHandler.on(this.droppableArea, "drop", (event) => {
       event.preventDefault();
+      const dragPayload = event.dataTransfer?.getData('application/json') || "";
 
       if (event.target.tagName === "RECTANGLE-COMPONENT" && !this.isShiftPressed) {
         try {
-          this.droppedData = JSON.parse(event.dataTransfer.getData('application/json'));
+          if (!dragPayload) {
+            console.warn("Drop ignored: missing application/json payload");
+            return;
+          }
+          this.droppedData = JSON.parse(dragPayload);
           this.activeTarget = event.target;
+
+          // Non-table sources (API, Kafka, File) — use addSingle + connect
+          if (this.droppedData.nodetype && this.droppedData.nodetype !== "table") {
+            const alias = this.droppedData.nodetype;
+            const targetId = this.activeTarget.getAttribute("id");
+            const rect = this.activeTarget.getBoundingClientRect();
+            const areaRect = this.droppableArea.getBoundingClientRect();
+            const x = rect.left - areaRect.left - 200;
+            const y = rect.top - areaRect.top;
+            this.sendRectangleData({
+              alias,
+              id: null,
+              parent: targetId,
+              x, y,
+              conn_id: this.droppedData.conn_id,
+              panelItems: getPanelItems(),
+            });
+            this.activeTarget = null;
+            this.droppedData = null;
+            return;
+          }
 
           // Restrict adding table under Output if already a table exists.
           if (getPanelItems().find(item => item.parent == 1) && this.activeTarget.getAttribute("btype") === "O") {
@@ -264,9 +315,16 @@ class TreeComponent extends HTMLElement {
           console.error(error);
         }
       } else {
-        const {label, conn_id} = JSON.parse(event.dataTransfer.getData('application/json'));
+        if (!dragPayload) {
+          console.warn("Drop ignored: missing application/json payload");
+          return;
+        }
+        const {label, conn_id, nodetype} = JSON.parse(dragPayload);
+        // Use nodetype (e.g. "kafka-source") as alias for backend btype lookup,
+        // but display the connection name as the visual label
+        const alias = nodetype || label;
         const rectInfo = {
-          alias: label,
+          alias,
           id: null,
           parent: 0,
           x: 0,
@@ -335,6 +393,65 @@ class TreeComponent extends HTMLElement {
     }
   }
 
+  _normalizeRectangleTarget(target) {
+    if (!target) return null;
+    if (target.tagName === "RECTANGLE-COMPONENT") return target;
+    return target.closest?.("rectangle-component") || null;
+  }
+
+  _connectionOptionsForRectangles(fromRect, toRect) {
+    return {
+      arrow: false,
+      stroke: '#3b7ddd',
+      strokeWidth: 1.5,
+    };
+  }
+
+  _relativeAnchorForPoint(rectEl, clientX, clientY) {
+    const rect = rectEl.getBoundingClientRect();
+    return {
+      rx: rect.width ? (clientX - rect.left) / rect.width : 0.5,
+      ry: rect.height ? (clientY - rect.top) / rect.height : 0.5,
+    };
+  }
+
+  _findRectangleAtPoint(clientX, clientY) {
+    const rectangles = Array.from(this.viewport.querySelectorAll("rectangle-component"));
+    const candidates = rectangles.map((rect) => {
+      const bounds = rect.getBoundingClientRect();
+      const dx = clientX < bounds.left ? bounds.left - clientX
+        : clientX > bounds.right ? clientX - bounds.right
+          : 0;
+      const dy = clientY < bounds.top ? bounds.top - clientY
+        : clientY > bounds.bottom ? clientY - bounds.bottom
+          : 0;
+      const distance = Math.hypot(dx, dy);
+      const contains =
+        clientX >= bounds.left &&
+        clientX <= bounds.right &&
+        clientY >= bounds.top &&
+        clientY <= bounds.bottom;
+      return { rect, bounds, distance, contains };
+    });
+
+    const directHit = candidates.find(({ contains }) => contains);
+    const nearest = [...candidates].sort((a, b) => a.distance - b.distance)[0] || null;
+    const snapTolerance = 56;
+    const hit = directHit || (nearest && nearest.distance <= snapTolerance ? nearest : null);
+
+    this._connectorDebug("elementFromPoint", {
+      clientX,
+      clientY,
+      rawTag: hit?.rect?.tagName || null,
+      rawId: hit?.rect?.getAttribute?.("id") || null,
+      hitCount: rectangles.length,
+      nearestId: nearest?.rect?.getAttribute?.("id") || null,
+      nearestDistance: nearest ? Number(nearest.distance.toFixed(2)) : null,
+    });
+
+    return hit?.rect || null;
+  }
+
   async addTable(action, from) {
     if (action === 'join' || action === 'union' || action === 'replace') {
       try {
@@ -364,7 +481,8 @@ class TreeComponent extends HTMLElement {
 
   makeDraggable(el) {
     EventHandler.on(el, 'pointerdown', (ev) => {
-      if (!this.isShiftPressed) {
+      const isConnectorMode = this.isShiftPressed || ev.shiftKey;
+      if (!isConnectorMode) {
         this.dragging = true;
         this.activeRect = el;
         this.startX = ev.clientX;
@@ -374,9 +492,19 @@ class TreeComponent extends HTMLElement {
         el.style.transition = 'none';
         el.style.zIndex = '-1';
       } else {
-        this.from = ev.target;
-        const fromEl = this.shadowRoot.getElementById(ev.target.getAttribute("id"));
-        this.followUp.start(fromEl, ev);
+        this.from = this._normalizeRectangleTarget(ev.target) || el;
+        this.fromAnchor = this._relativeAnchorForPoint(this.from, ev.clientX, ev.clientY);
+        this._connectorDebug("pointerdown", {
+          fromId: this.from?.getAttribute?.("id"),
+          fromConnId: this.from?.getAttribute?.("conn_id"),
+          fromAnchor: this.fromAnchor,
+          isConnectorMode,
+          rawTag: ev.target?.tagName || null,
+          rawId: ev.target?.getAttribute?.("id") || null,
+          clientX: ev.clientX,
+          clientY: ev.clientY,
+        });
+        this.followUp.start(this.from, ev);
       }
       ev.stopPropagation();
     }, false, "Tree");
@@ -421,6 +549,7 @@ class TreeComponent extends HTMLElement {
         label: draggedItem.label,
         conn_id: draggedItem.getAttribute("data-conn_id"),
         schema: draggedItem.getAttribute("data-schema"),
+        nodetype: draggedItem.getAttribute("data-nodetype") || null,
       })
     );
   }
@@ -482,15 +611,10 @@ class TreeComponent extends HTMLElement {
         if (!Array.isArray(treeItems)) return treeItems;
         const apiNode = findItemData("API", treeItems);
         if (!apiNode) return treeItems;
-        return mapItems(
-          apiNode,
-          treeItems,
-          addTableMetadata(
-            data["tree-data"],
-            data["conn-id"],
-            data["tree-data"]?.items?.[0]?.label
-          )
-        );
+        const treeData = data["tree-data"];
+        treeData.conn_id = data["conn-id"];
+        treeData.nodetype = treeData.nodetype || "api-connection";
+        return mapItems(apiNode, treeItems, treeData);
       });
       this.renderItems();
     } catch (error) {
@@ -682,6 +806,11 @@ class TreeComponent extends HTMLElement {
     const positions = this.calculateNodePositions(data);
     appendRectangles.call(this, positions);
     this.drawLineFromParentToChild(data);
+    requestAnimationFrame(() => {
+      this.panzoom.fitToContent();
+      // Re-compute connector paths after the transform settles
+      requestAnimationFrame(() => this.connector._scheduleUpdate());
+    });
   }
 
   createRectangle(item) {
@@ -709,14 +838,22 @@ class TreeComponent extends HTMLElement {
         const childRectangle = this.viewport.querySelector(`[id="${item.id}"]`);
         const parentRectangle = this.viewport.querySelector(`[id="${item.parent}"]`);
         if (childRectangle && parentRectangle) {
-          this.connector.connect(parentRectangle.getAttribute("conn_id"), childRectangle.getAttribute("conn_id"), {arrow: false, stroke: '#2b6cb0', strokeWidth: 2});
+          this.connector.connect(
+            parentRectangle.getAttribute("conn_id"),
+            childRectangle.getAttribute("conn_id"),
+            this._connectionOptionsForRectangles(parentRectangle, childRectangle)
+          );
         }
       } else if (Array.isArray(item.parent)) {
         const childRectangle = this.viewport.querySelector(`[id="${item.id}"]`);
         item.parent.forEach(id => {
           const parentRectangle = this.viewport.querySelector(`[id="${id}"]`);
           if (childRectangle && parentRectangle) {
-            this.connector.connect(parentRectangle.getAttribute("conn_id"), childRectangle.getAttribute("conn_id"), {arrow: false, stroke: '#2b6cb0', strokeWidth: 2});
+            this.connector.connect(
+              parentRectangle.getAttribute("conn_id"),
+              childRectangle.getAttribute("conn_id"),
+              this._connectionOptionsForRectangles(parentRectangle, childRectangle)
+            );
           }
         })
       }

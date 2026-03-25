@@ -1,3 +1,277 @@
+/* ═══════════════════════════════════════════════════════════════
+   Bitool Design System — Sentinel-inspired
+   ═══════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg-primary: #f5f6f8;
+  --bg-secondary: #ffffff;
+  --bg-elevated: #f0f1f4;
+  --border: #e2e4ea;
+  --border-subtle: #eceef2;
+  --text-primary: #1a1d26;
+  --text-secondary: #5c6070;
+  --text-muted: #8b91a3;
+  --accent-blue: #3b7ddd;
+  --accent-blue-dim: rgba(59, 125, 221, 0.1);
+  --accent-green: #0fa968;
+  --accent-green-dim: rgba(15, 169, 104, 0.1);
+  --accent-red: #e5484d;
+  --accent-red-dim: rgba(229, 72, 77, 0.1);
+  --accent-amber: #d97706;
+  --accent-amber-dim: rgba(217, 119, 6, 0.1);
+  --accent-purple: #7c5cfc;
+  --accent-purple-dim: rgba(124, 92, 252, 0.1);
+  --accent-cyan: #0ea5c7;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px var(--border-subtle);
+  --shadow-elevated: 0 8px 32px rgba(0,0,0,0.08);
+  --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --font-sans: 'DM Sans', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans) !important;
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Toolbar ── */
+.panel-btns {
+  background: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border) !important;
+  padding: 6px 12px !important;
+  gap: 4px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.btn-group {
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-sm) !important;
+  background: var(--bg-secondary) !important;
+  box-shadow: none !important;
+  padding: 4px 10px 5px !important;
+}
+
+.group-label {
+  font-family: var(--font-sans) !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  color: var(--text-muted) !important;
+  letter-spacing: 0.8px !important;
+}
+
+.panel-btns button {
+  border-radius: var(--radius-sm) !important;
+  transition: var(--transition) !important;
+  color: var(--text-secondary) !important;
+}
+.panel-btns button:hover {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+}
+.panel-btns button.btn-text {
+  font-family: var(--font-sans) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: var(--text-secondary) !important;
+  padding: 0 10px !important;
+  height: 28px !important;
+  border-radius: var(--radius-sm) !important;
+}
+.panel-btns button.btn-text:hover {
+  color: var(--accent-blue) !important;
+  background: var(--accent-blue-dim) !important;
+}
+
+/* ── Tooltips ── */
+.tooltip .tooltiptext {
+  font-family: var(--font-sans) !important;
+  background: var(--text-primary) !important;
+  border-radius: var(--radius-sm) !important;
+  font-size: 11px !important;
+  padding: 5px 10px !important;
+}
+
+/* ── Smart-tree sidebar ── */
+smart-tree {
+  font-family: var(--font-sans) !important;
+  --smart-font-family: 'DM Sans', -apple-system, sans-serif;
+  --smart-font-size: 12.5px;
+  --smart-tree-item-height: 30px;
+  --smart-primary: var(--accent-blue);
+  --smart-secondary: var(--bg-primary);
+  --smart-surface: var(--bg-secondary);
+  --smart-border: var(--border);
+  --smart-ui-state-hover: var(--bg-elevated);
+  --smart-ui-state-active: var(--accent-blue-dim);
+  --smart-ui-state-focus: var(--accent-blue-dim);
+  --smart-tree-indent: 18px;
+  background: var(--bg-secondary) !important;
+  border-right: 1px solid var(--border) !important;
+}
+
+/* ── Smart-window / dialog ── */
+smart-window, smart-dialog {
+  font-family: var(--font-sans) !important;
+  --smart-font-family: 'DM Sans', -apple-system, sans-serif;
+  --smart-font-size: 13px;
+  --smart-primary: var(--accent-blue);
+  --smart-surface: var(--bg-secondary);
+  --smart-border: var(--border);
+  --smart-border-radius: var(--radius-lg);
+  --smart-window-header-height: 44px;
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.04) !important;
+  overflow: hidden !important;
+}
+
+/* ── Smart-window header bar ── */
+smart-window .smart-header,
+smart-window [smart-id="headerSection"] {
+  font-family: var(--font-sans) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  background: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+
+/* ── Smart form rows ── */
+.smart-form-row {
+  font-family: var(--font-sans) !important;
+  margin-bottom: 10px !important;
+}
+.smart-form-row label {
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  color: var(--text-secondary) !important;
+}
+.smart-form-row input {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  font-family: var(--font-sans) !important;
+}
+.smart-form-row input:focus {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 3px rgba(59,125,221,0.1) !important;
+}
+
+/* ── Smart dropdown ── */
+smart-drop-down-list {
+  --smart-font-family: 'DM Sans', -apple-system, sans-serif;
+  --smart-font-size: 13px;
+  --smart-primary: var(--accent-blue);
+  --smart-border: var(--border);
+  --smart-border-radius: var(--radius-sm);
+}
+
+/* ── Smart-list-item ── */
+smart-list-item {
+  font-family: var(--font-sans) !important;
+  font-size: 12.5px !important;
+}
+
+/* ── Smart-menu (right-click) ── */
+smart-menu {
+  --smart-font-family: 'DM Sans', -apple-system, sans-serif;
+  --smart-font-size: 12.5px;
+  --smart-primary: var(--accent-blue);
+  --smart-border: var(--border);
+  --smart-border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated) !important;
+}
+
+/* ── Buttons global ── */
+.button, button.save-button, .save-button {
+  font-family: var(--font-sans) !important;
+  border-radius: var(--radius-sm) !important;
+  font-weight: 600 !important;
+  transition: var(--transition) !important;
+}
+
+/* ── Labels / form fields ── */
+label {
+  font-family: var(--font-sans) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: var(--text-secondary) !important;
+}
+
+input, select, textarea {
+  font-family: var(--font-sans) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text-primary) !important;
+  background: var(--bg-secondary) !important;
+  transition: var(--transition) !important;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 3px rgba(59,125,221,0.1) !important;
+  outline: none !important;
+}
+
+/* ── Button-container (save/close bars) ── */
+.button-container {
+  background: var(--bg-primary) !important;
+  border-top: 1px solid var(--border) !important;
+}
+
+/* ── Rename form / dialog forms ── */
+.rename-form {
+  font-family: var(--font-sans) !important;
+}
+
+/* ── Graph viewport background ── */
+#dropable-area, .droppable-area, [id*="dropable"] {
+  background: var(--bg-primary) !important;
+}
+
+/* ── Context menu (tree right-click) ── */
+#_connPickerMenu {
+  font-family: var(--font-sans) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-elevated) !important;
+  background: var(--bg-secondary) !important;
+}
+
+/* ── Card-like panels ── */
+.container {
+  box-shadow: var(--shadow-card) !important;
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* ── Hide Smart Elements trial banner ── */
+smart-ui-component,
+[smart-ui-community],
+div[class*="smart-trial"],
+div[class*="smart-watermark"],
+a[href*="htmlelements"] {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   End Design System Overrides
+   ═══════════════════════════════════════════════════════════════ */
+
 smart-card.basic-card .card-content,
 smart-card.basic-card .card-action {
   box-sizing: border-box;
@@ -209,10 +483,7 @@ label {
   justify-content: center;
   align-items: stretch;
   border-bottom: 1px solid #d1d5db;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  flex-shrink: 0;
   z-index: 10;
   background: #fafafa;
 }

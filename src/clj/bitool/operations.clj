@@ -25,6 +25,16 @@
   (when value
     (java.sql.Timestamp/from value)))
 
+(defn- ->instant
+  [value]
+  (cond
+    (nil? value) nil
+    (instance? java.time.Instant value) value
+    (instance? java.time.OffsetDateTime value) (.toInstant ^java.time.OffsetDateTime value)
+    (instance? java.time.ZonedDateTime value) (.toInstant ^java.time.ZonedDateTime value)
+    (instance? java.sql.Timestamp value) (.toInstant ^java.sql.Timestamp value)
+    :else value))
+
 (defn- ->uuid-safe
   [value field]
   (when value
@@ -183,8 +193,8 @@
   [{:keys [tenant-key workspace-key request-kind workload-class queue-partition status rows-written
            retry-count started-at finished-at]}]
   (ensure-operations-tables!)
-  (let [finished-at    (or finished-at (now-utc))
-        started-at     (or started-at finished-at)
+  (let [finished-at    (or (->instant finished-at) (now-utc))
+        started-at     (or (->instant started-at) finished-at)
         usage-date     (java.sql.Date/valueOf (.toLocalDate (.atZone finished-at (java.time.ZoneOffset/UTC))))
         duration-ms    (max 0 (long (.toMillis (java.time.Duration/between started-at finished-at))))]
     (jdbc/execute!

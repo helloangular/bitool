@@ -97,16 +97,30 @@ template.innerHTML = `
     font-size: 13px;
     margin-top: 10px;
   }
+  .close-x {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: #5c6c60;
+    padding: 0 4px;
+    line-height: 1;
+    margin-left: 8px;
+  }
+  .close-x:hover {
+    color: #17251c;
+  }
 </style>
 <div class="shell">
   <div class="header">
     <div class="title">
       <h2>Target</h2>
-      <p>Configure Bronze destination and optional Databricks Silver/Gold job triggers.</p>
+      <p>Configure Bronze destination and optional Databricks Bronze/Silver/Gold job triggers.</p>
     </div>
     <div class="actions">
       <button id="saveButton" type="button">Save</button>
       <button id="closeButton" class="secondary" type="button">Close</button>
+      <button id="closeX" class="close-x" type="button">&times;</button>
     </div>
   </div>
 
@@ -123,7 +137,7 @@ template.innerHTML = `
       </div>
       <div>
         <label for="connectionId">Connection ID</label>
-        <input id="connectionId" data-field="connection_id" type="number" />
+        <select id="connectionId" data-field="connection_id"></select>
       </div>
       <div>
         <label for="catalog">Catalog</label>
@@ -221,6 +235,10 @@ template.innerHTML = `
   <div class="card">
     <div class="grid">
       <div>
+        <label for="bronzeJobId">Bronze Job ID</label>
+        <input id="bronzeJobId" data-field="bronze_job_id" type="text" />
+      </div>
+      <div>
         <label for="silverJobId">Silver Job ID</label>
         <input id="silverJobId" data-field="silver_job_id" type="text" />
       </div>
@@ -233,6 +251,10 @@ template.innerHTML = `
       <div>
         <label for="options">Target Options JSON</label>
         <textarea id="options" data-field="options"></textarea>
+      </div>
+      <div>
+        <label for="bronzeJobParams">Bronze Job Params JSON</label>
+        <textarea id="bronzeJobParams" data-field="bronze_job_params"></textarea>
       </div>
       <div>
         <label for="silverJobParams">Silver Job Params JSON</label>
@@ -266,6 +288,8 @@ class TargetComponent extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this.state = null;
     this.savedState = null;
+    this.connectionCatalog = null;
+    this.connectionDetailCache = new Map();
   }
 
   static get observedAttributes() {
@@ -291,6 +315,7 @@ class TargetComponent extends HTMLElement {
   bind() {
     this.saveButton = this.shadowRoot.querySelector("#saveButton");
     this.closeButton = this.shadowRoot.querySelector("#closeButton");
+    this.closeX = this.shadowRoot.querySelector("#closeX");
     this.statusText = this.shadowRoot.querySelector("#statusText");
   }
 
@@ -309,8 +334,10 @@ class TargetComponent extends HTMLElement {
       merge_keys: Array.isArray(rect.merge_keys) ? rect.merge_keys : [],
       cluster_by: Array.isArray(rect.cluster_by) ? rect.cluster_by : [],
       options: rect.options || {},
+      bronze_job_id: rect.bronze_job_id || "",
       silver_job_id: rect.silver_job_id || "",
       gold_job_id: rect.gold_job_id || "",
+      bronze_job_params: rect.bronze_job_params || {},
       silver_job_params: rect.silver_job_params || {},
       gold_job_params: rect.gold_job_params || {},
       trigger_gold_on_success: Boolean(rect.trigger_gold_on_success),
@@ -331,6 +358,7 @@ class TargetComponent extends HTMLElement {
     this.savedState = JSON.stringify(this.state);
     this.render();
     this.attachEvents();
+    this.bootstrapConnectionDefaults();
   }
 
   closeImmediately() {
@@ -350,6 +378,7 @@ class TargetComponent extends HTMLElement {
     EventHandler.removeGroup("Target");
     EventHandler.on(this.saveButton, "click", () => this.save(), false, "Target");
     EventHandler.on(this.closeButton, "click", () => this.setAttribute("visibility", "close"), false, "Target");
+    EventHandler.on(this.closeX, "click", () => this.setAttribute("visibility", "close"), false, "Target");
     this.shadowRoot.querySelectorAll("[data-field]").forEach((el) => {
       const eventName = el.tagName === "SELECT" ? "change" : "input";
       EventHandler.on(el, eventName, (event) => this.updateField(event), false, "Target");
@@ -364,7 +393,118 @@ class TargetComponent extends HTMLElement {
     if (card) card.style.display = this.state.target_kind === "snowflake" ? "block" : "none";
   }
 
-  updateField(event) {
+  async listConnections() {
+    if (this.connectionCatalog) return this.connectionCatalog;
+    const data = await request("/listConnections");
+    this.connectionCatalog = Array.isArray(data?.connections) ? data.connections : [];
+    if (this.style.visibility === "visible") this.render();
+    return this.connectionCatalog;
+  }
+
+  filteredConnections() {
+    const connections = Array.isArray(this.connectionCatalog) ? this.connectionCatalog : [];
+    return connections.filter((conn) => conn.dbtype === this.state.target_kind);
+  }
+
+  describeConnectionOption(conn) {
+    const detail = this.connectionDetailCache.get(String(conn.conn_id));
+    const parts = [conn.label || `Connection ${conn.conn_id}`];
+    if (detail?.dbname) parts.push(detail.dbname);
+    if (detail?.schema) parts.push(detail.schema);
+    else if (detail?.host) parts.push(detail.host);
+    return `${conn.conn_id} - ${parts.join(" / ")}`;
+  }
+
+  async prefetchConnectionDetailsForCurrentKind() {
+    const options = this.filteredConnections();
+    if (!options.length) return;
+    await Promise.all(options.map((conn) => this.getConnectionDetail(conn.conn_id).catch(() => null)));
+    if (this.style.visibility === "visible") this.render();
+  }
+
+  renderConnectionOptions() {
+    const select = this.shadowRoot.querySelector("#connectionId");
+    if (!select) return;
+
+    const options = this.filteredConnections();
+    const current = this.state.connection_id ? String(this.state.connection_id) : "";
+
+    if (!options.length) {
+      select.innerHTML = `<option value="">No saved ${this.state.target_kind} connections</option>`;
+      select.value = "";
+      return;
+    }
+
+    const optionMarkup = options.map((conn) => {
+      const value = String(conn.conn_id);
+      const selected = value === current ? " selected" : "";
+      return `<option value="${value}"${selected}>${this.describeConnectionOption(conn)}</option>`;
+    }).join("");
+
+    select.innerHTML = `<option value="">Select connection</option>${optionMarkup}`;
+    select.value = options.some((conn) => String(conn.conn_id) === current) ? current : "";
+  }
+
+  async getConnectionDetail(connId) {
+    if (!connId) return null;
+    const key = String(connId);
+    if (this.connectionDetailCache.has(key)) return this.connectionDetailCache.get(key);
+    const detail = await request(`/getConnectionDetail?conn_id=${encodeURIComponent(key)}`);
+    this.connectionDetailCache.set(key, detail);
+    return detail;
+  }
+
+  applyConnectionDetail(detail) {
+    if (!detail) return;
+    this.state.connection_id = detail.id ?? this.state.connection_id;
+    // Only apply connection defaults for catalog/schema if not already saved on the node
+    if (!this.state.catalog) this.state.catalog = detail.dbname || "";
+    if (!this.state.schema) this.state.schema = detail.schema || "";
+    this.render();
+    this.saveButton.disabled = JSON.stringify(this.state) === this.savedState;
+  }
+
+  async syncConnectionFromTargetKind() {
+    const connections = await this.listConnections();
+    const matches = connections.filter((conn) => conn.dbtype === this.state.target_kind);
+    if (!matches.length) {
+      this.state.connection_id = "";
+      // Preserve saved catalog/schema even when no connection is found
+      this.render();
+      this.statusText.textContent = `No saved ${this.state.target_kind} connection found.`;
+      return;
+    }
+
+    const selected = matches.find((conn) => String(conn.conn_id) === String(this.state.connection_id)) || matches[0];
+    const detail = await this.getConnectionDetail(selected.conn_id);
+    this.applyConnectionDetail(detail);
+    this.statusText.textContent = `Loaded connection ${selected.conn_id} for ${this.state.target_kind}.`;
+  }
+
+  async syncMetadataFromConnectionId() {
+    if (!this.state.connection_id) {
+      // Preserve saved catalog/schema when no connection is set
+      this.render();
+      this.saveButton.disabled = JSON.stringify(this.state) === this.savedState;
+      return;
+    }
+    const detail = await this.getConnectionDetail(this.state.connection_id);
+    this.applyConnectionDetail(detail);
+    this.statusText.textContent = `Loaded catalog/schema from connection ${this.state.connection_id}.`;
+  }
+
+  async bootstrapConnectionDefaults() {
+    try {
+      await this.listConnections();
+      await this.prefetchConnectionDetailsForCurrentKind();
+      if (this.state.connection_id) await this.syncMetadataFromConnectionId();
+      else await this.syncConnectionFromTargetKind();
+    } catch (error) {
+      this.statusText.textContent = error.message || "Could not load target connection defaults.";
+    }
+  }
+
+  async updateField(event) {
     const field = event.target.dataset.field;
     const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
     if (["partition_columns", "merge_keys", "cluster_by"].includes(field)) {
@@ -374,14 +514,28 @@ class TargetComponent extends HTMLElement {
     } else {
       this.state[field] = value;
     }
-    if (field === "target_kind") this.toggleSnowflakeCard();
+    if (field === "target_kind") {
+      this.toggleSnowflakeCard();
+      try {
+        await this.prefetchConnectionDetailsForCurrentKind();
+        await this.syncConnectionFromTargetKind();
+      } catch (error) {
+        this.statusText.textContent = error.message || "Could not load connection for target kind.";
+      }
+    } else if (field === "connection_id") {
+      try {
+        await this.syncMetadataFromConnectionId();
+      } catch (error) {
+        this.statusText.textContent = error.message || "Could not load connection metadata.";
+      }
+    }
     this.saveButton.disabled = JSON.stringify(this.state) === this.savedState;
   }
 
   render() {
     const sr = this.shadowRoot;
     sr.querySelector("#targetKind").value = this.state.target_kind;
-    sr.querySelector("#connectionId").value = this.state.connection_id;
+    this.renderConnectionOptions();
     sr.querySelector("#catalog").value = this.state.catalog;
     sr.querySelector("#schema").value = this.state.schema;
     sr.querySelector("#tableName").value = this.state.table_name;
@@ -391,8 +545,10 @@ class TargetComponent extends HTMLElement {
     sr.querySelector("#mergeKeys").value = this.state.merge_keys.join(", ");
     sr.querySelector("#clusterBy").value = this.state.cluster_by.join(", ");
     sr.querySelector("#options").value = JSON.stringify(this.state.options, null, 2);
+    sr.querySelector("#bronzeJobId").value = this.state.bronze_job_id;
     sr.querySelector("#silverJobId").value = this.state.silver_job_id;
     sr.querySelector("#goldJobId").value = this.state.gold_job_id;
+    sr.querySelector("#bronzeJobParams").value = JSON.stringify(this.state.bronze_job_params, null, 2);
     sr.querySelector("#silverJobParams").value = JSON.stringify(this.state.silver_job_params, null, 2);
     sr.querySelector("#goldJobParams").value = JSON.stringify(this.state.gold_job_params, null, 2);
     sr.querySelector("#triggerGoldOnSuccess").checked = this.state.trigger_gold_on_success;
@@ -422,8 +578,10 @@ class TargetComponent extends HTMLElement {
       merge_keys: this.state.merge_keys,
       cluster_by: this.state.cluster_by,
       options: parseJson(this.shadowRoot.querySelector("#options").value),
+      bronze_job_id: this.state.bronze_job_id,
       silver_job_id: this.state.silver_job_id,
       gold_job_id: this.state.gold_job_id,
+      bronze_job_params: parseJson(this.shadowRoot.querySelector("#bronzeJobParams").value),
       silver_job_params: parseJson(this.shadowRoot.querySelector("#silverJobParams").value),
       gold_job_params: parseJson(this.shadowRoot.querySelector("#goldJobParams").value),
       trigger_gold_on_success: this.state.trigger_gold_on_success,

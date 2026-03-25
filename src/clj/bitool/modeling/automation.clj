@@ -13,7 +13,7 @@
             [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs])
   (:import [java.security MessageDigest]
-           [java.util HexFormat]))
+           [java.util HexFormat UUID]))
 
 ;; Modeling proposal/profile tables live in the app metadata DB (`db/ds`).
 ;; Bronze schema snapshots live in the target audit schema and are read through
@@ -32,11 +32,24 @@
 (def ^:private supported-silver-types
   #{"STRING" "INT" "BIGINT" "DOUBLE" "BOOLEAN" "DATE" "TIMESTAMP"})
 
+(def ^:private allowed-ordering-strategies
+  #{"latest_event_time_wins" "latest_sequence_wins" "event_time_then_sequence" "append_only"})
+
+(def ^:private allowed-window-units
+  #{"minutes" "hours" "days"})
+
+(def ^:private allowed-late-data-modes
+  #{"merge" "append"})
+
+(def ^:private allowed-too-late-behaviors
+  #{"accept" "quarantine" "drop"})
+
 (def ^:private sql-identifier-pattern #"^[A-Za-z_][A-Za-z0-9_]*$")
 (def ^:private qualified-table-name-pattern #"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 (def ^:private sample-query-timeout-ms 5000)
 
-(declare proposal-columns proposal-mappings latest-validation-for-proposal parse-json-safe)
+(declare proposal-columns proposal-mappings latest-validation-for-proposal parse-json-safe source-field-type
+         latest-active-release poll-gold-model-run! execute-postgresql-materialization!)
 
 (defn- parse-int-env
   [k default-value]
@@ -62,6 +75,26 @@
 (defn- now-utc []
   (java.time.Instant/now))
 
+(defn- db-timestamptz
+  [value]
+  (let [instant (cond
+                  (nil? value) nil
+                  (instance? java.time.Instant value) value
+                  (instance? java.time.OffsetDateTime value) (.toInstant ^java.time.OffsetDateTime value)
+                  (instance? java.time.ZonedDateTime value) (.toInstant ^java.time.ZonedDateTime value)
+                  (instance? java.sql.Timestamp value) (.toInstant ^java.sql.Timestamp value)
+                  (string? value) (or (try
+                                        (.toInstant (java.time.OffsetDateTime/parse value))
+                                        (catch Exception _ nil))
+                                      (try
+                                        (java.time.Instant/parse value)
+                                        (catch Exception _ nil))
+                                      nil)
+                  :else nil)]
+    (if instant
+      (java.sql.Timestamp/from instant)
+      value)))
+
 (defn- non-blank-str
   [value]
   (let [value (some-> value str string/trim)]
@@ -82,6 +115,65 @@
       (string/replace #"_+$" "")
       (#(if (seq %) % "model"))))
 
+(defn- quote-sql-ident
+  [value]
+  (str "\""
+       (-> (or value "")
+           str
+           (string/replace "\"" "\"\""))
+       "\""))
+
+(defn- quote-sql-ident-for-warehouse
+  [warehouse value]
+  (let [warehouse (some-> warehouse str string/lower-case)]
+    (if (= warehouse "databricks")
+      (str "`"
+           (-> (or value "")
+               str
+               (string/replace "`" "``"))
+           "`")
+      (quote-sql-ident value))))
+
+(defn- quote-qualified-postgresql-ident
+  [value]
+  (->> (string/split (str value) #"\.")
+       (remove string/blank?)
+       (map quote-sql-ident)
+       (string/join ".")))
+
+(defn- split-postgresql-target-table
+  [value]
+  (let [parts (->> (string/split (str value) #"\.")
+                   (remove string/blank?)
+                   vec)]
+    {:schema (or (when (> (count parts) 1)
+                   (nth parts (- (count parts) 2)))
+                 "public")
+     :table  (or (peek parts) (str value))}))
+
+(defn- postgresql-logical-type
+  [logical-type]
+  (case (-> (or logical-type "STRING") name string/upper-case)
+    "STRING" "TEXT"
+    "VARCHAR" "TEXT"
+    "TEXT" "TEXT"
+    "BOOLEAN" "BOOLEAN"
+    "BOOL" "BOOLEAN"
+    "DATE" "DATE"
+    "TIMESTAMP" "TIMESTAMP"
+    "TIMESTAMPTZ" "TIMESTAMPTZ"
+    "INT" "INTEGER"
+    "INTEGER" "INTEGER"
+    "BIGINT" "BIGINT"
+    "LONG" "BIGINT"
+    "DOUBLE" "DOUBLE PRECISION"
+    "FLOAT" "DOUBLE PRECISION"
+    "DECIMAL" "NUMERIC"
+    "NUMERIC" "NUMERIC"
+    "JSON" "JSONB"
+    "JSONB" "JSONB"
+    "TEXT"))
+
 (defn- deep-merge
   [& maps]
   (apply merge-with
@@ -90,6 +182,98 @@
              (deep-merge left right)
              right))
          maps))
+
+(defn- parse-nonnegative-long
+  [value]
+  (try
+    (let [parsed (cond
+                   (nil? value) nil
+                   (number? value) (long value)
+                   :else (Long/parseLong (str value)))]
+      (when (and (some? parsed) (not (neg? parsed)))
+        parsed))
+    (catch Exception _
+      nil)))
+
+(defn- normalize-duration-window
+  [window]
+  (when (map? window)
+    (let [value (parse-nonnegative-long (:value window))
+          unit  (some-> (:unit window) non-blank-str string/lower-case)]
+      (cond-> {}
+        (some? value) (assoc :value value)
+        unit (assoc :unit unit)))))
+
+(defn- timestamp-role?
+  [column]
+  (or (= "timestamp" (:role column))
+      (contains? #{"TIMESTAMP" "TIMESTAMPTZ"} (source-field-type column))
+      (boolean (re-find #"(?i)(event_?time|updated_?at|created_?at|timestamp)" (str (:target_column column))))))
+
+(defn- inferred-event-time-column
+  [columns]
+  (some->> columns
+           (filter timestamp-role?)
+           first
+           :target_column
+           non-blank-str))
+
+(defn- normalize-processing-policy
+  [policy]
+  (when (map? policy)
+    (let [business-keys (->> (or (:business_keys policy) [])
+                             (keep non-blank-str)
+                             vec)
+          event-time-column (some-> (:event_time_column policy) non-blank-str)
+          sequence-column   (some-> (:sequence_column policy) non-blank-str)
+          ordering-strategy (some-> (:ordering_strategy policy) non-blank-str string/lower-case)
+          late-data-mode    (some-> (:late_data_mode policy) non-blank-str string/lower-case)
+          too-late-behavior (some-> (:too_late_behavior policy) non-blank-str string/lower-case)
+          late-data-tolerance (normalize-duration-window (:late_data_tolerance policy))
+          reprocess-window    (normalize-duration-window (:reprocess_window policy))]
+      (cond-> {}
+        (seq business-keys) (assoc :business_keys business-keys)
+        event-time-column (assoc :event_time_column event-time-column)
+        sequence-column (assoc :sequence_column sequence-column)
+        ordering-strategy (assoc :ordering_strategy ordering-strategy)
+        late-data-mode (assoc :late_data_mode late-data-mode)
+        too-late-behavior (assoc :too_late_behavior too-late-behavior)
+        (seq late-data-tolerance) (assoc :late_data_tolerance late-data-tolerance)
+        (seq reprocess-window) (assoc :reprocess_window reprocess-window)))))
+
+(defn- default-processing-policy
+  [key-cols columns]
+  (let [event-time-column (inferred-event-time-column columns)
+        policy            (cond-> {}
+                            (seq key-cols) (assoc :business_keys key-cols)
+                            event-time-column (assoc :event_time_column event-time-column)
+                            (and (seq key-cols) event-time-column) (assoc :ordering_strategy "latest_event_time_wins")
+                            (seq key-cols) (assoc :late_data_mode "merge")
+                            (seq key-cols) (assoc :too_late_behavior "accept"))]
+    (when (seq policy)
+      policy)))
+
+(defn- duration-window-errors
+  [field value]
+  (let [raw-value (when (map? value) (:value value))
+        raw-unit  (when (map? value) (:unit value))
+        normalized (normalize-duration-window value)
+        has-any?  (or (some? raw-value) (some? raw-unit))]
+    (vec
+     (concat
+      (when (and (some? value) (not (map? value)))
+        [{:kind "processing_policy"
+          :field field
+          :message (str field " must be an object with value and unit")}])
+      (when (and has-any? (nil? (:value normalized)))
+        [{:kind "processing_policy"
+          :field field
+          :message (str field " value must be a non-negative integer")}])
+      (when (and has-any?
+                 (not (contains? allowed-window-units (some-> raw-unit non-blank-str string/lower-case))))
+        [{:kind "processing_policy"
+          :field field
+          :message (str field " unit must be one of minutes, hours, or days")}])))))
 
 (defn- valid-sql-ident?
   [value]
@@ -101,17 +285,99 @@
   (boolean (and (string? value)
                 (re-matches qualified-table-name-pattern value))))
 
+(def ^:private source-reference-pattern #"^(?:bronze|silver)\.(?:[A-Za-z_][A-Za-z0-9_]*|\"(?:[^\"]|\"\")+\")$")
+(def ^:private json-extraction-pattern #"^(?:bronze\.payload_json::jsonb|item\.value)\s*#>>\s*'\{[A-Za-z0-9_,]+\}'$")
+(def ^:private source-reference-finder-pattern #"(?:bronze|silver)\.(?:[A-Za-z_][A-Za-z0-9_]*|\"(?:[^\"]|\"\")+\")")
+(def ^:private json-extraction-finder-pattern #"(?:bronze\.payload_json::jsonb|item\.value)\s*#>>\s*'\{[A-Za-z0-9_,]+\}'")
+(def ^:private allowed-cast-types
+  #{"DATE" "VARCHAR" "STRING" "BOOLEAN" "INT" "INTEGER" "BIGINT" "DOUBLE" "DOUBLE PRECISION" "NUMERIC" "TIMESTAMP" "TIMESTAMPTZ"})
+(def ^:private unsafe-expression-pattern #"(?:--|/\*|\*/|;)")
+(def ^:private unsafe-expression-keyword-pattern #"(?i)\b(insert|update|delete|drop|alter|merge|copy|put|grant|revoke|truncate|create|replace|execute|call)\b")
+(def ^:private general-expression-pattern #"(?is)^[A-Za-z0-9_.'\"()\[\]{}=<>!%+\-*/,:\s|&]+$")
+
+(defn- split-top-level-args
+  [value]
+  (loop [idx   0
+         depth 0
+         start 0
+         parts []]
+    (if (= idx (count value))
+      (when (zero? depth)
+        (conj parts (subs value start idx)))
+      (let [ch (.charAt value idx)]
+        (cond
+          (= ch \() (recur (inc idx) (inc depth) start parts)
+          (= ch \)) (when (pos? depth)
+                      (recur (inc idx) (dec depth) start parts))
+          (and (= ch \,) (zero? depth)) (recur (inc idx) depth (inc idx) (conj parts (subs value start idx)))
+          :else (recur (inc idx) depth start parts))))))
+
+(defn- function-call-body
+  [value fn-name]
+  (let [value  (some-> value str string/trim)
+        prefix (str fn-name "(")]
+    (when (and value
+               (string/starts-with? value prefix)
+               (string/ends-with? value ")"))
+      (subs value (count prefix) (dec (count value))))))
+
+(defn- unwrap-parenthesized-expression
+  [value]
+  (loop [expr (some-> value str string/trim)]
+    (if (and expr
+             (string/starts-with? expr "(")
+             (string/ends-with? expr ")"))
+      (let [balanced? (loop [idx 0
+                             depth 0]
+                        (if (= idx (count expr))
+                          (zero? depth)
+                          (let [ch (.charAt expr idx)
+                                next-depth (cond
+                                             (= ch \() (inc depth)
+                                             (= ch \)) (dec depth)
+                                             :else depth)]
+                            (cond
+                              (neg? next-depth) false
+                              (and (zero? next-depth) (< idx (dec (count expr)))) false
+                              :else (recur (inc idx) next-depth)))))]
+        (if balanced?
+          (recur (string/trim (subs expr 1 (dec (count expr)))))
+          expr))
+      expr)))
+
 (defn- safe-proposal-expression?
   [value]
-  (boolean
-   (and (string? value)
-        (or (re-matches #"^(?:bronze|silver)\.[A-Za-z_][A-Za-z0-9_]*$" value)
-            (re-matches #"^CAST\((?:bronze|silver)\.[A-Za-z_][A-Za-z0-9_]* AS DATE\)$" value)
-            (re-matches #"^(?:SUM|AVG|MIN|MAX)\((?:bronze|silver)\.[A-Za-z_][A-Za-z0-9_]*\)$" value)
-            (= "COUNT(*)" value)))))
+  (let [expr (unwrap-parenthesized-expression value)]
+    (boolean
+     (when expr
+       (or (re-matches source-reference-pattern expr)
+           (re-matches json-extraction-pattern expr)
+           (= "COUNT(*)" expr)
+           (when-let [body (function-call-body expr "CAST")]
+             (when-let [[_ inner cast-type] (re-matches #"(?is)^(.*)\s+AS\s+([A-Z ]+)\s*$" body)]
+               (and (contains? allowed-cast-types (string/upper-case (string/trim cast-type)))
+                    (safe-proposal-expression? (string/trim inner)))))
+           (some (fn [fn-name]
+                   (when-let [body (function-call-body expr fn-name)]
+                     (safe-proposal-expression? body)))
+                 ["TRIM" "UPPER" "LOWER" "TO_DATE" "SUM" "AVG" "MIN" "MAX"])
+           (when-let [body (function-call-body expr "SUBSTRING")]
+             (when-let [parts (some->> (split-top-level-args body)
+                                       (map string/trim)
+                                       seq)]
+               (let [[source-expr & params] parts]
+                 (and (safe-proposal-expression? source-expr)
+                      (<= 1 (count params) 2)
+                      (every? #(re-matches #"^\d+$" %) params)))))
+           (and (re-matches general-expression-pattern expr)
+                (not (re-find unsafe-expression-pattern expr))
+                (not (re-find unsafe-expression-keyword-pattern expr))
+                (or (seq (re-seq source-reference-finder-pattern expr))
+                    (seq (re-seq json-extraction-finder-pattern expr))
+                    (= "COUNT(*)" expr))))))))
 
 (def ^:private allowed-review-states
-  #{"reviewed" "approved" "rejected"})
+  #{"reviewed" "approved" "rejected" "changes_requested"})
 
 (def ^:private editable-in-place-statuses
   #{"draft" "invalid"})
@@ -126,6 +392,13 @@
 (defn- reviewable-proposal?
   [proposal-row]
   (contains? #{"validated" "reviewed" "approved"} (:status proposal-row)))
+
+(defn- compile-result-status
+  [proposal-row]
+  (let [current-status (some-> (:status proposal-row) string/lower-case)]
+    (if (contains? #{"validated" "reviewed" "approved" "published"} current-status)
+      current-status
+      "compiled")))
 
 (defn- publishable-proposal?
   [proposal-row]
@@ -242,6 +515,7 @@
                       "model_run_id BIGSERIAL PRIMARY KEY, "
                       "release_id BIGINT NOT NULL REFERENCES " model-release-table "(release_id), "
                       "graph_artifact_id BIGINT NOT NULL REFERENCES " model-graph-artifact-table "(graph_artifact_id), "
+                      "execution_request_id UUID NULL, "
                       "execution_backend VARCHAR(64) NOT NULL, "
                       "status VARCHAR(32) NOT NULL, "
                       "target_connection_id INTEGER NULL, "
@@ -254,8 +528,12 @@
                       "completed_at_utc TIMESTAMPTZ NULL)")
                  (str "CREATE INDEX IF NOT EXISTS idx_compiled_model_artifact_release "
                       "ON " compiled-model-artifact-table " (release_id)")
+                 (str "ALTER TABLE " compiled-model-run-table
+                      " ADD COLUMN IF NOT EXISTS execution_request_id UUID NULL")
                  (str "CREATE INDEX IF NOT EXISTS idx_compiled_model_run_release "
                       "ON " compiled-model-run-table " (release_id, created_at_utc DESC)")
+                 (str "CREATE INDEX IF NOT EXISTS idx_compiled_model_run_execution_request "
+                      "ON " compiled-model-run-table " (execution_request_id)")
                  (str "CREATE INDEX IF NOT EXISTS idx_model_proposal_graph_endpoint "
                       "ON " model-proposal-table " (source_graph_id, source_node_id, source_endpoint_name, created_at_utc DESC)")
                  (str "CREATE INDEX IF NOT EXISTS idx_model_proposal_target_model "
@@ -285,6 +563,11 @@
   (or (some-> (:target_kind target) non-blank-str string/lower-case)
       (some-> (connection-dbtype conn-id) non-blank-str string/lower-case)
       "databricks"))
+
+(defn- proposal-target-warehouse
+  [{:keys [proposal-json target target-connection-id]}]
+  (or (some-> (:target_warehouse proposal-json) non-blank-str string/lower-case)
+      (target-warehouse target target-connection-id)))
 
 (defn- find-downstream-target
   [g start-id]
@@ -536,6 +819,15 @@
   [column]
   (#{"INT" "BIGINT" "DOUBLE"} (source-field-type column)))
 
+(defn- aggregatable-measure?
+  "True when a numeric column is likely a real measure (amount, quantity, cost)
+   rather than a coded dimension (year, id, code, flag, zip, status)."
+  [column]
+  (and (numeric-column? column)
+       (not (#{"business_key" "timestamp"} (:role column)))
+       (not (re-find #"(?i)(_id$|_year$|_code$|_zip$|_flag$|^year$|^id$|_count$|_version$|_status$|_type$|_num$|_number$)"
+                     (or (:target_column column) "")))))
+
 (defn- first-timestamp-column
   [columns]
   (some #(when (= "timestamp" (:role %)) %) columns))
@@ -545,6 +837,81 @@
   (case layer
     "gold" "silver"
     "bronze"))
+
+(defn- parse-json-source-path
+  [path]
+  (->> (string/split (or (non-blank-str path) "") #"\.")
+       (map #(string/replace % #"^\$" ""))
+       (remove string/blank?)
+       (map (fn [segment]
+              (let [array? (string/ends-with? segment "[]")
+                    key    (if array?
+                             (subs segment 0 (- (count segment) 2))
+                             segment)]
+                {:key key :array? array?})))
+       vec))
+
+(defn- common-json-array-root
+  [fields]
+  (let [roots (keep (fn [field]
+                      (let [segments (parse-json-source-path (:path field))
+                            idx      (some (fn [[i segment]]
+                                             (when (:array? segment) i))
+                                           (map-indexed vector segments))]
+                        (when (some? idx)
+                          (mapv :key (take (inc idx) segments)))))
+                    fields)]
+    (->> roots
+         frequencies
+         (sort-by (fn [[segments count]]
+                    [count (count segments)])
+                  #(compare %2 %1))
+         ffirst)))
+
+(defn- json-extract-text-sql
+  [base-expr segments]
+  (when (seq segments)
+    (str "(" base-expr " #>> '{" (string/join "," segments) "}')")))
+
+(defn- cast-json-text-sql
+  [expr field-type]
+  (case (source-field-type {:type field-type})
+    "BOOLEAN" (str "CAST(" expr " AS BOOLEAN)")
+    "DATE" (str "CAST(" expr " AS DATE)")
+    "TIMESTAMP" (str "CAST(" expr " AS TIMESTAMP)")
+    "INT" (str "CAST(" expr " AS INTEGER)")
+    "BIGINT" (str "CAST(" expr " AS BIGINT)")
+    "DOUBLE" (str "CAST(" expr " AS DOUBLE PRECISION)")
+    expr))
+
+(defn- postgres-source-expression
+  [field array-root]
+  (let [segments      (parse-json-source-path (:path field))
+        root-len      (count array-root)
+        uses-array?   (and (seq array-root)
+                           (<= root-len (count segments))
+                           (= array-root (mapv :key (take root-len segments))))
+        relative-path (mapv :key (if uses-array?
+                                   (drop root-len segments)
+                                   segments))
+        base-expr     (if uses-array?
+                        "item.value"
+                        "bronze.payload_json::jsonb")]
+    (some-> (json-extract-text-sql base-expr relative-path)
+            (cast-json-text-sql (source-field-type field)))))
+
+(defn- inferred-field-expression
+  [field target array-root]
+  (if (= "postgresql" (target-warehouse target (target-connection-id target)))
+    (or (postgres-source-expression field array-root)
+        (str "bronze." (:column_name field)))
+    (str "bronze." (:column_name field))))
+
+(defn- model-source-reference
+  [warehouse source-alias column-name]
+  ;; Quote identifiers with the target dialect so generated Gold expressions use
+  ;; the same identifier style the downstream compiler/runtime expects.
+  (str source-alias "." (quote-sql-ident-for-warehouse warehouse column-name)))
 
 (defn- proposal-confidence
   [{:keys [profile-source key-columns timestamp-columns target-table-explicit?]}]
@@ -556,10 +923,12 @@
           (if target-table-explicit? 0.05 0.0))))
 
 (defn- build-silver-proposal
-  [{:keys [tenant-key workspace-key graph-id api-node-id source-system endpoint profile created-by]}]
-  (let [source-fields     (->> (or (:inferred_fields endpoint) [])
+  [{:keys [tenant-key workspace-key graph-id api-node-id source-system endpoint profile created-by target]}]
+  (let [warehouse         (target-warehouse target (target-connection-id target))
+        source-fields     (->> (or (:inferred_fields endpoint) [])
                                (filter #(not= false (:enabled %)))
                                vec)
+        array-root        (common-json-array-root source-fields)
         key-cols          (key-columns endpoint source-fields)
         timestamp-cols    (->> source-fields (filter timestamp-column?) (mapv :column_name))
         target-table      (derive-target-table endpoint)
@@ -576,12 +945,13 @@
                                    :role (field-role field key-cols)
                                    :source_paths [(:path field)]
                                    :source_columns [(:column_name field)]
-                                   :expression (str "bronze." (:column_name field))
+                                   :expression (inferred-field-expression field target array-root)
                                    :confidence (if (contains? (set key-cols) (:column_name field)) 0.95 0.85)
                                    :rule_source (if (contains? (set key-cols) (:column_name field))
                                                   "primary_key_match"
                                                   "schema_snapshot_passthrough")})
                                 source-fields)
+        processing-policy (default-processing-policy key-cols columns)
         materialization   {:mode (if (seq key-cols) "merge" "table_replace")
                            :keys key-cols}
         grain             (when (seq key-cols) {:keys key-cols})
@@ -604,6 +974,7 @@
      :confidence_score confidence
      :proposal_json {:layer "silver"
                      :source_layer "bronze"
+                     :target_warehouse warehouse
                      :target_model target-model
                      :target_table target-table
                      :entity_kind entity-kind
@@ -611,10 +982,17 @@
                      :source_node_id api-node-id
                      :source_system source-system
                      :endpoint_name (:endpoint_name endpoint)
+                     :source_expansion (when (and (= "postgresql" warehouse)
+                                                  (seq array-root))
+                                         {:kind "jsonb_array"
+                                          :alias "item"
+                                          :json_column "payload_json"
+                                          :path array-root})
                      :profile_summary {:sample_record_count (:sample_record_count profile)
                                        :field_count (:field_count profile)}
                      :columns columns
                      :mappings (mapv #(select-keys % [:target_column :expression :source_paths :source_columns :confidence :rule_source]) columns)
+                     :processing_policy processing-policy
                      :materialization materialization
                      :grain grain
                      :explanations explanations}
@@ -622,8 +1000,11 @@
      :created_by created-by}))
 
 (defn- build-gold-proposal
-  [{:keys [tenant-key workspace-key silver-proposal proposal-row created-by]}]
-  (let [silver-columns   (vec (proposal-columns silver-proposal))
+  [{:keys [tenant-key workspace-key silver-proposal proposal-row created-by target-warehouse]}]
+  (let [warehouse        (or (some-> target-warehouse non-blank-str string/lower-case)
+                             (some-> (:target_warehouse silver-proposal) non-blank-str string/lower-case)
+                             "databricks")
+        silver-columns   (vec (proposal-columns silver-proposal))
         source-table     (:target_table silver-proposal)
         source-model     (:target_model silver-proposal)
         source-keys      (vec (or (get-in silver-proposal [:materialization :keys]) []))
@@ -633,8 +1014,10 @@
                                         (or (contains? (set source-keys) (:target_column col))
                                             (= "business_key" (:role col)))))
                               vec)
+        dimension-keys   (set (map :target_column dimension-cols))
         measure-cols     (->> silver-columns
-                              (filter numeric-column?)
+                              (remove #(contains? dimension-keys (:target_column %)))
+                              (filter aggregatable-measure?)
                               vec)
         target-table     (derive-gold-target-table silver-proposal)
         target-base      (sanitize-ident (last-table-segment target-table))
@@ -650,7 +1033,7 @@
                                   :role "dimension"
                                   :source_paths (vec (or (:source_paths column) []))
                                   :source_columns [(:target_column column)]
-                                  :expression (str "silver." (:target_column column))
+                                  :expression (model-source-reference warehouse "silver" (:target_column column))
                                   :confidence 0.9
                                   :rule_source "silver_contract_passthrough"})
                                dimension-cols)
@@ -661,7 +1044,7 @@
                             :role "time_dimension"
                             :source_paths (vec (or (:source_paths timestamp-col) []))
                             :source_columns [(:target_column timestamp-col)]
-                            :expression (str "CAST(silver." (:target_column timestamp-col) " AS DATE)")
+                            :expression (str "CAST(" (model-source-reference warehouse "silver" (:target_column timestamp-col)) " AS DATE)")
                             :confidence 0.9
                             :rule_source "timestamp_to_date"})
         measure-items    (if (seq measure-cols)
@@ -672,7 +1055,7 @@
                                     :role "measure"
                                     :source_paths (vec (or (:source_paths column) []))
                                     :source_columns [(:target_column column)]
-                                    :expression (str "SUM(silver." (:target_column column) ")")
+                                    :expression (str "SUM(" (model-source-reference warehouse "silver" (:target_column column)) ")")
                                     :confidence 0.88
                                     :rule_source "aggregate_sum"})
                                  measure-cols)
@@ -709,6 +1092,7 @@
      :proposal_json {:layer "gold"
                      :source_layer "silver"
                      :source_alias "silver"
+                     :target_warehouse warehouse
                      :target_model target-model
                      :target_table target-table
                      :source_model source-model
@@ -749,7 +1133,7 @@
     (:field_count profile)
     (json/generate-string (:profile_json profile))
     created-by
-    (str (now-utc))]))
+    (db-timestamptz (now-utc))]))
 
 (defn- persist-model-proposal!
   [proposal profile-id]
@@ -773,7 +1157,7 @@
     (:compiled_sql proposal)
     (:confidence_score proposal)
     (:created_by proposal)
-    (str (now-utc))]))
+    (db-timestamptz (now-utc))]))
 
 (defn- latest-model-proposal
   [graph-id api-node-id endpoint-name]
@@ -853,6 +1237,43 @@
     [(str "SELECT * FROM " model-release-table " WHERE release_id = ?")
      release-id])))
 
+(defn get-release
+  "Public wrapper for release-by-id. Returns nil if not found."
+  ([release-id]
+   (get-release db/ds release-id))
+  ([conn release-id]
+   (some-> (release-by-id conn release-id) (update :published_at_utc str) (update :created_at_utc str))))
+
+(defn get-graph-artifact
+  "Public wrapper for graph-artifact-by-id. Returns nil if not found."
+  ([graph-artifact-id]
+   (get-graph-artifact db/ds graph-artifact-id))
+  ([conn graph-artifact-id]
+   (some-> (graph-artifact-by-id conn graph-artifact-id) (update :created_at_utc str))))
+
+(defn resolve-active-release
+  "Resolve a release binding to a concrete release row. Throws if not found."
+  ([binding]
+   (resolve-active-release db/ds binding))
+  ([conn binding]
+   (let [mode (or (:mode binding) "follow_active")]
+     (case mode
+       "pinned"
+       (let [release-id (:pinned_release_id binding)
+             row (release-by-id conn release-id)]
+         (when-not row
+           (throw (ex-info "Pinned release not found"
+                           {:pinned_release_id release-id
+                            :status 404})))
+         row)
+       (let [row (latest-active-release conn (:layer binding) (:target_model binding))]
+         (when-not row
+           (throw (ex-info "No active published release for target model"
+                           {:layer (:layer binding)
+                            :target_model (:target_model binding)
+                            :status 404})))
+         row)))))
+
 (defn- latest-active-release
   ([layer target-model]
    (latest-active-release db/ds layer target-model))
@@ -923,7 +1344,7 @@
      (json/generate-string validation-json)
      compiled-sql
      created-by
-     (str (now-utc))])))
+     (db-timestamptz (now-utc))])))
 
 (defn- deactivate-active-releases!
   ([layer target-model]
@@ -956,8 +1377,8 @@
      status
      active
      created-by
-     (str (now-utc))
-     (some-> published-at str)])))
+     (db-timestamptz (now-utc))
+     (db-timestamptz published-at)])))
 
 (defn- persist-compiled-model-artifact!
   ([payload]
@@ -976,7 +1397,7 @@
      (when validation-json (json/generate-string validation-json))
      (sha256-hex sql-text)
      created-by
-     (str (now-utc))])))
+     (db-timestamptz (now-utc))])))
 
 (defn- persist-model-graph-artifact!
   ([payload]
@@ -998,7 +1419,7 @@
        node-map-json
        (sha256-hex (str gil-json ":" node-map-json ":" graph-id ":" graph-version))
        created-by
-       (str (now-utc))]))))
+       (db-timestamptz (now-utc))]))))
 
 (defn- persist-compiled-model-run!
   ([payload]
@@ -1021,8 +1442,8 @@
      (json/generate-string request-json)
      (when response-json (json/generate-string response-json))
      created-by
-     (str (now-utc))
-     (some-> completed-at str)])))
+     (db-timestamptz (now-utc))
+     (db-timestamptz completed-at)])))
 
 (defn complete-model-run!
   [model-run-id {:keys [status response-json completed-at external-run-id]}]
@@ -1035,8 +1456,20 @@
     status
     (when response-json (json/generate-string response-json))
     external-run-id
-    (some-> (or completed-at (now-utc)) str)
+    (db-timestamptz (or completed-at (now-utc)))
     model-run-id]))
+
+(defn link-model-run-to-request!
+  ([model-run-id request-id]
+   (link-model-run-to-request! db/ds model-run-id request-id))
+  ([tx model-run-id request-id]
+   (ensure-modeling-tables!)
+   (jdbc/execute!
+    tx
+    [(str "UPDATE " compiled-model-run-table
+          " SET execution_request_id = ? WHERE model_run_id = ?")
+     (when request-id (UUID/fromString (str request-id)))
+     model-run-id])))
 
 (defn- update-model-run-progress!
   [model-run-id {:keys [status response-json external-run-id]}]
@@ -1057,6 +1490,30 @@
    (db-opts db/ds)
    [(str "SELECT * FROM " compiled-model-run-table " WHERE model_run_id = ?")
     model-run-id]))
+
+(defn- model-run-row->response
+  [run-row]
+  (some-> run-row
+          (update :request_json parse-json-safe)
+          (update :response_json parse-json-safe)
+          (update :created_at_utc str)
+          (update :completed_at_utc str)
+          (update :execution_request_id #(when % (str %)))))
+
+(defn get-model-run
+  [model-run-id]
+  (some-> (model-run-by-id model-run-id) model-run-row->response))
+
+(defn get-model-run-by-execution-request-id
+  [request-id]
+  (ensure-modeling-tables!)
+  (some-> (jdbc/execute-one!
+           (db-opts db/ds)
+           [(str "SELECT * FROM " compiled-model-run-table
+                 " WHERE execution_request_id = ?"
+                 " ORDER BY created_at_utc DESC, model_run_id DESC LIMIT 1")
+            (UUID/fromString (str request-id))])
+          model-run-row->response))
 
 (defn- databricks-run->status
   [response-body]
@@ -1097,9 +1554,7 @@
       (throw (ex-info "Silver model run not found" {:model_run_id model-run-id :status 404})))
     (let [status (:status run-row)]
       (if (not (#{"submitted" "running"} status))
-        (-> run-row
-            (update :request_json parse-json-safe)
-            (update :response_json parse-json-safe))
+        (model-run-row->response run-row)
         (let [external-run-id (:external_run_id run-row)
               conn-id         (:target_connection_id run-row)]
           (when (string/blank? (str external-run-id))
@@ -1117,9 +1572,82 @@
                                                                               :response-json response
                                                                               :external-run-id external-run-id}))
                 refreshed         (model-run-by-id model-run-id)]
-            (-> refreshed
-                (update :request_json parse-json-safe)
-                (update :response_json parse-json-safe))))))))
+            (model-run-row->response refreshed)))))))
+
+(defn- terminal-model-run-status?
+  [status]
+  (contains? #{"succeeded" "failed" "timed_out" "cancelled"} (some-> status str string/lower-case)))
+
+(defn- execute-databricks-model-run-under-polling!
+  [pending-run poll-fn]
+  (let [response     (dbx-jobs/trigger-job! (:conn_id pending-run) (:job_id pending-run) (:params pending-run))
+        model-run-id (:model_run_id pending-run)
+        max-polls    (max 1 (parse-int-env :bitool-databricks-max-polls 720))]
+    (update-model-run-progress! model-run-id
+                                {:status "submitted"
+                                 :response-json response
+                                 :external-run-id (some-> (:run_id response) str)})
+    (loop [poll-count 0]
+      (when (>= poll-count max-polls)
+        (throw (ex-info "Databricks job poll timeout exceeded"
+                        {:failure_class "transient_platform_error"
+                         :model_run_id model-run-id
+                         :poll_count poll-count
+                         :max_polls max-polls})))
+      (Thread/sleep (min 30000 (* 1000 (+ 5 (* 2 poll-count)))))
+      (let [poll-result (poll-fn model-run-id)
+            status      (some-> (:status poll-result) str string/lower-case)]
+        (cond
+          (= "succeeded" status)
+          (-> pending-run
+              (select-keys [:model_run_id :release_id :graph_artifact_id :graph_id :graph_version])
+              (assoc :status "succeeded"
+                     :backend "databricks_job"
+                     :job_trigger response
+                     :response_json (:response_json poll-result)))
+
+          (contains? #{"failed" "timed_out" "cancelled"} status)
+          (throw (ex-info (str "Databricks job " status)
+                          {:failure_class (if (= "timed_out" status)
+                                            "transient_platform_error"
+                                            "permanent_model_error")
+                           :model_run_id model-run-id
+                           :databricks_status status
+                           :response poll-result}))
+
+          :else (recur (inc poll-count)))))))
+
+(defn- execute-pending-model-run!
+  [pending-run poll-fn]
+  (case (:warehouse pending-run)
+    "snowflake"
+    (let [response (jdbc/execute! (db/get-opts (:conn_id pending-run) nil)
+                                  [(:compiled_sql pending-run)])]
+      (complete-model-run! (:model_run_id pending-run)
+                           {:status "succeeded"
+                            :response-json {:result response}
+                            :completed-at (now-utc)})
+      (-> pending-run
+          (select-keys [:model_run_id :release_id :graph_artifact_id :graph_id :graph_version])
+          (assoc :response response
+                 :status "succeeded"
+                 :backend "snowflake_sql")))
+
+    "postgresql"
+    (let [response (execute-postgresql-materialization! (:conn_id pending-run)
+                                                        (:sql_ir pending-run)
+                                                        (:compiled_sql pending-run))]
+      (complete-model-run! (:model_run_id pending-run)
+                           {:status "succeeded"
+                            :response-json {:result response}
+                            :completed-at (now-utc)})
+      (-> pending-run
+          (select-keys [:model_run_id :release_id :graph_artifact_id :graph_id :graph_version])
+          (assoc :response response
+                 :status "succeeded"
+                 :backend "postgresql_sql")))
+
+    (execute-databricks-model-run-under-polling! pending-run poll-fn)))
 
 (defn- reconcilable-model-runs
   [limit]
@@ -1230,11 +1758,19 @@
   (vec (or (:mappings proposal-json) [])))
 
 (defn- source-table-for-endpoint
-  [endpoint]
+  [target endpoint]
   (or (non-blank-str (:bronze_table_name endpoint))
       (non-blank-str (:table_name endpoint))
-      (throw (ex-info "Endpoint does not declare a Bronze source table"
-                      {:endpoint_name (:endpoint_name endpoint)}))))
+      (when-let [target-table (non-blank-str (:table_name target))]
+        (db/fully-qualified-table-name target target-table))
+      (db/fully-qualified-table-name
+       target
+       (sanitize-ident
+        (or (non-blank-str (:endpoint_name endpoint))
+            (non-blank-str (:endpoint_url endpoint))
+            (non-blank-str (:topic_name endpoint))
+            (non-blank-str (:path endpoint))
+            "bronze_auto")))))
 
 (defn- sample-limit
   [value]
@@ -1289,7 +1825,7 @@
        :endpoint endpoint
        :target target
        :source-system (or (:source_system source-node) "samara")
-       :source-table (source-table-for-endpoint endpoint)
+       :source-table (source-table-for-endpoint target endpoint)
        :target-connection-id (target-connection-id target)})))
 
 (defn- resolve-gold-proposal-context
@@ -1329,7 +1865,15 @@
 
 (defn- available-source-columns
   [proposal-json profile-json]
-  (let [profile-columns (-> profile-json :field_types keys set)
+  (let [profile-columns (->> (get profile-json :field_types)
+                             keys
+                             (mapv (fn [k]
+                                     (cond
+                                       (keyword? k) (name k)
+                                       (nil? k) nil
+                                       :else (str k))))
+                             (remove nil?)
+                             set)
         proposal-cols   (->> (proposal-columns proposal-json) (mapcat :source_columns) set)
         mapping-cols    (->> (proposal-mappings proposal-json) (mapcat :source_columns) set)]
     (cond
@@ -1341,11 +1885,18 @@
   [proposal-json source-table profile-json]
   (let [columns         (proposal-columns proposal-json)
         target-columns  (mapv :target_column columns)
+        target-column-set (set target-columns)
         mappings        (proposal-mappings proposal-json)
         materialization (:materialization proposal-json)
         merge-keys      (vec (or (:keys materialization) []))
         group-by-cols   (vec (or (:group_by proposal-json) []))
         target-table    (:target_table proposal-json)
+        processing-policy (:processing_policy proposal-json)
+        normalized-policy (normalize-processing-policy processing-policy)
+        business-keys   (vec (or (:business_keys normalized-policy) []))
+        ordering-strategy (:ordering_strategy normalized-policy)
+        event-time-column (:event_time_column normalized-policy)
+        sequence-column   (:sequence_column normalized-policy)
         source-alias    (or (:source_alias proposal-json)
                             (:source_layer proposal-json)
                             "bronze")
@@ -1368,7 +1919,7 @@
       (when-not (every? #(contains? supported-silver-types (source-field-type %)) columns)
         [{:kind "schema" :message "Proposal contains unsupported target column types"}])
       (when-not (every? #(safe-proposal-expression? (:expression %)) columns)
-        [{:kind "schema" :message "All compiled expressions must be simple Bronze column references"}])
+        [{:kind "schema" :message "All compiled expressions must use supported SQL expression syntax and source references"}])
       (when (and graph-filter
                  (or (re-find #"(?:--|/\*|\*/|;)" graph-filter)
                      (re-find #"(?i)\b(select|insert|update|delete|drop|alter|merge|union|join|from|into|copy|put)\b" graph-filter)
@@ -1379,11 +1930,71 @@
       (when (and (= "merge" (:mode materialization)) (empty? merge-keys))
         [{:kind "mapping" :message "Merge materialization requires at least one merge key"}])
       (when (and (seq merge-keys)
-                 (not-every? (set target-columns) merge-keys))
+                 (not-every? target-column-set merge-keys))
         [{:kind "mapping" :message "All merge keys must be target columns"}])
       (when (and (seq group-by-cols)
-                 (not-every? (set target-columns) group-by-cols))
+                 (not-every? target-column-set group-by-cols))
         [{:kind "mapping" :message "All group-by columns must be target columns"}])
+      (when (and (some? processing-policy) (not (map? processing-policy)))
+        [{:kind "processing_policy" :message "Processing policy must be an object"}])
+      (when (and ordering-strategy
+                 (not (contains? allowed-ordering-strategies ordering-strategy)))
+        [{:kind "processing_policy"
+          :field "ordering_strategy"
+          :message "Ordering strategy must be one of latest_event_time_wins, latest_sequence_wins, event_time_then_sequence, or append_only"}])
+      (when (and (seq business-keys)
+                 (not-every? target-column-set business-keys))
+        [{:kind "processing_policy"
+          :field "business_keys"
+          :message "Processing policy business keys must all be target columns"}])
+      (when (and event-time-column
+                 (not (contains? target-column-set event-time-column)))
+        [{:kind "processing_policy"
+          :field "event_time_column"
+          :message "Processing policy event time column must be a target column"}])
+      (when (and sequence-column
+                 (not (contains? target-column-set sequence-column)))
+        [{:kind "processing_policy"
+          :field "sequence_column"
+          :message "Processing policy sequence column must be a target column"}])
+      (when (and ordering-strategy
+                 (not= "append_only" ordering-strategy)
+                 (empty? business-keys))
+        [{:kind "processing_policy"
+          :field "business_keys"
+          :message "Latest-state ordering requires one or more business keys"}])
+      (when (and (= "latest_event_time_wins" ordering-strategy)
+                 (not event-time-column))
+        [{:kind "processing_policy"
+          :field "event_time_column"
+          :message "latest_event_time_wins requires an event time column"}])
+      (when (and (= "latest_sequence_wins" ordering-strategy)
+                 (not sequence-column))
+        [{:kind "processing_policy"
+          :field "sequence_column"
+          :message "latest_sequence_wins requires a sequence column"}])
+      (when (and (= "event_time_then_sequence" ordering-strategy)
+                 (not event-time-column))
+        [{:kind "processing_policy"
+          :field "event_time_column"
+          :message "event_time_then_sequence requires an event time column"}])
+      (when (and (= "event_time_then_sequence" ordering-strategy)
+                 (not sequence-column))
+        [{:kind "processing_policy"
+          :field "sequence_column"
+          :message "event_time_then_sequence requires a sequence column"}])
+      (when (and (get normalized-policy :late_data_mode)
+                 (not (contains? allowed-late-data-modes (:late_data_mode normalized-policy))))
+        [{:kind "processing_policy"
+          :field "late_data_mode"
+          :message "Late data mode must be one of merge or append"}])
+      (when (and (get normalized-policy :too_late_behavior)
+                 (not (contains? allowed-too-late-behaviors (:too_late_behavior normalized-policy))))
+        [{:kind "processing_policy"
+          :field "too_late_behavior"
+          :message "Too-late behavior must be one of accept, quarantine, or drop"}])
+      (duration-window-errors "late_data_tolerance" (:late_data_tolerance processing-policy))
+      (duration-window-errors "reprocess_window" (:reprocess_window processing-policy))
       (mapcat (fn [mapping]
                 (concat
                  (when-not (valid-sql-ident? (:target_column mapping))
@@ -1393,7 +2004,7 @@
                  (when-not (safe-proposal-expression? (:expression mapping))
                    [{:kind "mapping"
                      :target_column (:target_column mapping)
-                     :message "Mapping expression must be a simple Bronze column reference"}])
+                     :message "Mapping expression must use supported SQL expression syntax and source references"}])
                  (when (seq (:source_columns mapping))
                    (for [source-column (:source_columns mapping)
                          :when (not (contains? available-cols source-column))]
@@ -1410,7 +2021,9 @@
       (throw (ex-info "Silver proposal failed static validation"
                       {:status 400
                        :errors errors})))
-    (compiler/compile-model {:target-warehouse (target-warehouse target target-connection-id)
+    (compiler/compile-model {:target-warehouse (proposal-target-warehouse {:proposal-json proposal-json
+                                                                           :target target
+                                                                           :target-connection-id target-connection-id})
                              :proposal-json proposal-json
                              :source-table source-table})))
 
@@ -1472,6 +2085,7 @@
   (mapv (fn [mapping]
           {:target_column (:target_column mapping)
            :expression (:expression mapping)
+           :transform (vec (or (:transform mapping) []))
            :source_paths (vec (or (:source_paths mapping) []))
            :source_columns (vec (or (:source_columns mapping) []))
            :rule_source (:rule_source mapping)})
@@ -1493,6 +2107,7 @@
         target-ref      "target"
         output-ref      "output"
         table-parts     (split-qualified-table (:target_table proposal-json))
+        processing-policy (normalize-processing-policy (:processing_policy proposal-json))
         target-config   {:target_kind (or (:target_kind target) "databricks")
                          :connection_id (target-connection-id target)
                          :catalog (or (:catalog target) (:catalog table-parts) "")
@@ -1509,7 +2124,16 @@
                                                     :proposal_id (:proposal_id proposal-row)}
                                                    (or (:silver_job_params target) {}))
                          :model_layer "silver"
-                         :managed_release true}
+                         :managed_release true
+                         :processing_policy processing-policy
+                         :business_keys (vec (or (:business_keys processing-policy) []))
+                         :event_time_column (:event_time_column processing-policy)
+                         :sequence_column (:sequence_column processing-policy)
+                         :ordering_strategy (:ordering_strategy processing-policy)
+                         :late_data_tolerance (:late_data_tolerance processing-policy)
+                         :late_data_mode (:late_data_mode processing-policy)
+                         :too_late_behavior (:too_late_behavior processing-policy)
+                         :reprocess_window (:reprocess_window processing-policy)}
         nodes          (cond-> [{:node-ref source-ref
                                  :type "table"
                                  :alias (last-table-segment source-table)
@@ -1563,6 +2187,7 @@
         target-ref      "target"
         output-ref      "output"
         table-parts     (split-qualified-table (:target_table proposal-json))
+        processing-policy (normalize-processing-policy (:processing_policy proposal-json))
         target-config   {:target_kind (or (:target_kind target) "databricks")
                          :connection_id (target-connection-id target)
                          :catalog (or (:catalog target) (:catalog table-parts) "")
@@ -1579,7 +2204,16 @@
                                                   :proposal_id (:proposal_id proposal-row)}
                                                  (or (:gold_job_params target) {}))
                          :model_layer "gold"
-                         :managed_release true}
+                         :managed_release true
+                         :processing_policy processing-policy
+                         :business_keys (vec (or (:business_keys processing-policy) []))
+                         :event_time_column (:event_time_column processing-policy)
+                         :sequence_column (:sequence_column processing-policy)
+                         :ordering_strategy (:ordering_strategy processing-policy)
+                         :late_data_tolerance (:late_data_tolerance processing-policy)
+                         :late_data_mode (:late_data_mode processing-policy)
+                         :too_late_behavior (:too_late_behavior processing-policy)
+                         :reprocess_window (:reprocess_window processing-policy)}
         nodes           (cond-> [{:node-ref source-ref
                                   :type "table"
                                   :alias (last-table-segment source-table)
@@ -1806,11 +2440,19 @@
                                                    :api-node-id source-node-id
                                                    :source-system source-system
                                                    :endpoint endpoint'
+                                                   :target target
                                                    :profile profile
                                                    :created-by created-by})
         latest-proposal    (latest-model-proposal graph-id source-node-id (:endpoint_name endpoint))
+        latest-proposal-json (some-> latest-proposal :proposal_json parse-json-safe)
+        latest-profile-json (some-> latest-proposal
+                                    :profile_id
+                                    schema-profile-by-id
+                                    :profile_json
+                                    parse-json-safe)
         proposal-json      (json/generate-string (:proposal_json proposal))]
-    (if (= (:proposal_json latest-proposal) proposal-json)
+    (if (and (= latest-proposal-json (:proposal_json proposal))
+             (= latest-profile-json (:profile_json profile)))
       (let [profile-row (schema-profile-by-id (:profile_id latest-proposal))
             parsed-profile-json (parse-json-safe (:profile_json profile-row))]
         {:profile_id (:profile_id latest-proposal)
@@ -1866,12 +2508,18 @@
                                              :layer (:layer proposal-row)
                                              :status 400})))
         silver-proposal   (parse-json-safe (:proposal_json proposal-row))
+        graph             (db/getGraph (:source_graph_id proposal-row))
+        source-node       (g2/getData graph (:source_node_id proposal-row))
+        target            (find-downstream-target graph (:source_node_id proposal-row))
+        target-warehouse  (target-warehouse target (target-connection-id target))
         tenant-key        (:tenant_key proposal-row)
         workspace-key     (:workspace_key proposal-row)
         gold-profile      {:graph_id (:source_graph_id proposal-row)
                            :api_node_id (:source_node_id proposal-row)
                            :source_layer "silver"
-                           :source_system (or (:source_system silver-proposal) "medallion")
+                           :source_system (or (:source_system silver-proposal)
+                                              (:source_system source-node)
+                                              "medallion")
                            :endpoint_name (:target_model proposal-row)
                            :profile_source "silver_contract"
                            :sample_record_count 0
@@ -1890,6 +2538,7 @@
                                                 :workspace-key workspace-key
                                                 :silver-proposal silver-proposal
                                                 :proposal-row proposal-row
+                                                :target-warehouse target-warehouse
                                                 :created-by created_by})
         latest-proposal   (latest-model-proposal (:source_graph_id proposal-row)
                                                  (:source_node_id proposal-row)
@@ -1969,16 +2618,20 @@
 
 (defn- proposal-summary-lite
   [proposal-row]
-  {:proposal_id (:proposal_id proposal-row)
-   :layer (:layer proposal-row)
-   :target_model (:target_model proposal-row)
-   :status (:status proposal-row)
-   :confidence_score (:confidence_score proposal-row)
-   :source_graph_id (:source_graph_id proposal-row)
-   :source_node_id (:source_node_id proposal-row)
-   :source_endpoint_name (:source_endpoint_name proposal-row)
-   :created_by (:created_by proposal-row)
-   :created_at_utc (:created_at_utc proposal-row)})
+  (let [release-row (latest-active-release (:layer proposal-row) (:target_model proposal-row))]
+    {:proposal_id (:proposal_id proposal-row)
+     :layer (:layer proposal-row)
+     :target_model (:target_model proposal-row)
+     :status (:status proposal-row)
+     :confidence_score (:confidence_score proposal-row)
+     :source_graph_id (:source_graph_id proposal-row)
+     :source_node_id (:source_node_id proposal-row)
+     :source_endpoint_name (:source_endpoint_name proposal-row)
+     :created_by (:created_by proposal-row)
+     :created_at_utc (:created_at_utc proposal-row)
+     :release_id (:release_id release-row)
+     :active_release (some-> release-row
+                             (select-keys [:release_id :version :status :active :graph_artifact_id :published_at_utc]))}))
 
 (defn list-silver-proposals
   [{:keys [graph-id status limit]
@@ -2213,6 +2866,8 @@
   (ensure-modeling-tables!)
   (let [{:keys [proposal-row] :as context} (resolve-proposal-context proposal-id)
         {:keys [sql_ir select_sql compiled_sql]} (compile-proposal* context)]
+    (update-model-proposal! proposal-id {:compiled_sql compiled_sql
+                                         :status (compile-result-status proposal-row)})
     {:proposal_id proposal-id
      :target_model (:target_model proposal-row)
      :layer (:layer proposal-row)
@@ -2225,6 +2880,8 @@
   (ensure-modeling-tables!)
   (let [{:keys [proposal-row] :as context} (resolve-gold-proposal-context proposal-id)
         {:keys [sql_ir select_sql compiled_sql]} (compile-proposal* context)]
+    (update-model-proposal! proposal-id {:compiled_sql compiled_sql
+                                         :status (compile-result-status proposal-row)})
     {:proposal_id proposal-id
      :target_model (:target_model proposal-row)
      :layer (:layer proposal-row)
@@ -2427,7 +3084,47 @@
   [target-node]
   (case (target-warehouse target-node (or (:connection_id target-node) (:c target-node)))
     "snowflake" "snowflake_sql"
+    "postgresql" "postgresql_sql"
     "databricks_job"))
+
+(defn- compiled-artifact-sql-ir
+  [compiled-artifact]
+  (parse-json-safe (:sql_ir_json compiled-artifact)))
+
+(defn- ensure-postgresql-target-table!
+  [conn-id sql-ir]
+  (let [opts         (db/get-opts conn-id nil)
+        target       (get-in sql-ir [:materialization :target])
+        {:keys [schema table]} (split-postgresql-target-table target)]
+    (when-let [ddl-sql (compiler/compile-ddl {:target-warehouse "postgresql"
+                                              :sql-ir sql-ir})]
+      (jdbc/execute! opts [ddl-sql]))
+    (when (and (seq table) (seq (:select sql-ir)))
+      (let [existing-columns (->> (jdbc/execute! opts
+                                                 ["SELECT column_name
+                                                    FROM information_schema.columns
+                                                   WHERE table_schema = ?
+                                                     AND table_name = ?"
+                                                  schema
+                                                  table])
+                                  (map :column_name)
+                                  set)]
+        (doseq [{:keys [target_column type]} (:select sql-ir)
+                :let [column-name (non-blank-str target_column)]
+                :when (and column-name (not (contains? existing-columns column-name)))]
+          (jdbc/execute! opts
+                         [(str "ALTER TABLE "
+                               (quote-qualified-postgresql-ident target)
+                               " ADD COLUMN "
+                               (quote-sql-ident column-name)
+                               " "
+                               (postgresql-logical-type type))]))))))
+
+(defn- execute-postgresql-materialization!
+  [conn-id sql-ir compiled-sql]
+  (ensure-postgresql-target-table! conn-id sql-ir)
+  (jdbc/with-transaction [tx (db/get-opts conn-id nil)]
+    (jdbc/execute! tx [compiled-sql])))
 
 (defn review-silver-proposal!
   [proposal-id {:keys [review_state review_notes reviewed_by]
@@ -2538,6 +3235,34 @@
          :graph_artifact_id (:graph_artifact_id graph-artifact)
          :validation validation-json})
 
+      "postgresql"
+      (let [sql-ir          (:sql_ir compile-result)
+            _               (ensure-postgresql-target-table! conn-id sql-ir)
+            response        (jdbc/execute! (db/get-opts conn-id nil)
+                                           [(str "EXPLAIN " (:compiled_sql compile-result))])
+            validation-json {:graph_artifact_id (:graph_artifact_id graph-artifact)
+                             :graph_id (:graph_id graph-artifact)
+                             :graph_version (:graph_version graph-artifact)
+                             :backend "postgresql_sql"
+                             :request {:proposal_id proposal-id
+                                       :graph_artifact_id (:graph_artifact_id graph-artifact)
+                                       :target_table target-table}
+                             :response response
+                             :sql_ir sql-ir
+                             :sql_checksum (sha256-hex (:compiled_sql compile-result))}
+            validation-row (persist-model-validation! {:proposal-id proposal-id
+                                                       :status "valid"
+                                                       :validation-kind "silver_warehouse_sql"
+                                                       :validation-json validation-json
+                                                       :compiled-sql (:compiled_sql compile-result)
+                                                       :created-by created_by})]
+        {:validation_id (:validation_id validation-row)
+         :proposal_id proposal-id
+         :status "valid"
+         :backend "postgresql_sql"
+         :graph_artifact_id (:graph_artifact_id graph-artifact)
+         :validation validation-json})
+
       (let [job-id          (or (:silver_validation_job_id target-node)
                                 (:silver_job_id target-node)
                                 "")
@@ -2620,6 +3345,34 @@
          :proposal_id proposal-id
          :status "valid"
          :backend "snowflake_sql"
+         :graph_artifact_id (:graph_artifact_id graph-artifact)
+         :validation validation-json})
+
+      "postgresql"
+      (let [sql-ir          (:sql_ir compile-result)
+            _               (ensure-postgresql-target-table! conn-id sql-ir)
+            response        (jdbc/execute! (db/get-opts conn-id nil)
+                                           [(str "EXPLAIN " (:compiled_sql compile-result))])
+            validation-json {:graph_artifact_id (:graph_artifact_id graph-artifact)
+                             :graph_id (:graph_id graph-artifact)
+                             :graph_version (:graph_version graph-artifact)
+                             :backend "postgresql_sql"
+                             :request {:proposal_id proposal-id
+                                       :graph_artifact_id (:graph_artifact_id graph-artifact)
+                                       :target_table target-table}
+                             :response response
+                             :sql_ir sql-ir
+                             :sql_checksum (sha256-hex (:compiled_sql compile-result))}
+            validation-row (persist-model-validation! {:proposal-id proposal-id
+                                                       :status "valid"
+                                                       :validation-kind "gold_warehouse_sql"
+                                                       :validation-json validation-json
+                                                       :compiled-sql (:compiled_sql compile-result)
+                                                       :created-by created_by})]
+        {:validation_id (:validation_id validation-row)
+         :proposal_id proposal-id
+         :status "valid"
+         :backend "postgresql_sql"
          :graph_artifact_id (:graph_artifact_id graph-artifact)
          :validation validation-json})
 
@@ -2734,6 +3487,7 @@
      :conn_id conn-id
      :warehouse warehouse
      :job_id job-id
+     :sql_ir (compiled-artifact-sql-ir compiled-artifact)
      :compiled_sql (:sql_text compiled-artifact)
      :params params
      :status "pending"}))
@@ -2753,20 +3507,8 @@
      (let [pending-run (jdbc/with-transaction [tx db/ds]
                          (execute-silver-release-tx! tx release-row created_by))]
        (try
-         (case (:warehouse pending-run)
-           "snowflake"
-           (let [response (jdbc/execute! (db/get-opts (:conn_id pending-run) nil)
-                                         [(:compiled_sql pending-run)])]
-             (complete-model-run! (:model_run_id pending-run)
-                                  {:status "succeeded"
-                                   :response-json {:result response}
-                                   :completed-at (now-utc)})
-             (-> pending-run
-                 (select-keys [:model_run_id :release_id :graph_artifact_id :graph_id :graph_version])
-                 (assoc :response response
-                        :status "succeeded"
-                        :backend "snowflake_sql")))
-
+         (if (contains? #{"snowflake" "postgresql"} (:warehouse pending-run))
+           (execute-pending-model-run! pending-run poll-silver-model-run!)
            (let [response (dbx-jobs/trigger-job! (:conn_id pending-run) (:job_id pending-run) (:params pending-run))]
              (update-model-run-progress! (:model_run_id pending-run)
                                          {:status "submitted"
@@ -2858,6 +3600,7 @@
      :conn_id conn-id
      :warehouse warehouse
      :job_id job-id
+     :sql_ir (compiled-artifact-sql-ir compiled-artifact)
      :compiled_sql (:sql_text compiled-artifact)
      :params params
      :status "pending"}))
@@ -2877,20 +3620,8 @@
      (let [pending-run (jdbc/with-transaction [tx db/ds]
                          (execute-gold-release-tx! tx release-row created_by))]
        (try
-         (case (:warehouse pending-run)
-           "snowflake"
-           (let [response (jdbc/execute! (db/get-opts (:conn_id pending-run) nil)
-                                         [(:compiled_sql pending-run)])]
-             (complete-model-run! (:model_run_id pending-run)
-                                  {:status "succeeded"
-                                   :response-json {:result response}
-                                   :completed-at (now-utc)})
-             (-> pending-run
-                 (select-keys [:model_run_id :release_id :graph_artifact_id :graph_id :graph_version])
-                 (assoc :response response
-                        :status "succeeded"
-                        :backend "snowflake_sql")))
-
+         (if (contains? #{"snowflake" "postgresql"} (:warehouse pending-run))
+           (execute-pending-model-run! pending-run poll-gold-model-run!)
            (let [response (dbx-jobs/trigger-job! (:conn_id pending-run) (:job_id pending-run) (:params pending-run))]
              (update-model-run-progress! (:model_run_id pending-run)
                                          {:status "submitted"
@@ -2909,9 +3640,85 @@
                                  :completed-at (now-utc)})
            (throw e)))))))
 
+(defn execute-queued-silver-release!
+  [release-id {:keys [created_by execution_request_id]
+               :or {created_by "system"}}]
+  (ensure-modeling-tables!)
+  (let [release-row (release-by-id release-id)]
+    (when-not release-row
+      (throw (ex-info "Resolved release no longer exists"
+                      {:release_id release-id
+                       :failure_class "config_error"})))
+    (let [pending-run (jdbc/with-transaction [tx db/ds]
+                        (let [run (execute-silver-release-tx! tx release-row created_by)]
+                          (when execution_request_id
+                            (link-model-run-to-request! tx (:model_run_id run) execution_request_id))
+                          run))]
+      (try
+        (execute-pending-model-run! pending-run poll-silver-model-run!)
+        (catch Exception e
+          (complete-model-run! (:model_run_id pending-run)
+                               {:status "failed"
+                                :response-json {:error (.getMessage e)
+                                                :error_data (ex-data e)}
+                                :completed-at (now-utc)})
+          (throw e))))))
+
+(defn execute-queued-gold-release!
+  [release-id {:keys [created_by execution_request_id]
+               :or {created_by "system"}}]
+  (ensure-modeling-tables!)
+  (let [release-row (release-by-id release-id)]
+    (when-not release-row
+      (throw (ex-info "Resolved release no longer exists"
+                      {:release_id release-id
+                       :failure_class "config_error"})))
+    (let [pending-run (jdbc/with-transaction [tx db/ds]
+                        (let [run (execute-gold-release-tx! tx release-row created_by)]
+                          (when execution_request_id
+                            (link-model-run-to-request! tx (:model_run_id run) execution_request_id))
+                          run))]
+      (try
+        (execute-pending-model-run! pending-run poll-gold-model-run!)
+        (catch Exception e
+          (complete-model-run! (:model_run_id pending-run)
+                               {:status "failed"
+                                :response-json {:error (.getMessage e)
+                                                :error_data (ex-data e)}
+                                :completed-at (now-utc)})
+          (throw e))))))
+
 (defn poll-gold-model-run!
   [model-run-id]
   (poll-silver-model-run! model-run-id))
+
+(defn preview-target-data
+  "Query the proposal's target table for a small sample of rows."
+  [proposal-id {:keys [limit] :or {limit 10}}]
+  (ensure-modeling-tables!)
+  (let [proposal-row (proposal-by-id proposal-id)]
+    (when-not proposal-row
+      (throw (ex-info "Proposal not found" {:proposal_id proposal-id :status 404})))
+    (let [proposal-json  (parse-json-safe (:proposal_json proposal-row))
+          target-table   (:target_table proposal-json)
+          _              (when-not (valid-qualified-table-name? target-table)
+                           (throw (ex-info "No valid target table on proposal"
+                                           {:proposal_id proposal-id :status 400})))
+          graph-id       (:source_graph_id proposal-row)
+          source-node-id (:source_node_id proposal-row)
+          graph          (db/getGraph graph-id)
+          target         (find-downstream-target graph source-node-id)
+          conn-id        (target-connection-id target)
+          _              (when-not conn-id
+                           (throw (ex-info "No target connection available"
+                                           {:proposal_id proposal-id :status 400})))
+          safe-limit     (max 1 (min (or limit 10) 100))
+          sql            (str "SELECT * FROM " target-table " LIMIT " safe-limit)
+          rows           (jdbc/execute! (db/get-opts conn-id nil) [sql])]
+      {:proposal_id proposal-id
+       :target_table target-table
+       :row_count (count rows)
+       :rows (vec rows)})))
 
 (mount/defstate ^{:on-reload :noop} silver-run-poller
   :start

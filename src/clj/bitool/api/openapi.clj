@@ -275,6 +275,15 @@
     g))
 
 ;; ---------------------------------------------------------------------------
+;; Public helpers
+;; ---------------------------------------------------------------------------
+
+(defn resolve-schema*
+  "Public wrapper around resolve-schema for use outside this namespace.
+   Resolves $ref and allOf within the given OpenAPI spec."
+  [schema spec]
+  (resolve-schema schema spec))
+
 ;; Public entry point
 ;; ---------------------------------------------------------------------------
 

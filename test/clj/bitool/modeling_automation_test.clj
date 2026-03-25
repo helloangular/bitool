@@ -5,6 +5,7 @@
             [bitool.graph2 :as g2]
             [bitool.modeling.automation :as modeling]
             [cheshire.core :as json]
+            [clojure.string :as str]
             [next.jdbc :as jdbc]
             [clojure.test :refer :all]))
 
@@ -51,6 +52,9 @@
     (is (= "fact_trip" (:target_model proposal)))
     (is (= "merge" (get-in proposal [:proposal_json :materialization :mode])))
     (is (= ["trip_id"] (get-in proposal [:proposal_json :materialization :keys])))
+    (is (= ["trip_id"] (get-in proposal [:proposal_json :processing_policy :business_keys])))
+    (is (= "updated_at" (get-in proposal [:proposal_json :processing_policy :event_time_column])))
+    (is (= "latest_event_time_wins" (get-in proposal [:proposal_json :processing_policy :ordering_strategy])))
     (is (= "fact" (get-in proposal [:proposal_json :entity_kind])))
     (is (= "timestamp" (get-in proposal [:proposal_json :columns 2 :role])))))
 
@@ -112,6 +116,288 @@
                     99 2 "samara" endpoint {:connection_id 9})]
         (is (= "endpoint_config" (:source source)))
         (is (= "target_connection" (:fallback_reason source)))))))
+
+(deftest source-table-for-endpoint-falls-back-to-auto-qualified-target-table
+  (is (= "bitool.public.fleet_vehicles"
+         (#'bitool.modeling.automation/source-table-for-endpoint
+          {:catalog "bitool"
+           :schema "public"
+           :table_name ""}
+          {:endpoint_name "fleet/vehicles"
+           :endpoint_url "fleet/vehicles"
+           :bronze_table_name ""
+           :table_name ""}))))
+
+(deftest available-source-columns-normalizes-profile-field-type-keys-to-strings
+  (is (= #{"data_items_id" "pagination_endCursor"}
+         (#'bitool.modeling.automation/available-source-columns
+          {:columns [{:source_columns ["data_items_id"]}]}
+          {:field_types {:data_items_id {:type "STRING"}
+                         :pagination_endCursor {:type "STRING"}}}))))
+
+(deftest modeling-persistence-binds-timestamptz-values-as-instants
+  (let [captured-params (atom nil)
+        published-at (java.time.Instant/parse "2026-03-20T23:43:27Z")]
+    (with-redefs-fn {#'bitool.modeling.automation/db-opts (fn [_] ::db-opts)
+                     #'jdbc/execute-one! (fn [_ sql-params]
+                                           (reset! captured-params sql-params)
+                                           {:proposal_id 1
+                                            :created_at_utc (nth sql-params (dec (count sql-params)))})}
+      (fn []
+        (#'bitool.modeling.automation/persist-schema-profile!
+         {:graph_id 99
+          :api_node_id 2
+          :source_layer "bronze"
+          :source_system "samara"
+          :endpoint_name "trips"
+          :profile_source "endpoint_config"
+          :sample_record_count 1
+          :field_count 1
+          :profile_json {:field_types {"trip_id" {:type "STRING"}}}}
+         "alice"
+         "tenant-a"
+         "ops")
+        (is (instance? java.sql.Timestamp (last @captured-params)))
+        (#'bitool.modeling.automation/persist-model-release!
+         {:proposal-id 22
+          :validation-id 33
+          :graph-artifact-id 44
+          :layer "silver"
+          :target-model "silver_trip"
+          :version 1
+          :status "published"
+          :active true
+          :created-by "alice"
+         :published-at (str published-at)})
+        (is (instance? java.sql.Timestamp (nth @captured-params 10)))))))
+
+(deftest ensure-postgresql-target-table-adds-missing-columns-for-evolved-models
+  (let [calls (atom [])]
+    (with-redefs-fn {#'bitool.compiler.core/compile-ddl (fn [_]
+                                                          "CREATE TABLE IF NOT EXISTS \"gold_fleet_vehicles\" (\"data_items_id\" TEXT)")
+                     #'bitool.db/get-opts (fn [_ _] ::db-opts)
+                     #'jdbc/execute! (fn [_ sql-params]
+                                       (swap! calls conj sql-params)
+                                       (if (str/includes? (first sql-params) "information_schema.columns")
+                                         [{:column_name "data_items_id"}]
+                                         []))}
+      (fn []
+        (#'bitool.modeling.automation/ensure-postgresql-target-table!
+         9
+         {:materialization {:target "gold_fleet_vehicles"}
+          :select [{:target_column "data_items_id" :type "STRING"}
+                   {:target_column "row_count" :type "BIGINT"}]})
+        (is (= ["CREATE TABLE IF NOT EXISTS \"gold_fleet_vehicles\" (\"data_items_id\" TEXT)"]
+               (first @calls)))
+        (is (= ["SELECT column_name
+                                                    FROM information_schema.columns
+                                                   WHERE table_schema = ?
+                                                     AND table_name = ?"
+                "public"
+                "gold_fleet_vehicles"]
+               (second @calls)))
+        (is (= [(str "ALTER TABLE \"gold_fleet_vehicles\" ADD COLUMN \"row_count\" BIGINT")]
+               (nth @calls 2)))))))
+
+(deftest safe-proposal-expression-allows-supported-transform-nesting
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "UPPER(TRIM(bronze.data_items_name))"))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "SUBSTRING(LOWER(bronze.data_items_name), 1, 3)"))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "CAST(TRIM(bronze.data_items_name) AS VARCHAR)"))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "CAST(TRIM(bronze.data_items_createdAtTime) AS DATE)"))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "silver.\"data_items_createdAtTime\""))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "SUM(silver.\"distanceMiles\")"))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "CAST(silver.\"data_items_createdAtTime\" AS DATE)"))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "CASE WHEN silver.\"status\" = 'active' THEN UPPER(silver.\"driverName\") ELSE COALESCE(silver.\"driverAlias\", silver.\"driverName\") END"))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "silver.\"firstName\" || ' ' || silver.\"lastName\""))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "CAST((bronze.payload_json::jsonb #>> '{pagination,hasNextPage}') AS BOOLEAN)"))
+  (is (#'bitool.modeling.automation/safe-proposal-expression? "CAST((item.value #>> '{createdAtTime}') AS TIMESTAMP)"))
+  (is
+   (not (#'bitool.modeling.automation/safe-proposal-expression?
+         "DROP TABLE public.gold_fleet_vehicles"))))
+
+(deftest build-silver-proposal-for-postgresql-api-uses-payload-json-expressions
+  (let [endpoint {:endpoint_name "fleet/vehicles"
+                  :primary_key_fields ["id"]
+                  :inferred_fields [{:path "$.pagination.endCursor"
+                                     :column_name "pagination_endCursor"
+                                     :type "STRING"
+                                     :nullable true
+                                     :enabled true}
+                                    {:path "$.pagination.hasNextPage"
+                                     :column_name "pagination_hasNextPage"
+                                     :type "BOOLEAN"
+                                     :nullable true
+                                     :enabled true}
+                                    {:path "$.data[].id"
+                                     :column_name "data_items_id"
+                                     :type "STRING"
+                                     :nullable false
+                                     :enabled true}
+                                    {:path "$.data[].createdAtTime"
+                                     :column_name "data_items_createdAtTime"
+                                     :type "TIMESTAMP"
+                                     :nullable true
+                                     :enabled true}]}
+        profile {:profile_source "endpoint_schema_snapshot"
+                 :sample_record_count 10
+                 :field_count 4
+                 :profile_json {:field_types {"pagination_endCursor" {:type "STRING"}
+                                              "pagination_hasNextPage" {:type "BOOLEAN"}
+                                              "data_items_id" {:type "STRING"}
+                                              "data_items_createdAtTime" {:type "TIMESTAMP"}}}}
+        proposal (#'bitool.modeling.automation/build-silver-proposal
+                  {:tenant-key "tenant-a"
+                   :workspace-key "ops"
+                   :graph-id 99
+                   :api-node-id 2
+                   :source-system "samara"
+                   :endpoint endpoint
+                   :target {:target_kind "postgresql" :connection_id 9}
+                   :profile profile
+                   :created-by "alice"})]
+    (is (= {:kind "jsonb_array"
+            :alias "item"
+            :json_column "payload_json"
+            :path ["data"]}
+           (get-in proposal [:proposal_json :source_expansion])))
+    (is (= "(bronze.payload_json::jsonb #>> '{pagination,endCursor}')"
+           (get-in proposal [:proposal_json :columns 0 :expression])))
+    (is (= "CAST((bronze.payload_json::jsonb #>> '{pagination,hasNextPage}') AS BOOLEAN)"
+           (get-in proposal [:proposal_json :columns 1 :expression])))
+    (is (= "(item.value #>> '{id}')"
+           (get-in proposal [:proposal_json :columns 2 :expression])))
+    (is (= "CAST((item.value #>> '{createdAtTime}') AS TIMESTAMP)"
+           (get-in proposal [:proposal_json :columns 3 :expression])))))
+
+(deftest build-gold-proposal-for-postgresql-quotes-mixed-case-silver-columns
+  (let [silver-proposal {:target_warehouse "postgresql"
+                         :target_model "silver_fleet_vehicles"
+                         :target_table "public.silver_fleet_vehicles"
+                         :materialization {:keys ["data_items_id"]}
+                         :columns [{:target_column "data_items_id"
+                                    :type "STRING"
+                                    :nullable false
+                                    :role "business_key"
+                                    :source_paths ["$.data[].id"]
+                                    :source_columns ["data_items_id"]
+                                    :expression "(item.value #>> '{id}')"}
+                                   {:target_column "data_items_createdAtTime"
+                                    :type "TIMESTAMP"
+                                    :nullable true
+                                    :role "timestamp"
+                                    :source_paths ["$.data[].createdAtTime"]
+                                    :source_columns ["data_items_createdAtTime"]
+                                    :expression "CAST((item.value #>> '{createdAtTime}') AS TIMESTAMP)"}
+                                   {:target_column "distanceMiles"
+                                    :type "DOUBLE"
+                                    :nullable true
+                                    :role "measure_candidate"
+                                    :source_paths ["$.data[].distanceMiles"]
+                                    :source_columns ["distanceMiles"]
+                                    :expression "CAST((item.value #>> '{distanceMiles}') AS DOUBLE PRECISION)"}]}
+        proposal (#'bitool.modeling.automation/build-gold-proposal
+                  {:tenant-key "tenant-a"
+                   :workspace-key "ops"
+                   :silver-proposal silver-proposal
+                   :proposal-row {:source_graph_id 99
+                                  :source_node_id 2}
+                   :target-warehouse "postgresql"
+                   :created-by "alice"})]
+    (is (= "postgresql" (get-in proposal [:proposal_json :target_warehouse])))
+    (is (= "silver.\"data_items_id\"" (get-in proposal [:proposal_json :columns 0 :expression])))
+    (is (= "CAST(silver.\"data_items_createdAtTime\" AS DATE)" (get-in proposal [:proposal_json :columns 1 :expression])))
+    (is (= "SUM(silver.\"distanceMiles\")" (get-in proposal [:proposal_json :columns 2 :expression])))))
+
+(deftest build-gold-proposal-for-databricks-quotes-silver-columns-with-backticks
+  (let [silver-proposal {:target_warehouse "databricks"
+                         :target_model "silver_fleet_vehicles"
+                         :target_table "main.silver.fleet_vehicles"
+                         :materialization {:keys ["data_items_id"]}
+                         :columns [{:target_column "data_items_id"
+                                    :type "STRING"
+                                    :nullable false
+                                    :role "business_key"
+                                    :source_columns ["data_items_id"]
+                                    :expression "bronze.data_items_id"}
+                                   {:target_column "data_items_createdAtTime"
+                                    :type "TIMESTAMP"
+                                    :nullable true
+                                    :role "timestamp"
+                                    :source_columns ["data_items_createdAtTime"]
+                                    :expression "bronze.data_items_createdAtTime"}
+                                   {:target_column "distanceMiles"
+                                    :type "DOUBLE"
+                                    :nullable true
+                                    :role "measure_candidate"
+                                    :source_columns ["distanceMiles"]
+                                    :expression "bronze.distanceMiles"}]}
+        proposal (#'bitool.modeling.automation/build-gold-proposal
+                  {:tenant-key "tenant-a"
+                   :workspace-key "ops"
+                   :silver-proposal silver-proposal
+                   :proposal-row {:source_graph_id 99
+                                  :source_node_id 2}
+                   :target-warehouse "databricks"
+                   :created-by "alice"})]
+    (is (= "databricks" (get-in proposal [:proposal_json :target_warehouse])))
+    (is (= "silver.`data_items_id`" (get-in proposal [:proposal_json :columns 0 :expression])))
+    (is (= "CAST(silver.`data_items_createdAtTime` AS DATE)" (get-in proposal [:proposal_json :columns 1 :expression])))
+    (is (= "SUM(silver.`distanceMiles`)" (get-in proposal [:proposal_json :columns 2 :expression])))))
+
+(deftest static-validation-allows-supported-transform-functions
+  (is (= []
+         (#'bitool.modeling.automation/static-validation-errors
+          {:layer "silver"
+           :source_layer "bronze"
+           :source_alias "bronze"
+           :target_table "bitool.public.silver_fleet_drivers"
+           :columns [{:target_column "driver_name"
+                      :type "STRING"
+                      :nullable true
+                      :source_columns ["data_items_name"]
+                      :expression "UPPER(TRIM(bronze.data_items_name))"}]
+           :mappings [{:target_column "driver_name"
+                       :source_columns ["data_items_name"]
+                       :expression "UPPER(TRIM(bronze.data_items_name))"}]
+           :materialization {:mode "table_replace"
+                             :keys []}}
+          "bitool.public.fleet_drivers"
+          {:field_types {"data_items_name" {:type "STRING"}}}))))
+
+(deftest static-validation-enforces-processing-policy-contract
+  (let [errors (#'bitool.modeling.automation/static-validation-errors
+                {:layer "silver"
+                 :source_layer "bronze"
+                 :source_alias "bronze"
+                 :target_table "bitool.public.silver_trip"
+                 :columns [{:target_column "trip_id"
+                            :type "STRING"
+                            :nullable false
+                            :source_columns ["trip_id"]
+                            :expression "bronze.trip_id"}
+                           {:target_column "event_time"
+                            :type "TIMESTAMP"
+                            :nullable true
+                            :source_columns ["event_time"]
+                            :expression "bronze.event_time"}]
+                 :mappings [{:target_column "trip_id"
+                             :source_columns ["trip_id"]
+                             :expression "bronze.trip_id"}
+                            {:target_column "event_time"
+                             :source_columns ["event_time"]
+                             :expression "bronze.event_time"}]
+                 :processing_policy {:business_keys ["trip_id"]
+                                     :ordering_strategy "event_time_then_sequence"
+                                     :event_time_column "event_time"
+                                     :reprocess_window {:value "abc"
+                                                        :unit "months"}}
+                 :materialization {:mode "merge"
+                                   :keys ["trip_id"]}}
+                "bitool.public.trip_raw"
+                {:field_types {"trip_id" {:type "STRING"}
+                               "event_time" {:type "TIMESTAMP"}}})]
+    (is (some #(= "sequence_column" (:field %)) errors))
+    (is (some #(= "reprocess_window" (:field %)) errors))))
 
 (deftest propose-silver-schema-persists-profile-and-proposal
   (let [captured-profile (atom nil)
@@ -270,7 +556,7 @@
           (is (= "orders.jsonl" (get-in result [:proposal :endpoint_name])))
           (is (= "orders.jsonl" (get-in @captured-proposal [0 :source_endpoint_name]))))))))
 
-(deftest propose-silver-schema-dedupes-identical-latest-proposal
+(deftest propose-silver-schema-rebuilds-when-latest-stored-shape-does-not-match-current-profile
   (let [graph {:a {:id 99 :v 7}}
         api-node {:btype "Ap"
                   :source_system "samara"
@@ -278,6 +564,20 @@
                                       :enabled true
                                       :primary_key_fields ["id"]
                                       :silver_table_name "silver_trip"}]}
+        profile-template (#'bitool.modeling.automation/build-schema-profile
+                          {:graph-id 99
+                           :api-node-id 2
+                           :source-system "samara"
+                           :endpoint-name "trips"
+                           :source "endpoint_schema_snapshot"
+                           :snapshot-row {:sample_record_count 3
+                                          :captured_at_utc "2026-03-14T01:00:00Z"}
+                           :endpoint {:primary_key_fields ["id"]}
+                           :fields [{:path "$.data[].id"
+                                     :column_name "trip_id"
+                                     :type "STRING"
+                                     :nullable false
+                                     :enabled true}]})
         persist-profile-called? (atom false)
         persist-proposal-called? (atom false)
         latest-proposal-row (atom nil)]
@@ -304,7 +604,7 @@
                                                                           :profile_source "endpoint_schema_snapshot"
                                                                           :sample_record_count 3
                                                                           :field_count 1
-                                                                          :profile_json "{\"key_candidates\":[\"trip_id\"],\"timestamp_candidates\":[],\"field_types\":{\"trip_id\":{\"type\":\"STRING\",\"nullable\":false}}}"})
+                                                                          :profile_json (json/generate-string (:profile_json profile-template))})
                      #'bitool.modeling.automation/persist-schema-profile! (fn [& _]
                                                                             (reset! persist-profile-called? true)
                                                                             {:profile_id 11})
@@ -342,10 +642,94 @@
               (let [result (modeling/propose-silver-schema! {:graph-id 99
                                                              :api-node-id 2
                                                              :created-by "alice"})]
-                (is (:deduped result))
+                (is (nil? (:deduped result)))
                 (is (= 22 (:proposal_id result)))
-                (is (false? @persist-profile-called?))
-                (is (false? @persist-proposal-called?))))))))))
+                (is @persist-profile-called?)
+                (is @persist-proposal-called?)))))))))
+
+(deftest propose-silver-schema-does-not-dedupe-when-profile-json-changes
+  (let [graph {:a {:id 99 :v 7}}
+        api-node {:btype "Ap"
+                  :source_system "samara"
+                  :endpoint_configs [{:endpoint_name "trips"
+                                      :enabled true
+                                      :primary_key_fields ["id"]
+                                      :silver_table_name "silver_trip"}]}
+        persist-profile-called? (atom false)
+        persist-proposal-called? (atom false)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'control-plane/ensure-control-plane-tables! (fn [] true)
+                     #'db/getGraph (fn [_] graph)
+                     #'g2/getData (fn [_ _] api-node)
+                     #'control-plane/graph-workspace-context (fn [_]
+                                                               {:tenant_key "tenant-a"
+                                                                :workspace_key "ops"})
+                     #'bitool.modeling.automation/find-downstream-target (fn [_ _] {:connection_id 9})
+                     #'bitool.modeling.automation/schema-source-for-endpoint (fn [_ _ _ endpoint _]
+                                                                               {:source "endpoint_schema_snapshot"
+                                                                                :snapshot-row {:sample_record_count 3
+                                                                                               :captured_at_utc "2026-03-14T01:00:00Z"}
+                                                                                :fields [{:path "$.data[].id"
+                                                                                          :column_name "trip_id"
+                                                                                          :type "STRING"
+                                                                                          :nullable false
+                                                                                          :enabled true}
+                                                                                         {:path "$.data[].vehicle.id"
+                                                                                          :column_name "vehicle_id"
+                                                                                          :type "STRING"
+                                                                                          :nullable true
+                                                                                          :enabled true}]
+                                                                                :endpoint endpoint})
+                     #'bitool.modeling.automation/schema-profile-by-id (fn [_]
+                                                                         {:profile_id 11
+                                                                          :profile_source "endpoint_schema_snapshot"
+                                                                          :sample_record_count 3
+                                                                          :field_count 1
+                                                                          :profile_json "{\"field_types\":{\"trip_id\":{\"type\":\"STRING\",\"nullable\":false}}}"})
+                     #'bitool.modeling.automation/persist-schema-profile! (fn [_ _ _ _]
+                                                                            (reset! persist-profile-called? true)
+                                                                            {:profile_id 12})
+                     #'bitool.modeling.automation/persist-model-proposal! (fn [proposal profile-id]
+                                                                            (reset! persist-proposal-called? [proposal profile-id])
+                                                                            {:proposal_id 23
+                                                                             :status "draft"
+                                                                             :target_model (:target_model proposal)
+                                                                             :confidence_score (:confidence_score proposal)})}
+      (fn []
+        (let [proposal-template (#'bitool.modeling.automation/build-silver-proposal
+                                 {:tenant-key "tenant-a"
+                                  :workspace-key "ops"
+                                  :graph-id 99
+                                  :api-node-id 2
+                                  :source-system "samara"
+                                  :endpoint {:endpoint_name "trips"
+                                             :silver_table_name "silver_trip"
+                                             :primary_key_fields ["id"]
+                                             :inferred_fields [{:path "$.data[].id"
+                                                                :column_name "trip_id"
+                                                                :type "STRING"
+                                                                :nullable false
+                                                                :enabled true}]}
+                                  :profile {:profile_source "endpoint_schema_snapshot"
+                                            :sample_record_count 3
+                                            :field_count 1
+                                            :profile_json {:field_types {"trip_id" {:type "STRING"}}}}
+                                  :created-by "alice"})
+              latest-proposal-row {:proposal_id 22
+                                   :profile_id 11
+                                   :status "draft"
+                                   :target_model (:target_model proposal-template)
+                                   :confidence_score (:confidence_score proposal-template)
+                                   :proposal_json (json/generate-string (:proposal_json proposal-template))}]
+          (with-redefs-fn {#'bitool.modeling.automation/latest-model-proposal (fn [& _] latest-proposal-row)}
+            (fn []
+              (let [result (modeling/propose-silver-schema! {:graph-id 99
+                                                             :api-node-id 2
+                                                             :created-by "alice"})]
+                (is (nil? (:deduped result)))
+                (is (= 23 (:proposal_id result)))
+                (is @persist-profile-called?)
+                (is (= 12 (second @persist-proposal-called?)))))))))))
 
 (deftest compile-silver-proposal-builds-sql-without-persisting-proposal-state
   (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
@@ -405,6 +789,64 @@
           (is (= 400 (:status (ex-data e))))
           (is (= "Silver proposal failed static validation" (ex-message e))))))))
 
+(deftest compile-silver-proposal-persists-compiled-status
+  (let [updated (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/resolve-proposal-context (fn [_]
+                                                                            {:proposal-row {:proposal_id 22
+                                                                                            :target_model "silver_trip"
+                                                                                            :layer "silver"}
+                                                                             :proposal-json {:target_table "sheetz_telematics.silver.trip"
+                                                                                             :columns [{:target_column "trip_id"
+                                                                                                        :expression "bronze.trip_id"
+                                                                                                        :type "STRING"
+                                                                                                        :source_columns ["trip_id"]}]
+                                                                                             :mappings [{:target_column "trip_id"
+                                                                                                         :expression "bronze.trip_id"
+                                                                                                         :source_columns ["trip_id"]}]
+                                                                                             :materialization {:mode "append"
+                                                                                                               :keys []}}
+                                                                             :profile-json {:field_types {"trip_id" {:type "STRING"}}}
+                                                                             :source-table "sheetz_telematics.bronze.trip_raw"})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [proposal-id attrs]
+                                                                           (reset! updated [proposal-id attrs])
+                                                                           nil)}
+      (fn []
+        (let [result (modeling/compile-silver-proposal! 22)]
+          (is (= 22 (:proposal_id result)))
+          (is (= 22 (first @updated)))
+          (is (= "compiled" (get-in @updated [1 :status])))
+          (is (string? (get-in @updated [1 :compiled_sql])))
+          (is (not (str/blank? (get-in @updated [1 :compiled_sql])))))))))
+
+(deftest compile-silver-proposal-does-not-downgrade-validated-status
+  (let [updated (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/resolve-proposal-context (fn [_]
+                                                                            {:proposal-row {:proposal_id 22
+                                                                                            :target_model "silver_trip"
+                                                                                            :layer "silver"
+                                                                                            :status "validated"}
+                                                                             :proposal-json {:target_table "sheetz_telematics.silver.trip"
+                                                                                             :columns [{:target_column "trip_id"
+                                                                                                        :expression "bronze.trip_id"
+                                                                                                        :type "STRING"
+                                                                                                        :source_columns ["trip_id"]}]
+                                                                                             :mappings [{:target_column "trip_id"
+                                                                                                         :expression "bronze.trip_id"
+                                                                                                         :source_columns ["trip_id"]}]
+                                                                                             :materialization {:mode "append"
+                                                                                                               :keys []}}
+                                                                             :profile-json {:field_types {"trip_id" {:type "STRING"}}}
+                                                                             :source-table "sheetz_telematics.bronze.trip_raw"})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [proposal-id attrs]
+                                                                           (reset! updated [proposal-id attrs])
+                                                                           nil)}
+      (fn []
+        (modeling/compile-silver-proposal! 22)
+        (is (= 22 (first @updated)))
+        (is (= "validated" (get-in @updated [1 :status])))))))
+
 (deftest compiler-emits-snowflake-sql-for-snowflake-target
   (let [result (compiler/compile-model {:target-warehouse :snowflake
                                         :proposal-json {:target_table "sheetz_telematics.silver.trip"
@@ -422,6 +864,76 @@
     (is (= "snowflake" (:target_warehouse result)))
     (is (re-find #"MERGE INTO \"sheetz_telematics\"\.\"silver\"\.\"trip\"" (:compiled_sql result)))
     (is (re-find #"FROM \"sheetz_telematics\"\.\"bronze\"\.\"trip_raw\" bronze" (:select_sql result)))))
+
+(deftest compiler-emits-databricks-sql-for-databricks-target
+  (let [result (compiler/compile-model {:target-warehouse :databricks
+                                        :proposal-json {:target_table "main.silver.trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.`trip_id`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}
+                                                                  {:target_column "distanceMiles"
+                                                                   :expression "bronze.`distanceMiles`"
+                                                                   :type "DOUBLE"
+                                                                   :source_columns ["distanceMiles"]}]
+                                                        :materialization {:mode "merge"
+                                                                          :keys ["trip_id"]}}
+                                        :source-table "main.bronze.trip_raw"})]
+    (is (= "databricks" (:target_warehouse result)))
+    (is (re-find #"FROM `main`\.`bronze`\.`trip_raw` bronze" (:select_sql result)))
+    (is (re-find #"MERGE INTO `main`\.`silver`\.`trip`" (:compiled_sql result)))
+    (is (re-find #"bronze\.`distanceMiles` AS `distanceMiles`" (:select_sql result)))
+    (is (not (re-find #"DELETE FROM" (:compiled_sql result))))
+    (is (not (re-find #"\"" (:compiled_sql result))))))
+
+(deftest compiler-emits-postgresql-sql-for-postgresql-target
+  (let [result (compiler/compile-model {:target-warehouse :postgresql
+                                        :proposal-json {:target_table "bitool.public.silver_trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.trip_id"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}
+                                                                  {:target_column "distance"
+                                                                   :expression "bronze.distance"
+                                                                   :type "DOUBLE"
+                                                                   :source_columns ["distance"]}]
+                                                        :materialization {:mode "merge"
+                                                                          :keys ["trip_id"]}}
+                                        :source-table "bitool.public.trip_raw"})]
+    (is (= "postgresql" (:target_warehouse result)))
+    (is (re-find #"FROM \"bitool\"\.\"public\"\.\"trip_raw\" bronze" (:select_sql result)))
+    (is (re-find #"WITH source_rows AS" (:compiled_sql result)))
+    (is (re-find #"DELETE FROM \"bitool\"\.\"public\"\.\"silver_trip\" t USING source_rows s" (:compiled_sql result)))
+    (is (re-find #"CREATE TABLE IF NOT EXISTS \"bitool\"\.\"public\"\.\"silver_trip\"" (:ddl_sql result)))
+    (is (not (re-find #"`" (:compiled_sql result))))))
+
+(deftest compiler-emits-ranked-postgresql-sql-for-processing-policy
+  (let [result (compiler/compile-model {:target-warehouse :postgresql
+                                        :proposal-json {:target_table "bitool.public.silver_trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.trip_id"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}
+                                                                  {:target_column "event_time"
+                                                                   :expression "bronze.event_time"
+                                                                   :type "TIMESTAMP"
+                                                                   :source_columns ["event_time"]}
+                                                                  {:target_column "distance"
+                                                                   :expression "bronze.distance"
+                                                                   :type "DOUBLE"
+                                                                   :source_columns ["distance"]}]
+                                                        :processing_policy {:business_keys ["trip_id"]
+                                                                            :event_time_column "event_time"
+                                                                            :ordering_strategy "latest_event_time_wins"
+                                                                            :reprocess_window {:value 24
+                                                                                               :unit "hours"}}
+                                                        :materialization {:mode "merge"
+                                                                          :keys ["trip_id"]}}
+                                        :source-table "bitool.public.trip_raw"})]
+    (is (= ["trip_id"] (get-in result [:sql_ir :processing_policy :business_keys])))
+    (is (re-find #"ROW_NUMBER\(\) OVER \(PARTITION BY s\.\"trip_id\" ORDER BY s\.\"event_time\" DESC NULLS LAST, md5\(row_to_json\(s\)::text\) DESC\)" (:select_sql result)))
+    (is (re-find #"WHERE s\.\"event_time\" >= NOW\(\) - INTERVAL '24 hours'" (:select_sql result)))
+    (is (re-find #"WITH source_rows AS \(WITH source_rows AS" (:compiled_sql result)))))
 
 (deftest validate-silver-proposal-persists-valid-validation
   (let [captured-update (atom nil)
@@ -683,6 +1195,36 @@
         (is (= "append" (get-in @captured-update [1 :proposal_json :materialization :mode])))
         (is (= ["trip_id"] (get-in @captured-update [1 :proposal_json :materialization :keys])))))))
 
+(deftest update-silver-proposal-deep-merges-processing-policy
+  (let [captured-update (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-by-id (fn [proposal-id]
+                                                                   {:proposal_id proposal-id
+                                                                    :layer "silver"
+                                                                    :status "draft"
+                                                                    :target_model "silver_trip"
+                                                                    :created_by "alice"
+                                                                    :created_at_utc "2026-03-14T00:00:00Z"
+                                                                    :source_graph_id 99
+                                                                    :source_node_id 2
+                                                                    :source_endpoint_name "trips"
+                                                                    :confidence_score 0.8
+                                                                    :proposal_json "{\"target_model\":\"silver_trip\",\"materialization\":{\"mode\":\"merge\",\"keys\":[\"trip_id\"]},\"processing_policy\":{\"business_keys\":[\"trip_id\"],\"event_time_column\":\"event_time\",\"ordering_strategy\":\"latest_event_time_wins\"}}"})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [proposal-id attrs]
+                                                                           (reset! captured-update [proposal-id attrs])
+                                                                           nil)
+                     #'bitool.modeling.automation/latest-validation-for-proposal (fn [_] nil)
+                     #'bitool.modeling.automation/latest-active-release (fn [& _] nil)
+                     #'bitool.modeling.automation/latest-graph-artifact-for-proposal (fn [& _] nil)}
+      (fn []
+        (modeling/update-silver-proposal! 22 {:proposal {:processing_policy {:reprocess_window {:value 24
+                                                                                                :unit "hours"}}}
+                                              :created_by "alice"})
+        (is (= ["trip_id"] (get-in @captured-update [1 :proposal_json :processing_policy :business_keys])))
+        (is (= "event_time" (get-in @captured-update [1 :proposal_json :processing_policy :event_time_column])))
+        (is (= {:value 24 :unit "hours"}
+               (get-in @captured-update [1 :proposal_json :processing_policy :reprocess_window])))))))
+
 (deftest update-silver-proposal-clones-validated-proposal-into-new-draft
   (let [captured-persist (atom nil)]
     (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
@@ -834,6 +1376,45 @@
                             #"not ready for review"
                             (modeling/review-silver-proposal! 22 {:review_state "approved"}))))))
 
+(deftest review-gold-proposal-persists-approved-state
+  (let [updated (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-by-id (fn [_]
+                                                                   {:proposal_id 29
+                                                                    :layer "gold"
+                                                                    :status "validated"
+                                                                    :proposal_json "{\"target_model\":\"gold_trip\"}"})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [proposal-id attrs]
+                                                                           (reset! updated [proposal-id attrs])
+                                                                           nil)}
+      (fn []
+        (let [result (modeling/review-gold-proposal! 29 {:review_state "approved"
+                                                         :review_notes "ship it"
+                                                         :reviewed_by "alice"})]
+          (is (= "approved" (:status result)))
+          (is (= 29 (first @updated)))
+          (is (= "approved" (get-in @updated [1 :status])))
+          (is (= "alice" (get-in @updated [1 :proposal_json :review :reviewed_by]))))))))
+
+(deftest review-gold-proposal-allows-changes-requested
+  (let [updated (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-by-id (fn [_]
+                                                                   {:proposal_id 29
+                                                                    :layer "gold"
+                                                                    :status "validated"
+                                                                    :proposal_json "{\"target_model\":\"gold_trip\"}"})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [proposal-id attrs]
+                                                                           (reset! updated [proposal-id attrs])
+                                                                           nil)}
+      (fn []
+        (let [result (modeling/review-gold-proposal! 29 {:review_state "changes_requested"
+                                                         :review_notes "fix grain"
+                                                         :reviewed_by "alice"})]
+          (is (= "changes_requested" (:status result)))
+          (is (= "changes_requested" (get-in @updated [1 :status])))
+          (is (= "fix grain" (get-in @updated [1 :proposal_json :review :notes]))))))))
+
 (deftest validate-silver-proposal-warehouse-submits-job
   (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
                    #'bitool.modeling.automation/proposal-by-id (fn [_]
@@ -871,6 +1452,65 @@
         (is (= "submitted" (:status result)))
         (is (= 501 (:validation_id result)))
         (is (= 91 (:graph_artifact_id result)))))))
+
+(deftest validate-silver-proposal-warehouse-uses-postgresql-sql-path
+  (let [captured-ddl (atom nil)
+        captured-explain (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-by-id (fn [_]
+                                                                   {:proposal_id 22
+                                                                    :layer "silver"
+                                                                    :target_model "silver_trip"})
+                     #'bitool.modeling.automation/synthesize-silver-graph! (fn [_ _]
+                                                                             {:graph_artifact_id 91
+                                                                              :graph_id 801
+                                                                              :graph_version 3})
+                     #'bitool.modeling.automation/compile-silver-graph-artifact! (fn [_]
+                                                                                    {:compiled_sql "WITH source_rows AS (SELECT bronze.trip_id AS \"trip_id\" FROM \"bitool\".\"public\".\"trip_raw\" bronze) INSERT INTO \"bitool\".\"public\".\"silver_trip\" (\"trip_id\") SELECT s.\"trip_id\" FROM source_rows s"
+                                                                                     :sql_ir {:sources [{:alias "bronze"
+                                                                                                         :relation "bitool.public.trip_raw"}]
+                                                                                              :select [{:target_column "trip_id"
+                                                                                                        :expression "bronze.trip_id"
+                                                                                                        :type "STRING"}]
+                                                                                              :materialization {:mode "append"
+                                                                                                                :target "bitool.public.silver_trip"
+                                                                                                                :keys []}}})
+                     #'db/getGraph (fn [_]
+                                     {:n {5 {:na {:btype "Tg"
+                                                  :connection_id 9
+                                                  :catalog "bitool"
+                                                  :schema "public"
+                                                  :table_name "silver_trip"
+                                                  :target_kind "postgresql"}}}})
+                     #'bitool.modeling.automation/graph-artifact-by-id (fn [_]
+                                                                          {:graph_artifact_id 91
+                                                                           :graph_id 801
+                                                                           :graph_version 3
+                                                                           :node_map_json "{\"target\":5}"})
+                     #'db/get-opts (fn [& _] ::pg-conn)
+                     #'next.jdbc/execute! (fn [conn [sql]]
+                                            (cond
+                                              (re-find #"CREATE TABLE IF NOT EXISTS" sql)
+                                              (do (reset! captured-ddl [conn sql]) [])
+
+                                              (re-find #"information_schema\.columns" sql)
+                                              [{:column_name "trip_id"}]
+
+                                              (re-find #"^EXPLAIN " sql)
+                                              (do (reset! captured-explain [conn sql]) [{:plan "ok"}])
+
+                                              :else (throw (ex-info "unexpected sql" {:sql sql}))))
+                     #'bitool.modeling.automation/persist-model-validation! (fn [payload]
+                                                                              (is (= "valid" (:status payload)))
+                                                                              {:validation_id 501})}
+      (fn []
+        (let [result (modeling/validate-silver-proposal-warehouse! 22 {:created_by "alice"})]
+          (is (= "valid" (:status result)))
+          (is (= 501 (:validation_id result)))
+          (is (= ::pg-conn (first @captured-ddl)))
+          (is (re-find #"CREATE TABLE IF NOT EXISTS" (second @captured-ddl)))
+          (is (= ::pg-conn (first @captured-explain)))
+          (is (re-find #"^EXPLAIN WITH source_rows AS" (second @captured-explain))))))))
 
 (deftest execute-silver-release-triggers-databricks-job-and-persists-run
   (let [captured-update (atom nil)]
@@ -916,6 +1556,46 @@
           (is (= "submitted" (get-in @captured-update [1 :status])))
           (is (= "123" (get-in @captured-update [1 :external-run-id])))
           (is (= 123 (get-in @captured-update [1 :response-json :run_id]))))))))
+
+(deftest execute-silver-release-runs-postgresql-sql-and-persists-run
+  (let [captured-complete (atom nil)
+        captured-exec (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/execute-silver-release-tx! (fn [_ release-row created-by]
+                                                                                (is (= 700 (:release_id release-row)))
+                                                                                (is (= "alice" created-by))
+                                                                                {:model_run_id 501
+                                                                                 :release_id 700
+                                                                                 :graph_artifact_id 91
+                                                                                 :graph_id 801
+                                                                                 :graph_version 3
+                                                                                 :conn_id 9
+                                                                                 :warehouse "postgresql"
+                                                                                 :sql_ir {:materialization {:target "bitool.public.silver_trip"}}
+                                                                                 :compiled_sql "INSERT INTO \"bitool\".\"public\".\"silver_trip\" (\"trip_id\") SELECT bronze.trip_id AS \"trip_id\" FROM \"bitool\".\"public\".\"trip_raw\" bronze"
+                                                                                 :params {}
+                                                                                 :status "pending"})
+                     #'bitool.modeling.automation/release-by-id (fn [_]
+                                                                  {:release_id 700
+                                                                   :layer "silver"
+                                                                   :graph_artifact_id 91
+                                                                   :target_model "silver_trip"})
+                     #'bitool.modeling.automation/execute-postgresql-materialization! (fn [conn-id sql-ir compiled-sql]
+                                                                                        (reset! captured-exec [conn-id sql-ir compiled-sql])
+                                                                                        [{:update-count 8}])
+                     #'bitool.modeling.automation/complete-model-run! (fn [model-run-id payload]
+                                                                        (reset! captured-complete [model-run-id payload])
+                                                                        nil)}
+      (fn []
+        (let [result (modeling/execute-silver-release! 700 {:created_by "alice"})]
+          (is (= 501 (:model_run_id result)))
+          (is (= "succeeded" (:status result)))
+          (is (= "postgresql_sql" (:backend result)))
+          (is (= 9 (first @captured-exec)))
+          (is (= {:materialization {:target "bitool.public.silver_trip"}} (second @captured-exec)))
+          (is (re-find #"INSERT INTO \"bitool\"\.\"public\"\.\"silver_trip\"" (nth @captured-exec 2)))
+          (is (= 501 (first @captured-complete)))
+          (is (= "succeeded" (get-in @captured-complete [1 :status]))))))))
 
 (deftest execute-silver-release-rejects-duplicate-inflight-run
   (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
@@ -970,6 +1650,87 @@
             (is (= "failed" (get-in @completion [1 :status])))
             (is (some? (get-in @completion [1 :completed-at])))))))))
 
+(deftest execute-queued-silver-release-times-out-stuck-databricks-polling
+  (let [completion (atom nil)
+        poll-count (atom 0)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/parse-int-env (fn [k default]
+                                                                  (if (= k :bitool-databricks-max-polls) 2 default))
+                     #'bitool.modeling.automation/release-by-id (fn [_]
+                                                                  {:release_id 700
+                                                                   :layer "silver"
+                                                                   :graph_artifact_id 91
+                                                                   :target_model "silver_trip"})
+                     #'bitool.modeling.automation/execute-silver-release-tx! (fn [_ _ created-by]
+                                                                                (is (= "alice" created-by))
+                                                                                {:model_run_id 501
+                                                                                 :release_id 700
+                                                                                 :graph_artifact_id 91
+                                                                                 :graph_id 801
+                                                                                 :graph_version 3
+                                                                                 :conn_id 9
+                                                                                 :job_id "111"
+                                                                                 :params {:model_release_id "700"}
+                                                                                 :status "pending"})
+                     #'bitool.modeling.automation/link-model-run-to-request! (fn [& _] nil)
+                     #'bitool.databricks.jobs/trigger-job! (fn [_ job-id params]
+                                                             (is (= "111" job-id))
+                                                             (is (= "700" (:model_release_id params)))
+                                                             {:job_id job-id :run_id 123})
+                     #'bitool.modeling.automation/poll-silver-model-run! (fn [model-run-id]
+                                                                            (is (= 501 model-run-id))
+                                                                            (swap! poll-count inc)
+                                                                            {:model_run_id model-run-id
+                                                                             :status "running"})
+                     #'bitool.modeling.automation/complete-model-run! (fn [model-run-id payload]
+                                                                        (reset! completion [model-run-id payload])
+                                                                        nil)}
+      (fn []
+        (try
+          (modeling/execute-queued-silver-release! 700 {:created_by "alice"
+                                                        :execution_request_id "49cbdf13-2cc5-41af-8072-2d3fa40b1cfc"})
+          (is false "Expected Databricks polling timeout")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= "transient_platform_error" (:failure_class (ex-data e))))
+            (is (= 2 (:poll_count (ex-data e))))
+            (is (= 501 (first @completion)))
+            (is (= "failed" (get-in @completion [1 :status])))))))))
+
+(deftest execute-queued-silver-release-links-execution-request-before-running
+  (let [linked (atom nil)
+        executed (atom nil)]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/release-by-id (fn [_]
+                                                                  {:release_id 700
+                                                                   :layer "silver"
+                                                                   :graph_artifact_id 91
+                                                                   :target_model "silver_trip"})
+                     #'bitool.modeling.automation/execute-silver-release-tx! (fn [_ release-row created-by]
+                                                                                (is (= 700 (:release_id release-row)))
+                                                                                (is (= "alice" created-by))
+                                                                                {:model_run_id 501
+                                                                                 :release_id 700
+                                                                                 :graph_artifact_id 91
+                                                                                 :graph_id 801
+                                                                                 :graph_version 3
+                                                                                 :warehouse "postgresql"
+                                                                                 :compiled_sql "select 1"
+                                                                                 :params {}
+                                                                                 :status "pending"})
+                     #'bitool.modeling.automation/link-model-run-to-request! (fn [tx model-run-id request-id]
+                                                                                (reset! linked [tx model-run-id request-id])
+                                                                                nil)
+                     #'bitool.modeling.automation/execute-pending-model-run! (fn [run _poll-fn]
+                                                                               (reset! executed run)
+                                                                               (assoc run :status "succeeded"))}
+      (fn []
+        (let [result (modeling/execute-queued-silver-release! 700 {:created_by "alice"
+                                                                   :execution_request_id "49cbdf13-2cc5-41af-8072-2d3fa40b1cfc"})]
+          (is (= 501 (:model_run_id result)))
+          (is (= "49cbdf13-2cc5-41af-8072-2d3fa40b1cfc" (nth @linked 2)))
+          (is (= 501 (second @linked)))
+          (is (= 501 (:model_run_id @executed))))))))
+
 (deftest poll-silver-model-run-updates-terminal-status
   (let [updates (atom [])]
     (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
@@ -1017,6 +1778,10 @@
                              :proposal_json "{\"target_model\":\"silver_trip\",\"target_table\":\"sheetz_telematics.silver.trip\",\"source_system\":\"samara\",\"columns\":[{\"target_column\":\"trip_id\",\"type\":\"STRING\",\"role\":\"business_key\"},{\"target_column\":\"event_time\",\"type\":\"TIMESTAMP\",\"role\":\"timestamp\"},{\"target_column\":\"distance\",\"type\":\"DOUBLE\",\"role\":\"measure\"}],\"materialization\":{\"mode\":\"merge\",\"keys\":[\"trip_id\"]}}"}]
     (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
                      #'control-plane/ensure-control-plane-tables! (fn [] true)
+                     #'db/getGraph (fn [_] {:a {:id 99 :v 1}})
+                     #'g2/getData (fn [_ _] {:btype "Ap" :source_system "samara"})
+                     #'bitool.modeling.automation/find-downstream-target (fn [_ _] {:target_kind "postgresql"
+                                                                                    :connection_id 9})
                      #'bitool.modeling.automation/proposal-by-id (fn [_] silver-proposal-row)
                      #'bitool.modeling.automation/latest-model-proposal (fn [& _] nil)
                      #'bitool.modeling.automation/persist-schema-profile! (fn [profile created-by tenant-key workspace-key]
@@ -1036,7 +1801,7 @@
           (is (= "gold" (:layer result)))
           (is (= "gold_trip" (get-in result [:proposal :target_model])))
           (is (= ["trip_id" "event_date"] (get-in result [:proposal :group_by])))
-          (is (= "SUM(silver.distance)" (get-in result [:proposal :columns 2 :expression])))
+          (is (= "SUM(silver.\"distance\")" (get-in result [:proposal :columns 2 :expression])))
           (is (= 41 (second @captured-proposal))))))))
 
 (deftest compiler-emits-grouped-gold-sql-for-snowflake-target

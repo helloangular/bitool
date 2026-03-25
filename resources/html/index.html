@@ -4,24 +4,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Custom Web Component with HTMLElements</title>
+  <title>Bitool</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./app.css" />
   <link rel="stylesheet" href="./source/styles/smart.default.css" />
 </head>
 
-<body style="display: flex;margin:0;height:100vh;">
+<body style="display: flex; flex-direction: column; margin:0; height:100vh; overflow: hidden;">
   <smart-menu id="menu" style="display:none;">
     <smart-menu-item>Windows-1251</smart-menu-item>
   </smart-menu>
 
   <div class="panel-btns">
-    <!-- ── Graph ── -->
+    <!-- ── Model ── -->
     <div class="btn-group">
-      <span class="group-label">Graph</span>
+      <span class="group-label">Model</span>
       <div class="group-row">
         <div class="tooltip">
           <button onclick="document.getElementById('dialog').opened=true" class="btn-text">+ New</button>
-          <span class="tooltiptext">New Graph</span>
+          <span class="tooltiptext">New Model</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="openModelList()" class="btn-text">Open</button>
+          <span class="tooltiptext">Open Existing Model</span>
         </div>
         <div class="tooltip">
           <button onclick="undo()">&#8634;</button>
@@ -97,6 +102,11 @@
     <div class="btn-group">
       <span class="group-label">API</span>
       <div class="group-row">
+        <div class="tooltip">
+          <button data-label="api-connection" data-conn_id="123" data-schema="schema"
+            onclick="addRectangle('api-connection')">&Alpha;</button>
+          <span class="tooltiptext">API Connection</span>
+        </div>
         <div class="tooltip">
           <button data-label="endpoint" data-conn_id="123" data-schema="schema"
             onclick="addRectangle('endpoint')">&#9881;</button>
@@ -177,6 +187,10 @@
       <span class="group-label">Tools</span>
       <div class="group-row">
         <div class="tooltip">
+          <button onclick="document.querySelector('pipeline-chat').open()" class="btn-text">Pipeline</button>
+          <span class="tooltiptext">Intent-Based Pipeline Builder</span>
+        </div>
+        <div class="tooltip">
           <button onclick="toggleModeling()" class="btn-text">Modeling</button>
           <span class="tooltiptext">Medallion Modeling Console</span>
         </div>
@@ -211,19 +225,44 @@
     </div>
   </div>
 
-  <smart-window id="dialog" label="Graph Form" modal>
+  <smart-window id="dialog" label="New Model" modal>
     <form action="/newgraph" method="post" style="display: flex; flex-direction: column; gap: 15px;" class="graph-form">
-      <label for="graphname">Graph Name:</label>
+      <label for="graphname">Model Name:</label>
       <input type="text" id="graphname" name="graphname" required>
       <div style="text-align: right;">
-        <button type="submit">Submit</button>
+        <button type="submit">Create</button>
         <button type="button" id="closeDialog">Cancel</button>
       </div>
     </form>
   </smart-window>
 
+  <smart-window id="modelListDialog" label="Open Model" modal style="width:480px;height:520px;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);">
+    <div style="display:flex;flex-direction:column;height:100%;padding:8px;">
+      <input type="text" id="modelSearchInput" placeholder="Search models..."
+        style="width:100%;padding:8px 10px;margin-bottom:8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;box-sizing:border-box;">
+      <div id="modelListContainer" style="flex:1;overflow-y:auto;border:1px solid #e5e7eb;border-radius:4px;">
+        <div id="modelListLoading" style="padding:20px;text-align:center;color:#6b7280;">Loading...</div>
+        <table id="modelListTable" style="width:100%;border-collapse:collapse;display:none;">
+          <thead>
+            <tr style="background:#f9fafb;position:sticky;top:0;">
+              <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:#6b7280;border-bottom:1px solid #e5e7eb;">ID</th>
+              <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:#6b7280;border-bottom:1px solid #e5e7eb;">Name</th>
+              <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:#6b7280;border-bottom:1px solid #e5e7eb;">Version</th>
+            </tr>
+          </thead>
+          <tbody id="modelListBody"></tbody>
+        </table>
+        <div id="modelListEmpty" style="padding:20px;text-align:center;color:#6b7280;display:none;">No models found</div>
+      </div>
+      <div style="text-align:right;margin-top:8px;">
+        <button type="button" onclick="document.getElementById('modelListDialog').opened=false"
+          style="padding:6px 16px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;">Cancel</button>
+      </div>
+    </div>
+  </smart-window>
+
   <tree-component
-    style="display: flex; justify-content: center; align-items: center; width: 100%; position: fixed; top: 48px; bottom: 0; left: 0;"></tree-component>
+    style="display: flex; width: 100%; flex: 1; min-height: 0;"></tree-component>
 
   <column-list-component style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </column-list-component>
@@ -289,13 +328,13 @@
   <file-source-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </file-source-component>
 
-  <api-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <api-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 70%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
   </api-component>
-  
-  <api-connection-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+
+  <api-connection-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 70%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
   </api-connection-component>
 
-  <endpoint-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <endpoint-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 70%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
   </endpoint-component>
 
   <modeling-console style="height: 100vh; width: 80%; position: fixed; top: 0; right: 0; background-color: white;">
@@ -412,8 +451,11 @@
   <script type="module" src="webhookComponent.js"></script>
   <script type="module" src="modelingConsole.js"></script>
   <script type="module" src="connectorConfigModal.js"></script>
+  <script type="module" src="pipelineChatComponent.js"></script>
 
-  <script src="main.js"></script>
+  <pipeline-chat></pipeline-chat>
+
+  <script src="main.js?v=2"></script>
   <script type="module" src="openApiImport.js"></script>
 </body>
 

@@ -138,6 +138,15 @@
   []
   (mapv :graph/id (jdbc/execute! ds ["select distinct id from graph"])))
 
+(defn list-models
+  "Return the latest saved version for each graph id."
+  []
+  (jdbc/execute! ds
+                 ["select distinct on (id) id, version, coalesce(name, '') as name
+                   from graph
+                   order by id desc, version desc"]
+                 {:builder-fn rs/as-unqualified-lower-maps}))
+
 (defn version+[g] (update-in g [:a :v] inc))
 
 (defn insert-graph!
@@ -157,6 +166,14 @@
 (defn insertGraph
   [g]
   (insert-graph! ds g))
+
+(defn list-all-connections
+  "Return id, connection_name, dbtype for all connections."
+  []
+  (jdbc/execute! ds ["SELECT id, connection_name, dbtype FROM connection ORDER BY id"]))
+
+(defn get-connection [conn-id]
+  (jdbc/execute! ds ["SELECT * FROM connection WHERE id = ?" conn-id]))
    
 ;; (defn updateGraph[g]
 ;;    (sql/update! ds :graph {:version (version g) :name (name g) :definition (definition g)} {:id (id g)})) 
@@ -272,6 +289,12 @@
 
 (defn get-opts[conn-id db-name]
       	(jdbc/with-options (get-ds conn-id db-name) {:builder-fn rs/as-unqualified-lower-maps}))
+
+(defn test-connection [conn-id]
+  (let [db-spec (create-dbspec-from-id conn-id)
+        test-ds (jdbc/get-datasource db-spec)]
+    (jdbc/execute! test-ds ["SELECT 1"])
+    true))
 
 (defn get-columns-old [ dbtype db_opts table-name ] 
           (case dbtype

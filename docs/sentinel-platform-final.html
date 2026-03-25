@@ -1,0 +1,1662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentinel — CI/CD Policy Intelligence Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-primary: #f5f6f8;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f9fafb;
+  --bg-elevated: #f0f1f4;
+  --border: #e2e4ea;
+  --border-subtle: #eceef2;
+  --text-primary: #1a1d26;
+  --text-secondary: #5c6070;
+  --text-muted: #8b91a3;
+  --accent-blue: #3b7ddd;
+  --accent-blue-dim: rgba(59, 125, 221, 0.1);
+  --accent-green: #0fa968;
+  --accent-green-dim: rgba(15, 169, 104, 0.1);
+  --accent-red: #e5484d;
+  --accent-red-dim: rgba(229, 72, 77, 0.1);
+  --accent-amber: #d97706;
+  --accent-amber-dim: rgba(217, 119, 6, 0.1);
+  --accent-purple: #7c5cfc;
+  --accent-purple-dim: rgba(124, 92, 252, 0.1);
+  --accent-cyan: #0ea5c7;
+  --accent-cyan-dim: rgba(14, 165, 199, 0.1);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px var(--border-subtle);
+  --shadow-elevated: 0 8px 32px rgba(0,0,0,0.08);
+  --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --font-sans: 'DM Sans', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Playfair Display', serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-primary); overflow-x: hidden; min-height: 100vh; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Layout */
+.app { display: grid; grid-template-columns: 60px 232px 1fr; min-height: 100vh; }
+
+/* Icon Rail */
+.rail { background: var(--bg-secondary); border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 2px; z-index: 10; }
+.rail-logo { width: 34px; height: 34px; background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan)); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; font-family: var(--font-display); font-size: 17px; font-weight: 800; color: white; }
+.rb { width: 38px; height: 38px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: var(--transition); position: relative; }
+.rb:hover { background: var(--bg-elevated); color: var(--text-secondary); }
+.rb.on { color: var(--accent-blue); background: var(--accent-blue-dim); }
+.rb.on::before { content:''; position: absolute; left: -11px; top: 50%; transform: translateY(-50%); width: 3px; height: 18px; background: var(--accent-blue); border-radius: 0 2px 2px 0; }
+.rb svg { width: 19px; height: 19px; stroke-width: 1.8; }
+.spacer { flex: 1; }
+.notif-dot { position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-red); }
+
+/* Sidebar */
+.side { background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; display: flex; flex-direction: column; }
+.side-hdr { padding: 0 14px 14px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 6px; }
+.side-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: 10px; }
+.side-search { display: flex; align-items: center; gap: 7px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; }
+.side-search svg { width: 13px; height: 13px; color: var(--text-muted); flex-shrink: 0; }
+.side-search input { background: none; border: none; color: var(--text-primary); font-family: var(--font-sans); font-size: 12.5px; width: 100%; outline: none; }
+.side-search input::placeholder { color: var(--text-muted); }
+.ss { padding: 6px 8px; }
+.ss-label { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); padding: 7px 8px 5px; }
+.si { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition); font-size: 12.5px; color: var(--text-secondary); }
+.si:hover { background: var(--bg-card); color: var(--text-primary); }
+.si.on { background: var(--accent-blue-dim); color: var(--accent-blue); }
+.si-icon { width: 26px; height: 26px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.si-icon svg { width: 14px; height: 14px; }
+.si-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge { font-size: 9.5px; font-weight: 600; padding: 2px 6px; border-radius: 10px; font-family: var(--font-mono); }
+.bg-r { background: var(--accent-red-dim); color: var(--accent-red); }
+.bg-g { background: var(--accent-green-dim); color: var(--accent-green); }
+.bg-a { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.bg-b { background: var(--accent-blue-dim); color: var(--accent-blue); }
+
+/* Main */
+.main { overflow-y: auto; display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; border-bottom: 1px solid var(--border-subtle); background: rgba(255,255,255,0.85); backdrop-filter: blur(16px); position: sticky; top: 0; z-index: 5; }
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.crumb { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); }
+.crumb b { color: var(--text-primary); font-weight: 500; }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.btn { height: 32px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); font-family: var(--font-sans); font-size: 11.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: var(--transition); white-space: nowrap; }
+.btn:hover { background: var(--bg-elevated); color: var(--text-primary); border-color: var(--text-muted); }
+.btn svg { width: 13px; height: 13px; }
+.btn-p { background: var(--accent-blue); border-color: var(--accent-blue); color: white; }
+.btn-p:hover { background: #2d6bc4; border-color: #2d6bc4; }
+.btn-g { background: var(--accent-green); border-color: var(--accent-green); color: white; font-weight: 600; }
+.btn-g:hover { background: #0d9a5e; }
+.btn-r { background: var(--accent-red-dim); border-color: rgba(248,113,113,0.3); color: var(--accent-red); }
+.btn-r:hover { background: rgba(248,113,113,0.2); }
+.btn-a { background: var(--accent-amber-dim); border-color: rgba(251,191,36,0.3); color: var(--accent-amber); }
+.btn-a:hover { background: rgba(251,191,36,0.2); }
+.btn-sm { height: 26px; padding: 0 8px; font-size: 10.5px; }
+.btn-xs { height: 22px; padding: 0 7px; font-size: 9.5px; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue)); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: white; cursor: pointer; }
+
+/* Page */
+.page { padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+.page-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+.page-sub { font-size: 13px; color: var(--text-muted); }
+
+/* Cards */
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.card-h { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border-subtle); }
+.card-tg { display: flex; align-items: center; gap: 9px; }
+.card-icon { width: 28px; height: 28px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; }
+.card-icon svg { width: 15px; height: 15px; }
+.card-t { font-size: 13.5px; font-weight: 600; }
+.card-b { padding: 14px 18px; }
+.card-acts { display: flex; align-items: center; gap: 5px; }
+
+/* Stat Row */
+.stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.stat { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; cursor: pointer; transition: var(--transition); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.stat:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.stat-label { font-size: 10px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.stat-val { font-family: var(--font-mono); font-size: 24px; font-weight: 600; line-height: 1; }
+.stat-chg { font-size: 10.5px; font-family: var(--font-mono); margin-top: 6px; }
+.chg-up { color: var(--accent-green); }
+.chg-dn { color: var(--accent-red); }
+
+/* Grid layouts */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.fw { grid-column: 1 / -1; }
+
+/* ─── ACTION PANELS ─── */
+
+/* Pipeline Action Row */
+.pl-row { display: grid; grid-template-columns: 30px 1.3fr 0.9fr 0.7fr 70px auto; align-items: center; gap: 10px; padding: 10px; border-radius: var(--radius-sm); transition: var(--transition); }
+.pl-row:hover { background: var(--bg-elevated); }
+.pl-st { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.pl-st svg { width: 14px; height: 14px; }
+.st-p { background: var(--accent-green-dim); color: var(--accent-green); }
+.st-f { background: var(--accent-red-dim); color: var(--accent-red); }
+.st-w { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.st-r { background: var(--accent-blue-dim); color: var(--accent-blue); }
+.pl-info { display: flex; flex-direction: column; gap: 1px; }
+.pl-name { font-size: 12.5px; font-weight: 500; }
+.pl-branch { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-muted); }
+.pl-policy { font-size: 11.5px; color: var(--text-secondary); display: flex; align-items: center; gap: 5px; }
+.pl-dot { width: 5px; height: 5px; border-radius: 50%; }
+.pl-risk { text-align: center; font-size: 10px; font-weight: 600; font-family: var(--font-mono); padding: 2px 7px; border-radius: 8px; }
+.pl-time { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-muted); }
+.pl-actions { display: flex; gap: 4px; }
+
+/* Approval Action Card */
+.approval-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; background: var(--bg-primary); margin-bottom: 10px; transition: var(--transition); }
+.approval-card:hover { border-color: var(--text-muted); }
+.approval-card.resolved { opacity: 0.5; }
+.apr-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+.apr-info { flex: 1; }
+.apr-title { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.apr-desc { font-size: 11.5px; color: var(--text-secondary); line-height: 1.5; }
+.apr-meta { display: flex; gap: 12px; margin-top: 8px; font-size: 10.5px; color: var(--text-muted); }
+.apr-meta-item { display: flex; align-items: center; gap: 4px; }
+.apr-actions { display: flex; gap: 6px; margin-top: 12px; }
+.apr-override { margin-top: 10px; }
+.override-box { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; margin-top: 8px; display: none; }
+.override-box.show { display: block; }
+.override-box textarea { width: 100%; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; color: var(--text-primary); font-family: var(--font-sans); font-size: 12px; outline: none; resize: vertical; min-height: 60px; margin-bottom: 8px; }
+.override-box textarea:focus { border-color: var(--accent-blue); }
+.override-box label { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.override-box select { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; color: var(--text-primary); font-family: var(--font-sans); font-size: 11.5px; outline: none; margin-bottom: 8px; width: 100%; }
+
+/* AI Action Cards */
+.ai-action { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; background: var(--bg-primary); margin-bottom: 10px; position: relative; overflow: hidden; transition: var(--transition); }
+.ai-action:hover { border-color: var(--text-muted); }
+.ai-action::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; }
+.ai-action.ai-crit::before { background: var(--accent-red); }
+.ai-action.ai-warn::before { background: var(--accent-amber); }
+.ai-action.ai-ok::before { background: var(--accent-green); }
+.ai-action.ai-info::before { background: var(--accent-blue); }
+.ai-top { display: flex; align-items: flex-start; gap: 12px; }
+.ai-icon { width: 34px; height: 34px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.ai-icon svg { width: 17px; height: 17px; }
+.ai-content { flex: 1; }
+.ai-label { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+.ai-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.ai-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.55; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.ai-diff { margin-top: 10px; background: #f8f9fb; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-family: var(--font-mono); font-size: 11px; line-height: 1.7; overflow-x: auto; display: none; }
+.ai-diff.show { display: block; }
+.diff-add { color: var(--accent-green); }
+.diff-rem { color: var(--accent-red); }
+.diff-ctx { color: var(--text-muted); }
+
+/* Policy Builder */
+.pb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.pb-section { display: flex; flex-direction: column; gap: 12px; }
+.pb-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-muted); }
+.pb-input { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; color: var(--text-primary); font-family: var(--font-sans); font-size: 12.5px; outline: none; transition: var(--transition); width: 100%; }
+.pb-input:focus { border-color: var(--accent-blue); }
+.pb-select { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; color: var(--text-primary); font-family: var(--font-sans); font-size: 12.5px; outline: none; cursor: pointer; appearance: none; width: 100%; }
+.pb-nlp { background: #f5f3ff; border: 1px solid var(--accent-purple); border-radius: var(--radius-md); padding: 14px; position: relative; }
+.pb-nlp::before { content: '✦ AI'; position: absolute; top: -9px; left: 12px; font-size: 9px; font-weight: 700; background: var(--accent-purple); color: white; padding: 1px 7px; border-radius: 4px; letter-spacing: 0.5px; }
+.pb-nlp textarea { width: 100%; background: transparent; border: none; color: var(--text-primary); font-family: var(--font-sans); font-size: 12.5px; outline: none; resize: none; min-height: 50px; line-height: 1.5; }
+.pb-nlp textarea::placeholder { color: var(--text-muted); }
+.pb-rule { background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; }
+.pb-rule-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.pb-rule-t { font-size: 11.5px; font-weight: 600; }
+.pb-rule-rm { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 10.5px; }
+.pb-rule-rm:hover { color: var(--accent-red); }
+.pb-rule-row { display: flex; gap: 6px; }
+.pb-rule-row select, .pb-rule-row input { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; color: var(--text-primary); font-family: var(--font-sans); font-size: 11.5px; outline: none; }
+.pb-add { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 9px; border: 1px dashed var(--border); border-radius: var(--radius-md); background: transparent; color: var(--text-muted); font-family: var(--font-sans); font-size: 11.5px; cursor: pointer; transition: var(--transition); }
+.pb-add:hover { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--accent-blue-dim); }
+.rego { background: #f8f9fb; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; font-family: var(--font-mono); font-size: 11px; color: #1a1d26; line-height: 1.7; overflow-x: auto; white-space: pre; }
+.rk { color: var(--accent-purple); }
+.rs { color: var(--accent-green); }
+.rc { color: var(--text-muted); font-style: italic; }
+.sim { background: #f8f9fb; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; }
+.sim-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.sim-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-green); animation: pulse 2s infinite; }
+.sim-lines { font-size: 11.5px; color: var(--text-secondary); line-height: 1.85; font-family: var(--font-mono); }
+
+/* Security Findings */
+.finding { display: grid; grid-template-columns: 60px 1fr auto auto auto; align-items: center; gap: 10px; padding: 10px; border-radius: var(--radius-sm); transition: var(--transition); }
+.finding:hover { background: var(--bg-elevated); }
+.f-sev { font-size: 9px; font-weight: 700; padding: 3px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; }
+.sev-c { background: var(--accent-red-dim); color: var(--accent-red); }
+.sev-h { background: #ff634730; color: #ff6347; }
+.sev-m { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.sev-l { background: var(--accent-blue-dim); color: var(--accent-blue); }
+.f-info { display: flex; flex-direction: column; gap: 2px; }
+.f-title { font-size: 12.5px; font-weight: 500; }
+.f-src { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-muted); }
+.f-proj { font-size: 10.5px; color: var(--text-secondary); background: var(--bg-primary); padding: 2px 7px; border-radius: 4px; }
+.f-age { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-muted); }
+.f-actions { display: flex; gap: 4px; }
+
+/* SBOM */
+.sbom-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+.sbom-s { background: var(--bg-primary); border-radius: var(--radius-sm); padding: 12px; text-align: center; }
+.sbom-v { font-family: var(--font-mono); font-size: 20px; font-weight: 600; }
+.sbom-l { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
+.dep-row { display: grid; grid-template-columns: 1fr auto auto auto auto; align-items: center; gap: 12px; padding: 7px 10px; border-radius: var(--radius-sm); font-size: 11.5px; transition: var(--transition); }
+.dep-row:hover { background: var(--bg-elevated); }
+.dep-name { font-family: var(--font-mono); font-weight: 500; }
+.dep-ver { font-family: var(--font-mono); color: var(--text-muted); font-size: 10.5px; }
+.dep-lic { font-size: 9.5px; padding: 2px 7px; border-radius: 4px; font-weight: 500; }
+.lic-ok { background: var(--accent-green-dim); color: var(--accent-green); }
+.lic-rv { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.lic-no { background: var(--accent-red-dim); color: var(--accent-red); }
+
+/* Modal */
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.3); backdrop-filter: blur(8px); z-index: 100; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+.modal-bg.on { opacity: 1; pointer-events: all; }
+.modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-xl); width: 860px; max-height: 88vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,0.12); transform: translateY(16px) scale(0.97); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.modal-bg.on .modal { transform: translateY(0) scale(1); }
+.modal-h { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+.modal-t { font-size: 15px; font-weight: 600; }
+.modal-x { width: 30px; height: 30px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: var(--transition); }
+.modal-x:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.modal-x svg { width: 16px; height: 16px; }
+.modal-body { padding: 22px; overflow-y: auto; flex: 1; }
+.modal-f { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--border); }
+
+/* AI Chat */
+.chat-panel { position: fixed; bottom: 20px; right: 20px; width: 420px; max-height: 560px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: 0 12px 40px rgba(0,0,0,0.12); display: flex; flex-direction: column; z-index: 50; opacity: 0; pointer-events: none; transform: translateY(16px) scale(0.95); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.chat-panel.on { opacity: 1; pointer-events: all; transform: translateY(0) scale(1); }
+.chat-panel::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent-purple), var(--accent-blue), var(--accent-cyan)); border-radius: var(--radius-xl) var(--radius-xl) 0 0; }
+.chat-hdr { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
+.chat-tg { display: flex; align-items: center; gap: 8px; }
+.chat-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+.chat-tt { font-size: 12.5px; font-weight: 600; }
+.chat-msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; max-height: 380px; }
+.msg { max-width: 88%; padding: 10px 13px; border-radius: var(--radius-md); font-size: 12.5px; line-height: 1.55; }
+.msg.ai { background: #f0f1f4; align-self: flex-start; border-bottom-left-radius: 4px; }
+.msg.user { background: var(--accent-blue); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+.msg-action { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-blue-dim); color: var(--accent-blue); padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 500; cursor: pointer; margin-top: 6px; transition: var(--transition); }
+.msg-action:hover { background: rgba(74,144,255,0.25); }
+.chat-input { display: flex; align-items: center; gap: 7px; padding: 10px 12px; border-top: 1px solid var(--border-subtle); }
+.chat-input input { flex: 1; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 11px; color: var(--text-primary); font-family: var(--font-sans); font-size: 12.5px; outline: none; transition: var(--transition); }
+.chat-input input:focus { border-color: var(--accent-blue); }
+.chat-send { width: 32px; height: 32px; border-radius: var(--radius-sm); border: none; background: var(--accent-blue); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: var(--transition); }
+.chat-send:hover { background: #2d6bc4; }
+.chat-send svg { width: 14px; height: 14px; }
+.chat-suggest { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 12px 10px; }
+.chat-sug-btn { font-size: 10.5px; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; font-family: var(--font-sans); transition: var(--transition); }
+.chat-sug-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--accent-blue-dim); }
+
+/* FAB */
+.fab { position: fixed; bottom: 20px; right: 20px; width: 48px; height: 48px; border-radius: 50%; border: none; background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue)); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(59,125,221,0.3); z-index: 49; transition: var(--transition); }
+.fab:hover { transform: scale(1.08); }
+.fab.hide { opacity: 0; pointer-events: none; transform: scale(0.8); }
+.fab svg { width: 20px; height: 20px; }
+
+/* Toast */
+.toast-wrap { position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+.toast { padding: 12px 18px; border-radius: var(--radius-md); font-size: 12.5px; font-weight: 500; display: flex; align-items: center; gap: 8px; animation: toastIn 0.3s ease; box-shadow: var(--shadow-elevated); }
+.toast.out { animation: toastOut 0.3s ease forwards; }
+@keyframes toastIn { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes toastOut { to { opacity: 0; transform: translateX(30px); } }
+.toast-ok { background: var(--accent-green); color: white; }
+.toast-err { background: var(--accent-red); color: white; }
+.toast-info { background: var(--accent-blue); color: white; }
+.toast-warn { background: var(--accent-amber); color: white; }
+.toast svg { width: 16px; height: 16px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 2px; background: var(--bg-primary); border-radius: var(--radius-sm); padding: 3px; border: 1px solid var(--border); width: fit-content; }
+.tab { padding: 6px 14px; border-radius: 4px; font-size: 11.5px; font-weight: 500; color: var(--text-muted); cursor: pointer; transition: var(--transition); border: none; background: none; font-family: var(--font-sans); }
+.tab:hover { color: var(--text-secondary); }
+.tab.on { background: var(--bg-elevated); color: var(--text-primary); }
+
+/* ─── Page Switching ─── */
+.pg { display: none; }
+.pg.active { display: flex; flex-direction: column; gap: 20px; }
+
+/* ─── Enforcement Flow ─── */
+.flow-track { display: flex; align-items: stretch; gap: 0; }
+.flow-step { flex: 1; display: flex; flex-direction: column; align-items: center; z-index: 2; }
+.flow-node { width: 100%; background: #f8f9fb; border: 1.5px solid var(--border); border-radius: var(--radius-lg); padding: 16px 12px; text-align: center; transition: var(--transition); cursor: pointer; position: relative; }
+.flow-node:hover { border-color: var(--text-muted); transform: translateY(-2px); }
+.flow-node.fn-active { border-color: var(--accent-blue); box-shadow: 0 0 20px rgba(74,144,255,0.15); }
+.flow-node.fn-pass { border-color: var(--accent-green); box-shadow: 0 0 20px rgba(52,211,153,0.1); }
+.flow-node.fn-fail { border-color: var(--accent-red); box-shadow: 0 0 20px rgba(248,113,113,0.1); }
+.flow-node.fn-pending { border-color: var(--accent-amber); box-shadow: 0 0 20px rgba(251,191,36,0.1); }
+.flow-node-icon { width: 38px; height: 38px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; }
+.flow-node-icon svg { width: 19px; height: 19px; }
+.flow-node-title { font-size: 11.5px; font-weight: 600; margin-bottom: 2px; }
+.flow-node-desc { font-size: 10px; color: var(--text-muted); line-height: 1.4; }
+.flow-node-badge { position: absolute; top: -8px; right: -8px; font-size: 8px; font-weight: 700; padding: 3px 7px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.flow-arrow { display: flex; align-items: center; justify-content: center; width: 44px; flex-shrink: 0; z-index: 1; }
+
+/* Enforcement Rows */
+.enf-row { display: grid; grid-template-columns: 30px 1.2fr 0.8fr 0.5fr 60px auto; align-items: center; gap: 8px; padding: 9px 10px; border-radius: var(--radius-sm); transition: var(--transition); }
+.enf-row:hover { background: var(--bg-elevated); }
+.enf-st { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.enf-st svg { width: 14px; height: 14px; }
+.st-blocked { background: var(--accent-red-dim); color: var(--accent-red); }
+.st-approved { background: var(--accent-green-dim); color: var(--accent-green); }
+.st-pend { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.enf-info { display: flex; flex-direction: column; gap: 1px; }
+.enf-name { font-size: 12px; font-weight: 500; }
+.enf-detail { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
+.enf-method-tag { font-size: 8.5px; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-family: var(--font-mono); }
+.enf-finding { font-size: 10.5px; color: var(--text-secondary); }
+.enf-time { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
+.enf-actions { display: flex; gap: 3px; }
+
+/* Webhook Log */
+.wh-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); font-size: 11px; transition: var(--transition); }
+.wh-row:hover { background: var(--bg-elevated); }
+.wh-event { font-family: var(--font-mono); font-size: 10px; padding: 2px 7px; border-radius: 4px; background: var(--bg-elevated); color: var(--text-secondary); font-weight: 500; }
+.wh-detail { color: var(--text-secondary); font-size: 11px; }
+.wh-status { font-size: 8.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+.wh-time { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+
+/* API Call Log */
+.api-row { display: grid; grid-template-columns: 50px 1fr auto auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius-sm); font-size: 10.5px; font-family: var(--font-mono); transition: var(--transition); }
+.api-row:hover { background: var(--bg-elevated); }
+.api-method { font-weight: 600; padding: 2px 5px; border-radius: 3px; font-size: 9px; text-align: center; }
+.api-get { background: var(--accent-blue-dim); color: var(--accent-blue); }
+.api-post { background: var(--accent-green-dim); color: var(--accent-green); }
+.api-put { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.api-path { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.api-status { font-size: 9px; padding: 2px 5px; border-radius: 3px; }
+.api-ok { background: var(--accent-green-dim); color: var(--accent-green); }
+.api-time-col { color: var(--text-muted); font-size: 9.5px; }
+
+/* Enforcement Config Rows */
+.config-row { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); transition: var(--transition); }
+.config-row:hover { border-color: var(--text-muted); }
+.config-icon { width: 34px; height: 34px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.config-icon svg { width: 17px; height: 17px; }
+.config-info { flex: 1; }
+.config-name { font-size: 12px; font-weight: 600; }
+.config-desc { font-size: 10.5px; color: var(--text-muted); margin-top: 2px; }
+.config-endpoint { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-muted); margin-top: 3px; background: var(--bg-primary); padding: 2px 7px; border-radius: 3px; display: inline-block; }
+
+/* Toggle */
+.toggle { position: relative; width: 36px; height: 20px; cursor: pointer; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-s { position: absolute; inset: 0; background: var(--border); border-radius: 10px; transition: var(--transition); }
+.toggle-s::before { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: var(--text-muted); left: 2px; top: 2px; transition: var(--transition); }
+.toggle input:checked + .toggle-s { background: var(--accent-blue); }
+.toggle input:checked + .toggle-s::before { transform: translateX(16px); background: white; }
+
+/* Status Pill */
+.status-pill { font-size: 9px; font-weight: 600; padding: 3px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 4px; }
+.pill-green { background: var(--accent-green-dim); color: var(--accent-green); }
+.pill-blue { background: var(--accent-blue-dim); color: var(--accent-blue); }
+.pill-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
+
+/* Zero-Touch Banner */
+.zt-banner { background: linear-gradient(135deg, rgba(59,125,221,0.06), rgba(14,165,199,0.06)); border: 1px solid rgba(59,125,221,0.18); border-radius: var(--radius-lg); padding: 18px 22px; display: flex; align-items: center; gap: 18px; }
+.zt-icon { width: 48px; height: 48px; border-radius: var(--radius-md); background: linear-gradient(135deg, var(--accent-blue-dim), var(--accent-cyan-dim)); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.zt-icon svg { width: 24px; height: 24px; color: var(--accent-blue); }
+.zt-content { flex: 1; }
+.zt-title { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
+.zt-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.zt-tags { display: flex; gap: 5px; margin-top: 8px; }
+.zt-tag { font-size: 9px; font-weight: 600; padding: 3px 9px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Animations */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+.anim { animation: fadeUp 0.4s ease; }
+.anim-d1 { animation: fadeUp 0.4s ease 0.1s both; }
+.anim-d2 { animation: fadeUp 0.4s ease 0.2s both; }
+.anim-d3 { animation: fadeUp 0.4s ease 0.3s both; }
+
+/* Progress */
+.prog { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 2px; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+
+/* Toggle */
+.toggle { position: relative; width: 36px; height: 20px; cursor: pointer; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 10px; transition: var(--transition); }
+.toggle-slider::before { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: var(--text-muted); left: 2px; top: 2px; transition: var(--transition); }
+.toggle input:checked + .toggle-slider { background: var(--accent-blue); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(16px); background: white; }
+</style>
+</head>
+<body>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<div class="app">
+  <!-- Rail -->
+  <nav class="rail">
+    <div class="rail-logo">S</div>
+    <button class="rb on" data-page="dashboard" title="Dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+    <button class="rb" data-page="enforcement" title="Enforcement Engine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></button>
+    <button class="rb" data-page="approvals" title="Approvals" style="position:relative"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span class="notif-dot"></span></button>
+    <button class="rb" data-page="policies" title="Policies"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></button>
+    <button class="rb" data-page="security" title="Security"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></button>
+    <button class="rb" data-page="ai" title="AI Intelligence"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></button>
+    <button class="rb" data-page="sbom" title="SBOM"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></button>
+    <button class="rb" data-page="audit" title="Audit Log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+    <div class="spacer"></div>
+    <button class="rb" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-3.54 1.42A1.65 1.65 0 0 0 15 16.68a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33A2 2 0 0 1 9 13.51a1.65 1.65 0 0 0 1-1.51 1.65 1.65 0 0 0-.33-1.82A2 2 0 0 1 11.09 7a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82A2 2 0 0 1 15.1 3.51a1.65 1.65 0 0 0 1.82.33A2 2 0 0 1 19.35 5a1.65 1.65 0 0 0-1.18 2.82A2 2 0 0 1 19.59 11H21a2 2 0 0 1 0 4z"/></svg></button>
+  </nav>
+
+  <!-- Sidebar -->
+  <aside class="side">
+    <div class="side-hdr">
+      <div class="side-title">Sentinel</div>
+      <div class="side-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input placeholder="Search everything..."></div>
+    </div>
+    <div class="ss">
+      <div class="ss-label">GitLab Groups</div>
+      <div class="si on"><div class="si-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><span class="si-text">Cardiac Devices</span><span class="badge bg-g">94%</span></div>
+      <div class="si"><div class="si-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><span class="si-text">Surgical Navigation</span><span class="badge bg-a">78%</span></div>
+      <div class="si"><div class="si-icon" style="background:var(--accent-green-dim);color:var(--accent-green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><span class="si-text">Diabetes Management</span><span class="badge bg-g">91%</span></div>
+      <div class="si"><div class="si-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><span class="si-text">Spine & Ortho</span><span class="badge bg-r">67%</span></div>
+    </div>
+    <div class="ss">
+      <div class="ss-label">Action Required</div>
+      <div class="si"><div class="si-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><span class="si-text">Blocked Deploys</span><span class="badge bg-r">3</span></div>
+      <div class="si"><div class="si-icon" style="background:var(--accent-amber-dim);color:var(--accent-amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><span class="si-text">Pending Approvals</span><span class="badge bg-a">7</span></div>
+      <div class="si"><div class="si-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div><span class="si-text">AI Suggestions</span><span class="badge bg-b">5</span></div>
+      <div class="si"><div class="si-icon" style="background:var(--accent-cyan-dim);color:var(--accent-cyan);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><span class="si-text">Active Pipelines</span><span class="badge bg-b">23</span></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-left"><div class="crumb">Sentinel <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="9 18 15 12 9 6"/></svg> <b id="pageTitle">Dashboard</b></div></div>
+      <div class="topbar-right">
+        <button class="btn" onclick="showToast('Generating FDA evidence package...', 'info')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Evidence Pkg</button>
+        <button class="btn" id="openPB"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New Policy</button>
+        <button class="btn btn-p" id="syncBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Sync GitLab</button>
+        <div class="avatar">DK</div>
+      </div>
+    </div>
+
+    <!-- ═══════ DASHBOARD PAGE ═══════ -->
+    <div class="page pg active" id="pg-dashboard">
+      <div class="stats">
+        <div class="stat"><div class="stat-label">Compliance Score</div><div class="stat-val" style="color:var(--accent-green);">90%</div><div class="stat-chg chg-up">↑ 3% this week</div></div>
+        <div class="stat"><div class="stat-label">Pipelines Today</div><div class="stat-val">47</div><div class="stat-chg chg-up">↑ 12% vs yesterday</div></div>
+        <div class="stat"><div class="stat-label">Blocked Deploys</div><div class="stat-val" style="color:var(--accent-red);">3</div><div class="stat-chg chg-dn">↑ 2 critical findings</div></div>
+        <div class="stat"><div class="stat-label">Pending Approvals</div><div class="stat-val" style="color:var(--accent-amber);">7</div><div class="stat-chg">Oldest: 4h ago</div></div>
+        <div class="stat"><div class="stat-label">AI Auto-Fixes</div><div class="stat-val" style="color:var(--accent-purple);">12</div><div class="stat-chg chg-up">8 merged this week</div></div>
+        <div class="stat"><div class="stat-label">Mean Time to Comply</div><div class="stat-val" style="color:var(--accent-cyan);">2.4h</div><div class="stat-chg chg-up">↓ 18% improvement</div></div>
+      </div>
+
+      <div class="g2">
+        <!-- Live Pipelines with Actions -->
+        <div class="card">
+          <div class="card-h">
+            <div class="card-tg"><div class="card-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><span class="card-t">Live Pipelines</span></div>
+            <div class="tabs"><button class="tab on">All</button><button class="tab">Blocked</button><button class="tab">Running</button></div>
+          </div>
+          <div class="card-b">
+            <div class="pl-row">
+              <div class="pl-st st-f"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+              <div class="pl-info"><span class="pl-name">cardiac-firmware-v3.2</span><span class="pl-branch">feature/ble-update → main</span></div>
+              <div class="pl-policy"><div class="pl-dot" style="background:var(--accent-red);"></div>CVE Gate failed</div>
+              <div class="pl-risk bg-r">HIGH</div>
+              <div class="pl-time">3m</div>
+              <div class="pl-actions">
+                <button class="btn btn-sm btn-r" onclick="showOverrideModal('cardiac-firmware-v3.2', 'CVE-2026-1847 Critical')">Override</button>
+                <button class="btn btn-sm" onclick="showToast('Triggered rescan for cardiac-firmware-v3.2', 'info')">Rescan</button>
+              </div>
+            </div>
+            <div class="pl-row">
+              <div class="pl-st st-w"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+              <div class="pl-info"><span class="pl-name">surgical-nav-calibration</span><span class="pl-branch">fix/drift-correction → staging</span></div>
+              <div class="pl-policy"><div class="pl-dot" style="background:var(--accent-amber);"></div>Awaiting approval</div>
+              <div class="pl-risk bg-a">MED</div>
+              <div class="pl-time">12m</div>
+              <div class="pl-actions">
+                <button class="btn btn-sm btn-g" onclick="approveAction('surgical-nav-calibration', this)">Approve</button>
+                <button class="btn btn-sm btn-r" onclick="rejectAction('surgical-nav-calibration', this)">Reject</button>
+              </div>
+            </div>
+            <div class="pl-row">
+              <div class="pl-st st-p"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="pl-info"><span class="pl-name">insulin-pump-controller</span><span class="pl-branch">release/4.1.0 → production</span></div>
+              <div class="pl-policy"><div class="pl-dot" style="background:var(--accent-green);"></div>All 24 policies passed</div>
+              <div class="pl-risk bg-g">LOW</div>
+              <div class="pl-time">28m</div>
+              <div class="pl-actions">
+                <button class="btn btn-sm btn-g" onclick="releaseAction('insulin-pump-controller', this)">Release</button>
+                <button class="btn btn-sm" onclick="showToast('Evidence package generated for insulin-pump-controller', 'ok')">Evidence</button>
+              </div>
+            </div>
+            <div class="pl-row">
+              <div class="pl-st st-r"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+              <div class="pl-info"><span class="pl-name">spinal-imaging-ml</span><span class="pl-branch">feature/model-v2 → develop</span></div>
+              <div class="pl-policy"><div class="pl-dot" style="background:var(--accent-blue);"></div>Scanning in progress</div>
+              <div class="pl-risk bg-b">—</div>
+              <div class="pl-time">1m</div>
+              <div class="pl-actions">
+                <button class="btn btn-sm" onclick="showToast('Hold placed on spinal-imaging-ml deployment', 'warn')">Hold</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Policies with Toggle -->
+        <div class="card">
+          <div class="card-h">
+            <div class="card-tg"><div class="card-icon" style="background:var(--accent-green-dim);color:var(--accent-green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><span class="card-t">Active Policies</span></div>
+            <button class="btn btn-sm" id="openPB2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Create</button>
+          </div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);transition:var(--transition);">
+              <div style="width:32px;height:32px;border-radius:var(--radius-sm);background:var(--accent-red-dim);color:var(--accent-red);display:flex;align-items:center;justify-content:center;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+              <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">FDA 21 CFR Part 11</div><div style="font-size:10.5px;color:var(--text-muted);">Electronic records & signatures</div></div>
+              <label class="toggle"><input type="checkbox" checked onchange="togglePolicy('FDA 21 CFR Part 11', this.checked)"><span class="toggle-slider"></span></label>
+              <button class="btn btn-sm" onclick="openPolicyModal()">Edit</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+              <div style="width:32px;height:32px;border-radius:var(--radius-sm);background:var(--accent-purple-dim);color:var(--accent-purple);display:flex;align-items:center;justify-content:center;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+              <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">IEC 62304 Class C</div><div style="font-size:10.5px;color:var(--text-muted);">Medical device software lifecycle</div></div>
+              <label class="toggle"><input type="checkbox" checked onchange="togglePolicy('IEC 62304 Class C', this.checked)"><span class="toggle-slider"></span></label>
+              <button class="btn btn-sm" onclick="openPolicyModal()">Edit</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+              <div style="width:32px;height:32px;border-radius:var(--radius-sm);background:var(--accent-blue-dim);color:var(--accent-blue);display:flex;align-items:center;justify-content:center;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+              <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">CVE Severity Gate</div><div style="font-size:10.5px;color:var(--text-muted);">Block on Critical/High CVEs</div></div>
+              <label class="toggle"><input type="checkbox" checked onchange="togglePolicy('CVE Severity Gate', this.checked)"><span class="toggle-slider"></span></label>
+              <button class="btn btn-sm" onclick="openPolicyModal()">Edit</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+              <div style="width:32px;height:32px;border-radius:var(--radius-sm);background:var(--accent-cyan-dim);color:var(--accent-cyan);display:flex;align-items:center;justify-content:center;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+              <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">Secret Detection</div><div style="font-size:10.5px;color:var(--text-muted);">Block on any credentials/keys</div></div>
+              <label class="toggle"><input type="checkbox" checked onchange="togglePolicy('Secret Detection', this.checked)"><span class="toggle-slider"></span></label>
+              <button class="btn btn-sm" onclick="openPolicyModal()">Edit</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);opacity:0.6;">
+              <div style="width:32px;height:32px;border-radius:var(--radius-sm);background:var(--accent-amber-dim);color:var(--accent-amber);display:flex;align-items:center;justify-content:center;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+              <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">License Allowlist</div><div style="font-size:10.5px;color:var(--text-muted);">Draft — only approved OSS licenses</div></div>
+              <label class="toggle"><input type="checkbox" onchange="togglePolicy('License Allowlist', this.checked)"><span class="toggle-slider"></span></label>
+              <button class="btn btn-sm" onclick="openPolicyModal()">Edit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Intelligence with Actions -->
+      <div class="card fw">
+        <div class="card-h">
+          <div class="card-tg"><div class="card-icon" style="background:linear-gradient(135deg,var(--accent-purple-dim),var(--accent-blue-dim));color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div><span class="card-t">AI Intelligence & Actions</span></div>
+          <div class="tabs"><button class="tab on">Active</button><button class="tab">Resolved</button><button class="tab">All</button></div>
+        </div>
+        <div class="card-b">
+          <!-- AI: Auto-Remediation -->
+          <div class="ai-action ai-crit">
+            <div class="ai-top">
+              <div class="ai-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
+              <div class="ai-content">
+                <div class="ai-label" style="color:var(--accent-red);">Auto-Remediation Available</div>
+                <div class="ai-title">CVE-2026-1847 in cardiac-firmware — OpenSSL Buffer Overflow (CVSS 9.8)</div>
+                <div class="ai-desc">OpenSSL 3.1.2 has a critical buffer overflow in the BLE communication stack. AI has prepared a fix: upgrade to 3.1.4 which patches this CVE. All existing tests pass against the patched version. Merge request draft ready for your review.</div>
+                <div class="ai-actions">
+                  <button class="btn btn-sm btn-g" onclick="aiCreateMR(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg>Create Fix MR</button>
+                  <button class="btn btn-sm" onclick="toggleDiff(this)">View Diff</button>
+                  <button class="btn btn-sm btn-r" onclick="showOverrideModal('cardiac-firmware-v3.2','CVE-2026-1847')">Override Gate</button>
+                  <button class="btn btn-sm" onclick="dismissAI(this)">Dismiss</button>
+                </div>
+                <div class="ai-diff">
+<span class="diff-ctx">  # Gemfile.lock</span>
+<span class="diff-rem">- openssl (3.1.2)</span>
+<span class="diff-add">+ openssl (3.1.4)</span>
+<span class="diff-ctx">  </span>
+<span class="diff-ctx">  # config/ble_stack.rb</span>
+<span class="diff-rem">- gem 'openssl', '~> 3.1.2'</span>
+<span class="diff-add">+ gem 'openssl', '~> 3.1.4'</span>
+<span class="diff-ctx">  </span>
+<span class="diff-ctx">  # Test results: 847/847 passing ✓</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI: Anomaly -->
+          <div class="ai-action ai-warn">
+            <div class="ai-top">
+              <div class="ai-icon" style="background:var(--accent-amber-dim);color:var(--accent-amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+              <div class="ai-content">
+                <div class="ai-label" style="color:var(--accent-amber);">Anomaly Detected</div>
+                <div class="ai-title">Unusual commit velocity + permission scope changes — spinal-imaging-ml</div>
+                <div class="ai-desc">M. Fischer pushed 14 commits in 2 hours (4x normal). Changes include modifications to DICOM data access permissions and model weight files. Risk score elevated from LOW to HIGH.</div>
+                <div class="ai-actions">
+                  <button class="btn btn-sm btn-a" onclick="showToast('Additional review required added to MR !912', 'warn')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Require Extra Review</button>
+                  <button class="btn btn-sm" onclick="showToast('Hold placed on spinal-imaging-ml environment', 'warn')">Hold Deploy</button>
+                  <button class="btn btn-sm" onclick="showToast('Notified M. Fischer\'s manager via Slack', 'info')">Notify Manager</button>
+                  <button class="btn btn-sm" onclick="dismissAI(this)">Dismiss</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI: Release Ready -->
+          <div class="ai-action ai-ok">
+            <div class="ai-top">
+              <div class="ai-icon" style="background:var(--accent-green-dim);color:var(--accent-green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+              <div class="ai-content">
+                <div class="ai-label" style="color:var(--accent-green);">Release Ready</div>
+                <div class="ai-title">insulin-pump-controller v4.1.0 — All compliance criteria met</div>
+                <div class="ai-desc">24/24 policies pass. Zero CVEs. 312 dependencies all with approved licenses. E-signatures collected (3/3). Traceability matrix: 100% requirement coverage. Evidence package auto-generated.</div>
+                <div class="ai-actions">
+                  <button class="btn btn-sm btn-g" onclick="releaseAction('insulin-pump-controller v4.1.0', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg>Release to Production</button>
+                  <button class="btn btn-sm" onclick="showToast('Evidence package downloaded: insulin-pump-4.1.0-evidence.zip', 'ok')">Download Evidence</button>
+                  <button class="btn btn-sm" onclick="showToast('FDA submission package generated', 'info')">Generate FDA Package</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI: Predictive -->
+          <div class="ai-action ai-info">
+            <div class="ai-top">
+              <div class="ai-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+              <div class="ai-content">
+                <div class="ai-label" style="color:var(--accent-blue);">Predictive Compliance</div>
+                <div class="ai-title">PR #1204 in surgical-nav will likely fail IEC 62304 gate</div>
+                <div class="ai-desc">Based on the diff analysis: test coverage for safety-critical modules drops from 94% to 71%. IEC 62304 Class C requires ≥80%. AI has identified 12 untested code paths in the drift correction algorithm. Suggested test stubs generated.</div>
+                <div class="ai-actions">
+                  <button class="btn btn-sm btn-p" onclick="aiCreateMR(this, 'test stubs')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Generate Test Stubs</button>
+                  <button class="btn btn-sm" onclick="showToast('Assigned to A. Kumar with test generation context', 'info')">Assign to Developer</button>
+                  <button class="btn btn-sm" onclick="dismissAI(this)">Dismiss</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI: Secret Found -->
+          <div class="ai-action ai-crit">
+            <div class="ai-top">
+              <div class="ai-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+              <div class="ai-content">
+                <div class="ai-label" style="color:var(--accent-red);">Auto-Blocked & Remediation Ready</div>
+                <div class="ai-title">Hardcoded AWS credential detected in surgical-nav</div>
+                <div class="ai-desc">AWS access key found in src/config/cloud.py. MR !889 automatically blocked. AI has prepared a fix that moves the credential to environment variables and references AWS Secrets Manager. The exposed key should be rotated immediately.</div>
+                <div class="ai-actions">
+                  <button class="btn btn-sm btn-g" onclick="aiCreateMR(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg>Create Fix MR</button>
+                  <button class="btn btn-sm btn-r" onclick="showToast('AWS key rotation triggered via Secrets Manager', 'warn')">Rotate Key Now</button>
+                  <button class="btn btn-sm" onclick="toggleDiff(this)">View Diff</button>
+                </div>
+                <div class="ai-diff">
+<span class="diff-ctx">  # src/config/cloud.py</span>
+<span class="diff-rem">- AWS_ACCESS_KEY = "AKIA3E..."</span>
+<span class="diff-rem">- AWS_SECRET_KEY = "wJalr..."</span>
+<span class="diff-add">+ import boto3</span>
+<span class="diff-add">+ session = boto3.session.Session()</span>
+<span class="diff-add">+ client = session.client('secretsmanager')</span>
+<span class="diff-add">+ creds = client.get_secret_value(</span>
+<span class="diff-add">+     SecretId='surgical-nav/aws-credentials'</span>
+<span class="diff-add">+ )</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Security Findings with Actions -->
+      <div class="g2">
+        <div class="card">
+          <div class="card-h">
+            <div class="card-tg"><div class="card-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div><span class="card-t">Security Findings</span></div>
+            <div class="tabs"><button class="tab on">Open</button><button class="tab">Resolved</button></div>
+          </div>
+          <div class="card-b">
+            <div class="finding">
+              <span class="f-sev sev-c">Critical</span>
+              <div class="f-info"><span class="f-title">CVE-2026-1847 — OpenSSL Buffer Overflow</span><span class="f-src">openssl@3.1.2</span></div>
+              <span class="f-proj">cardiac-firmware</span>
+              <span class="f-age">2d</span>
+              <div class="f-actions">
+                <button class="btn btn-sm btn-g" onclick="aiCreateMR(this)" title="AI auto-fix">Fix</button>
+                <button class="btn btn-sm" onclick="showExceptionModal('CVE-2026-1847')" title="Grant exception">Except</button>
+              </div>
+            </div>
+            <div class="finding">
+              <span class="f-sev sev-c">Critical</span>
+              <div class="f-info"><span class="f-title">Hardcoded AWS credential</span><span class="f-src">src/config/cloud.py</span></div>
+              <span class="f-proj">surgical-nav</span>
+              <span class="f-age">6h</span>
+              <div class="f-actions">
+                <button class="btn btn-sm btn-g" onclick="aiCreateMR(this)">Fix</button>
+                <button class="btn btn-sm btn-r" onclick="showToast('Key rotation triggered', 'warn')">Rotate</button>
+              </div>
+            </div>
+            <div class="finding">
+              <span class="f-sev sev-h">High</span>
+              <div class="f-info"><span class="f-title">SQL Injection — patient ID</span><span class="f-src">api/patients/lookup.java:142</span></div>
+              <span class="f-proj">diabetes-mgmt</span>
+              <span class="f-age">1d</span>
+              <div class="f-actions">
+                <button class="btn btn-sm btn-g" onclick="aiCreateMR(this)">Fix</button>
+                <button class="btn btn-sm" onclick="showExceptionModal('SQL Injection')">Except</button>
+              </div>
+            </div>
+            <div class="finding">
+              <span class="f-sev sev-m">Medium</span>
+              <div class="f-info"><span class="f-title">Outdated TLS 1.1 config</span><span class="f-src">DAST scan</span></div>
+              <span class="f-proj">spinal-imaging</span>
+              <span class="f-age">5d</span>
+              <div class="f-actions">
+                <button class="btn btn-sm" onclick="showToast('Assigned to DevOps team', 'info')">Assign</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SBOM with Actions -->
+        <div class="card">
+          <div class="card-h">
+            <div class="card-tg"><div class="card-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div><span class="card-t">SBOM</span></div>
+            <div class="card-acts"><button class="btn btn-sm" onclick="showToast('CycloneDX SBOM exported', 'ok')">Export</button><button class="btn btn-sm" onclick="showToast('SBOM validation running...', 'info')">Validate</button></div>
+          </div>
+          <div class="card-b">
+            <div class="sbom-stats">
+              <div class="sbom-s"><div class="sbom-v">1,247</div><div class="sbom-l">Total Deps</div></div>
+              <div class="sbom-s"><div class="sbom-v" style="color:var(--accent-green);">1,198</div><div class="sbom-l">Approved</div></div>
+              <div class="sbom-s"><div class="sbom-v" style="color:var(--accent-amber);">38</div><div class="sbom-l">Under Review</div></div>
+              <div class="sbom-s"><div class="sbom-v" style="color:var(--accent-red);">11</div><div class="sbom-l">Banned</div></div>
+            </div>
+            <div class="dep-row"><span class="dep-name">openssl</span><span class="dep-ver">3.1.2</span><span class="dep-lic lic-ok">Apache-2.0</span><span class="f-sev sev-c" style="font-size:8px;padding:2px 5px;">2 CVEs</span><button class="btn btn-sm btn-g" onclick="aiCreateMR(this)" style="height:22px;font-size:9.5px;">AI Fix</button></div>
+            <div class="dep-row"><span class="dep-name">log4j-core</span><span class="dep-ver">2.17.1</span><span class="dep-lic lic-ok">Apache-2.0</span><span style="font-size:10.5px;color:var(--accent-green);">✓</span><span></span></div>
+            <div class="dep-row"><span class="dep-name">mongo-driver</span><span class="dep-ver">4.11.0</span><span class="dep-lic lic-rv">SSPL-1.0</span><span style="font-size:10.5px;color:var(--accent-amber);">⚠</span><button class="btn btn-sm" onclick="approveLicense(this)" style="height:22px;font-size:9.5px;">Approve</button></div>
+            <div class="dep-row"><span class="dep-name">react</span><span class="dep-ver">18.3.1</span><span class="dep-lic lic-ok">MIT</span><span style="font-size:10.5px;color:var(--accent-green);">✓</span><span></span></div>
+            <div class="dep-row"><span class="dep-name">libgpl-crypto</span><span class="dep-ver">2.0.4</span><span class="dep-lic lic-no">GPL-3.0</span><span style="font-size:10.5px;color:var(--accent-red);">✗</span><button class="btn btn-sm btn-r" onclick="banDep(this)" style="height:22px;font-size:9.5px;">Block</button></div>
+          </div>
+        </div>
+      </div>
+    </div> <!-- end pg-dashboard -->
+
+    <!-- ═══════ ENFORCEMENT ENGINE PAGE ═══════ -->
+    <div class="page pg" id="pg-enforcement" style="padding:20px 24px;">
+
+      <!-- Zero-Touch Banner -->
+      <div class="zt-banner anim">
+        <div class="zt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div class="zt-content">
+          <div class="zt-title">Zero-Touch Enforcement — No Pipeline YAML Modification</div>
+          <div class="zt-desc">Security scans enforced entirely through GitLab webhooks and API. Teams' pipelines run untouched. Sentinel listens to events, pulls scan results, evaluates OPA policies, and enforces decisions back via external status checks, approval rules, and environment protection gates.</div>
+          <div class="zt-tags">
+            <span class="zt-tag" style="background:var(--accent-green-dim);color:var(--accent-green);">Webhook-Driven</span>
+            <span class="zt-tag" style="background:var(--accent-blue-dim);color:var(--accent-blue);">API-Enforced</span>
+            <span class="zt-tag" style="background:var(--accent-purple-dim);color:var(--accent-purple);">Zero YAML Changes</span>
+            <span class="zt-tag" style="background:var(--accent-cyan-dim);color:var(--accent-cyan);">Tamper-Proof</span>
+          </div>
+        </div>
+        <button class="btn btn-p" id="simBtn" onclick="runSimulation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Run Simulation</button>
+      </div>
+
+      <!-- Live Enforcement Flow -->
+      <div class="card anim-d1">
+        <div class="card-h">
+          <div class="card-tg"><div class="card-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><span class="card-t">Live Enforcement Flow</span></div>
+          <div class="card-acts">
+            <span class="status-pill pill-blue"><span class="pill-dot"></span>Processing</span>
+            <button class="btn btn-sm" onclick="resetFlow()">Reset</button>
+          </div>
+        </div>
+        <div class="card-b">
+          <div class="flow-track" id="flowTrack">
+            <div class="flow-step"><div class="flow-node fn-active" id="fn-1"><div class="flow-node-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg></div><div class="flow-node-title">GitLab Event</div><div class="flow-node-desc">Pipeline webhook fires to Sentinel</div><span class="flow-node-badge" style="background:var(--accent-blue);color:white;">RECEIVED</span></div></div>
+            <div class="flow-arrow"><svg viewBox="0 0 32 32" fill="none" width="32" height="32"><path d="M6 16h20M20 10l6 6-6 6" stroke="var(--accent-blue)" stroke-width="2"/></svg></div>
+            <div class="flow-step"><div class="flow-node fn-active" id="fn-2"><div class="flow-node-icon" style="background:var(--accent-cyan-dim);color:var(--accent-cyan);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div><div class="flow-node-title">Pull Scan Results</div><div class="flow-node-desc">GET /security_report via API</div><span class="flow-node-badge" style="background:var(--accent-cyan);color:white;">FETCHED</span></div></div>
+            <div class="flow-arrow"><svg viewBox="0 0 32 32" fill="none" width="32" height="32"><path d="M6 16h20M20 10l6 6-6 6" stroke="var(--accent-blue)" stroke-width="2"/></svg></div>
+            <div class="flow-step"><div class="flow-node" id="fn-3"><div class="flow-node-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="flow-node-title">OPA Evaluation</div><div class="flow-node-desc">24 policies evaluated</div><span class="flow-node-badge" id="fn3-badge" style="background:var(--accent-amber);color:white;">EVALUATING</span></div></div>
+            <div class="flow-arrow"><svg viewBox="0 0 32 32" fill="none" width="32" height="32"><path d="M6 16h20M20 10l6 6-6 6" stroke="var(--accent-amber)" stroke-width="2"/></svg></div>
+            <div class="flow-step"><div class="flow-node" id="fn-4"><div class="flow-node-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="flow-node-title">Enforce via API</div><div class="flow-node-desc">Status check + approval rules</div><span class="flow-node-badge" id="fn4-badge" style="background:var(--border);color:var(--text-muted);">WAITING</span></div></div>
+            <div class="flow-arrow"><svg viewBox="0 0 32 32" fill="none" width="32" height="32"><path d="M6 16h20M20 10l6 6-6 6" stroke="var(--border)" stroke-width="2"/></svg></div>
+            <div class="flow-step"><div class="flow-node" id="fn-5"><div class="flow-node-icon" style="background:var(--accent-green-dim);color:var(--accent-green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div><div class="flow-node-title">Audit Ledger</div><div class="flow-node-desc">Exactly-once write</div><span class="flow-node-badge" id="fn5-badge" style="background:var(--border);color:var(--text-muted);">WAITING</span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="g2">
+        <!-- Live Enforcement Actions -->
+        <div class="card anim-d2">
+          <div class="card-h">
+            <div class="card-tg"><div class="card-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><span class="card-t">Live Enforcement Actions</span></div>
+            <div class="tabs"><button class="tab on" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">All</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Blocked</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Allowed</button></div>
+          </div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:3px;">
+            <div class="enf-row">
+              <div class="enf-st st-blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+              <div class="enf-info"><span class="enf-name">cardiac-firmware-v3.2 — MR !847</span><span class="enf-detail">CVE-2026-1847 Critical (CVSS 9.8)</span></div>
+              <span class="enf-method-tag" style="background:var(--accent-red-dim);color:var(--accent-red);">EXT STATUS → FAIL</span>
+              <span class="enf-finding">Merge blocked</span>
+              <span class="enf-time">3m</span>
+              <div class="enf-actions"><button class="btn btn-xs btn-r" onclick="showOverrideModal('cardiac-firmware','CVE-2026-1847')">Override</button><button class="btn btn-xs" onclick="showToast('Rescan queued','info')">Rescan</button></div>
+            </div>
+            <div class="enf-row">
+              <div class="enf-st st-blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+              <div class="enf-info"><span class="enf-name">surgical-nav — MR !889</span><span class="enf-detail">Hardcoded AWS credential</span></div>
+              <span class="enf-method-tag" style="background:var(--accent-red-dim);color:var(--accent-red);">APPROVAL INJECTED</span>
+              <span class="enf-finding">Merge blocked</span>
+              <span class="enf-time">6h</span>
+              <div class="enf-actions"><button class="btn btn-xs btn-g" onclick="aiCreateMR(this)">AI Fix</button><button class="btn btn-xs btn-r" onclick="showToast('AWS key rotation triggered','warn')">Rotate</button></div>
+            </div>
+            <div class="enf-row">
+              <div class="enf-st st-blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+              <div class="enf-info"><span class="enf-name">spine-ortho-utils — Deploy prod</span><span class="enf-detail">GPL-3.0: libgpl-crypto@2.0.4</span></div>
+              <span class="enf-method-tag" style="background:var(--accent-amber-dim);color:var(--accent-amber);">ENV GATE → HELD</span>
+              <span class="enf-finding">Deploy blocked</span>
+              <span class="enf-time">1d</span>
+              <div class="enf-actions"><button class="btn btn-xs btn-r" onclick="showOverrideModal('spine-ortho','GPL dependency')">Override</button></div>
+            </div>
+            <div style="height:1px;background:var(--border-subtle);margin:4px 0;"></div>
+            <div class="enf-row">
+              <div class="enf-st st-approved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="enf-info"><span class="enf-name">insulin-pump-controller — MR !901</span><span class="enf-detail">24/24 policies pass, 0 CVEs</span></div>
+              <span class="enf-method-tag" style="background:var(--accent-green-dim);color:var(--accent-green);">EXT STATUS → PASS</span>
+              <span class="enf-finding">Merge allowed</span>
+              <span class="enf-time">28m</span>
+              <div class="enf-actions"><button class="btn btn-xs btn-g" onclick="this.textContent='✓ Released';this.disabled=true;showToast('Environment gate released','ok')">Release</button></div>
+            </div>
+            <div class="enf-row">
+              <div class="enf-st st-approved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="enf-info"><span class="enf-name">diabetes-analytics — MR !934</span><span class="enf-detail">All scans clean, coverage 92%</span></div>
+              <span class="enf-method-tag" style="background:var(--accent-green-dim);color:var(--accent-green);">ENV GATE → RELEASED</span>
+              <span class="enf-finding">Deployed</span>
+              <span class="enf-time">45m</span>
+              <div class="enf-actions"></div>
+            </div>
+            <div class="enf-row">
+              <div class="enf-st st-pend"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+              <div class="enf-info"><span class="enf-name">surgical-nav-calibration — Staging</span><span class="enf-detail">Pending: 2/3 approvals</span></div>
+              <span class="enf-method-tag" style="background:var(--accent-amber-dim);color:var(--accent-amber);">APPROVAL → 2/3</span>
+              <span class="enf-finding">Awaiting</span>
+              <span class="enf-time">12m</span>
+              <div class="enf-actions"><button class="btn btn-xs btn-g" onclick="this.closest('.enf-actions').innerHTML='<span style=font-size:10px;color:var(--accent-green);font-weight:600>✓ Approved</span>';showToast('3/3 approvals collected — deploying','ok')">Approve</button><button class="btn btn-xs btn-r" onclick="this.closest('.enf-actions').innerHTML='<span style=font-size:10px;color:var(--accent-red);font-weight:600>✗ Rejected</span>';showToast('Deploy rejected','err')">Reject</button></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Enforcement Mechanisms -->
+        <div class="card anim-d2">
+          <div class="card-h">
+            <div class="card-tg"><div class="card-icon" style="background:var(--accent-cyan-dim);color:var(--accent-cyan);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg></div><span class="card-t">Enforcement Mechanisms</span></div>
+            <span class="status-pill pill-green">All Active</span>
+          </div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:8px;">
+            <div class="config-row"><div class="config-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><div class="config-info"><div class="config-name">External Status Checks</div><div class="config-desc">MR cannot merge until Sentinel returns pass</div><div class="config-endpoint">POST /api/v4/projects/:id/external_status_checks</div></div><label class="toggle"><input type="checkbox" checked onchange="showToast('External Status Checks '+(this.checked?'enabled':'disabled'),this.checked?'ok':'warn')"><span class="toggle-s"></span></label></div>
+            <div class="config-row"><div class="config-icon" style="background:var(--accent-amber-dim);color:var(--accent-amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div class="config-info"><div class="config-name">Dynamic Approval Rules</div><div class="config-desc">API-injected required approvers based on policy</div><div class="config-endpoint">PUT /api/v4/projects/:id/merge_requests/:mr/approval_rules</div></div><label class="toggle"><input type="checkbox" checked onchange="showToast('Approval Rules '+(this.checked?'enabled':'disabled'),this.checked?'ok':'warn')"><span class="toggle-s"></span></label></div>
+            <div class="config-row"><div class="config-icon" style="background:var(--accent-green-dim);color:var(--accent-green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="config-info"><div class="config-name">Environment Protection Gates</div><div class="config-desc">Prod/staging require Sentinel approval to deploy</div><div class="config-endpoint">POST /api/v4/projects/:id/protected_environments</div></div><label class="toggle"><input type="checkbox" checked onchange="showToast('Environment Gates '+(this.checked?'enabled':'disabled'),this.checked?'ok':'warn')"><span class="toggle-s"></span></label></div>
+            <div class="config-row"><div class="config-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div><div class="config-info"><div class="config-name">Protected Branch Rules</div><div class="config-desc">Main/release branches require Sentinel approval group</div><div class="config-endpoint">PATCH /api/v4/projects/:id/protected_branches/:branch</div></div><label class="toggle"><input type="checkbox" checked onchange="showToast('Branch Rules '+(this.checked?'enabled':'disabled'),this.checked?'ok':'warn')"><span class="toggle-s"></span></label></div>
+            <div class="config-row"><div class="config-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div class="config-info"><div class="config-name">Webhook Listener</div><div class="config-desc">Receives pipeline, MR, deployment events — zero YAML</div><div class="config-endpoint">POST https://sentinel.medtronic.internal/webhooks/gitlab</div></div><label class="toggle"><input type="checkbox" checked onchange="showToast('Webhooks '+(this.checked?'enabled':'disabled'),this.checked?'ok':'warn')"><span class="toggle-s"></span></label></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="g2">
+        <!-- Webhook Log -->
+        <div class="card anim-d3">
+          <div class="card-h">
+            <div class="card-tg"><div class="card-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><span class="card-t">Incoming Webhooks</span></div>
+            <span class="status-pill pill-green"><span class="pill-dot"></span>Listening</span>
+          </div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:2px;" id="webhookLog">
+            <div class="wh-row"><span class="wh-event">pipeline</span><span class="wh-detail">cardiac-firmware #4821 — completed (failed)</span><span class="wh-status" style="background:var(--accent-blue-dim);color:var(--accent-blue);">PROCESSED</span><span class="wh-time">3m ago</span></div>
+            <div class="wh-row"><span class="wh-event">merge_request</span><span class="wh-detail">surgical-nav !889 — update (new commits)</span><span class="wh-status" style="background:var(--accent-blue-dim);color:var(--accent-blue);">PROCESSED</span><span class="wh-time">6m ago</span></div>
+            <div class="wh-row"><span class="wh-event">pipeline</span><span class="wh-detail">insulin-pump #4819 — completed (success)</span><span class="wh-status" style="background:var(--accent-green-dim);color:var(--accent-green);">PASS</span><span class="wh-time">28m ago</span></div>
+            <div class="wh-row"><span class="wh-event">deployment</span><span class="wh-detail">diabetes-analytics → production</span><span class="wh-status" style="background:var(--accent-green-dim);color:var(--accent-green);">RELEASED</span><span class="wh-time">45m ago</span></div>
+            <div class="wh-row"><span class="wh-event">push</span><span class="wh-detail">spinal-imaging-ml — 14 commits by M. Fischer</span><span class="wh-status" style="background:var(--accent-amber-dim);color:var(--accent-amber);">ANOMALY</span><span class="wh-time">1h ago</span></div>
+          </div>
+        </div>
+
+        <!-- GitLab API Calls -->
+        <div class="card anim-d3">
+          <div class="card-h">
+            <div class="card-tg"><div class="card-icon" style="background:var(--accent-cyan-dim);color:var(--accent-cyan);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></div><span class="card-t">GitLab API Calls (Enforcement)</span></div>
+            <span class="status-pill pill-blue">47 today</span>
+          </div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:2px;" id="apiLog">
+            <div class="api-row"><span class="api-method api-get">GET</span><span class="api-path">/projects/142/pipelines/4821/security_report</span><span class="api-status api-ok">200</span><span class="api-time-col">3m</span></div>
+            <div class="api-row"><span class="api-method api-post">POST</span><span class="api-path">/projects/142/statuses/a3f8c2d — state: failed</span><span class="api-status api-ok">201</span><span class="api-time-col">3m</span></div>
+            <div class="api-row"><span class="api-method api-put">PUT</span><span class="api-path">/projects/142/merge_requests/847/approval_rules — add: Security</span><span class="api-status api-ok">200</span><span class="api-time-col">3m</span></div>
+            <div class="api-row"><span class="api-method api-get">GET</span><span class="api-path">/projects/89/pipelines/4819/security_report</span><span class="api-status api-ok">200</span><span class="api-time-col">28m</span></div>
+            <div class="api-row"><span class="api-method api-post">POST</span><span class="api-path">/projects/89/statuses/e7b1d9f — state: success</span><span class="api-status api-ok">201</span><span class="api-time-col">28m</span></div>
+            <div class="api-row"><span class="api-method api-post">POST</span><span class="api-path">/projects/89/protected_environments/production — approve</span><span class="api-status api-ok">201</span><span class="api-time-col">28m</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- How It Works -->
+      <div class="card anim-d3 fw" style="border-color:rgba(74,144,255,0.15);">
+        <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></div><span class="card-t">How Zero-Touch Enforcement Works</span></div></div>
+        <div class="card-b">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;">
+            <div style="text-align:center;padding:14px;"><div style="width:44px;height:44px;border-radius:var(--radius-md);background:var(--accent-blue-dim);color:var(--accent-blue);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77"/></svg></div><div style="font-size:12.5px;font-weight:600;margin-bottom:3px;">GitLab Runs As-Is</div><div style="font-size:11px;color:var(--text-secondary);line-height:1.5;">Teams keep existing pipelines. Built-in scanners run normally. Zero YAML changes.</div></div>
+            <div style="text-align:center;padding:14px;"><div style="width:44px;height:44px;border-radius:var(--radius-md);background:var(--accent-purple-dim);color:var(--accent-purple);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div style="font-size:12.5px;font-weight:600;margin-bottom:3px;">Webhooks → Sentinel</div><div style="font-size:11px;color:var(--text-secondary);line-height:1.5;">Pipeline, MR, deploy events stream in real-time. Sentinel pulls results via API.</div></div>
+            <div style="text-align:center;padding:14px;"><div style="width:44px;height:44px;border-radius:var(--radius-md);background:var(--accent-cyan-dim);color:var(--accent-cyan);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div style="font-size:12.5px;font-weight:600;margin-bottom:3px;">OPA Evaluates</div><div style="font-size:11px;color:var(--text-secondary);line-height:1.5;">Policies authored by compliance team. Results checked against scan data. Pass/fail decided.</div></div>
+            <div style="text-align:center;padding:14px;"><div style="width:44px;height:44px;border-radius:var(--radius-md);background:var(--accent-red-dim);color:var(--accent-red);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div style="font-size:12.5px;font-weight:600;margin-bottom:3px;">API Enforces</div><div style="font-size:11px;color:var(--text-secondary);line-height:1.5;">External status checks block merge. Approval rules inject reviewers. Env gates hold deploy.</div></div>
+          </div>
+          <div style="text-align:center;margin-top:10px;padding:12px;background:var(--bg-primary);border-radius:var(--radius-md);border:1px solid var(--border-subtle);"><span style="font-size:11.5px;color:var(--text-secondary);">Developers cannot bypass enforcement — it lives outside their pipeline. Removing a scan from YAML doesn't help because Sentinel independently verifies via API.</span></div>
+        </div>
+      </div>
+    </div> <!-- end pg-enforcement -->
+
+    <!-- ═══════ APPROVALS PAGE ═══════ -->
+    <div class="page pg" id="pg-approvals" style="padding:20px 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="font-size:20px;font-weight:700;">Pending Approvals</div><div style="font-size:13px;color:var(--text-muted);margin-top:4px;">7 items requiring your action</div></div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn" onclick="showToast('All items approved in bulk','ok')">Approve All Safe</button>
+          <button class="btn btn-p" onclick="showToast('Exported approval report','info')">Export Report</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><span class="card-t">Deploy Approvals — Blocked</span></div><span class="badge bg-r">3</span></div>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:10px;">
+          <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div><div style="font-size:13px;font-weight:600;">cardiac-firmware-v3.2 → production</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Blocked by: CVE Severity Gate — CVE-2026-1847 (Critical, CVSS 9.8)</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Requested by: J. Ramirez • 3 minutes ago • Risk: <span style="color:var(--accent-red);font-weight:600;">HIGH</span></div></div>
+              <div style="display:flex;gap:5px;"><button class="btn btn-sm btn-r" onclick="showOverrideModal('cardiac-firmware','CVE-2026-1847')">Override</button><button class="btn btn-sm btn-g" onclick="aiCreateMR(this)">AI Fix</button><button class="btn btn-sm" onclick="showToast('Rescan triggered','info')">Rescan</button></div>
+            </div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div><div style="font-size:13px;font-weight:600;">surgical-nav !889 → staging</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Blocked by: Secret Detection — Hardcoded AWS credential in src/config/cloud.py</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Requested by: M. Chen • 6 hours ago • Risk: <span style="color:var(--accent-red);font-weight:600;">CRITICAL</span></div></div>
+              <div style="display:flex;gap:5px;"><button class="btn btn-sm btn-r" onclick="showToast('Key rotation triggered','warn')">Rotate Key</button><button class="btn btn-sm btn-g" onclick="aiCreateMR(this)">AI Fix</button></div>
+            </div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div><div style="font-size:13px;font-weight:600;">spine-ortho-utils → production</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Blocked by: License Allowlist — GPL-3.0 dependency: libgpl-crypto@2.0.4</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Requested by: K. Patel • 1 day ago • Risk: <span style="color:var(--accent-amber);font-weight:600;">MEDIUM</span></div></div>
+              <div style="display:flex;gap:5px;"><button class="btn btn-sm btn-r" onclick="showOverrideModal('spine-ortho','GPL-3.0')">Override</button><button class="btn btn-sm" onclick="showToast('Assigned to dev for dep replacement','info')">Assign</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-amber-dim);color:var(--accent-amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><span class="card-t">Merge Request Approvals — Pending Signature</span></div><span class="badge bg-a">4</span></div>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+            <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">surgical-nav-calibration !903 — fix/drift-correction</div><div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;">IEC 62304 Class C requires 3 approvals • Currently 2/3 • Waiting: Security Lead</div></div>
+            <button class="btn btn-sm btn-g" onclick="this.innerHTML='✓ Signed';this.disabled=true;this.style.color='var(--accent-green)';showToast('E-signature recorded — 3/3 approvals complete','ok')">Sign & Approve</button>
+            <button class="btn btn-sm btn-r" onclick="this.innerHTML='✗ Rejected';this.disabled=true;showToast('MR rejected — developer notified','err')">Reject</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+            <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">diabetes-pump-ui !921 — feature/bolus-calculator</div><div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;">FDA 21 CFR Part 11 requires e-signature • Currently 1/2 • Waiting: QA Manager</div></div>
+            <button class="btn btn-sm btn-g" onclick="this.innerHTML='✓ Signed';this.disabled=true;showToast('E-signature recorded','ok')">Sign & Approve</button>
+            <button class="btn btn-sm btn-r" onclick="this.innerHTML='✗';this.disabled=true;showToast('Rejected','err')">Reject</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+            <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">cardiac-monitor-api !945 — release/2.3.0</div><div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;">Production release gate • Currently 0/3 • Waiting: Dev Lead, QA, Compliance</div></div>
+            <button class="btn btn-sm btn-g" onclick="this.innerHTML='✓ Signed';this.disabled=true;showToast('E-signature recorded — 1/3','ok')">Sign & Approve</button>
+            <button class="btn btn-sm btn-r" onclick="this.innerHTML='✗';this.disabled=true;showToast('Rejected','err')">Reject</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+            <div style="flex:1;"><div style="font-size:12.5px;font-weight:500;">spinal-imaging-ml !912 — feature/model-v2</div><div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;">⚠ Anomaly flagged — extra review required • Currently 0/2 • Waiting: AI Lead, Security</div></div>
+            <button class="btn btn-sm btn-g" onclick="this.innerHTML='✓ Signed';this.disabled=true;showToast('E-signature recorded','ok')">Sign & Approve</button>
+            <button class="btn btn-sm btn-r" onclick="this.innerHTML='✗';this.disabled=true;showToast('Rejected','err')">Reject</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ POLICIES PAGE ═══════ -->
+    <div class="page pg" id="pg-policies" style="padding:20px 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="font-size:20px;font-weight:700;">Policy Management</div><div style="font-size:13px;color:var(--text-muted);margin-top:4px;">24 active policies across 4 groups</div></div>
+        <div style="display:flex;gap:6px;"><button class="btn btn-p" onclick="openPolicyModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Create Policy</button></div>
+      </div>
+
+      <div class="g2">
+        <div class="card">
+          <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><span class="card-t">Regulatory Compliance</span></div></div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">FDA 21 CFR Part 11</div><div style="font-size:10px;color:var(--text-muted);">Electronic records, signatures, audit trails • 8 rules</div></div><span class="badge bg-g">Active</span><label class="toggle"><input type="checkbox" checked onchange="togglePolicy('FDA 21 CFR Part 11',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">IEC 62304 Class C</div><div style="font-size:10px;color:var(--text-muted);">Medical device software lifecycle • 12 rules</div></div><span class="badge bg-g">Active</span><label class="toggle"><input type="checkbox" checked onchange="togglePolicy('IEC 62304',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">ISO 13485</div><div style="font-size:10px;color:var(--text-muted);">Quality management for medical devices • 6 rules</div></div><span class="badge bg-g">Active</span><label class="toggle"><input type="checkbox" checked onchange="togglePolicy('ISO 13485',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);opacity:0.6;"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">HIPAA Security Rule</div><div style="font-size:10px;color:var(--text-muted);">PHI protection for patient data services • 4 rules</div></div><span class="badge bg-a">Draft</span><label class="toggle"><input type="checkbox" onchange="togglePolicy('HIPAA',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div><span class="card-t">Security Policies</span></div></div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">CVE Severity Gate</div><div style="font-size:10px;color:var(--text-muted);">Block on Critical/High vulnerabilities • 2 rules</div></div><span class="badge bg-g">Active</span><label class="toggle"><input type="checkbox" checked onchange="togglePolicy('CVE Gate',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">Secret Detection</div><div style="font-size:10px;color:var(--text-muted);">Block merge on any credentials/keys/tokens • 1 rule</div></div><span class="badge bg-g">Active</span><label class="toggle"><input type="checkbox" checked onchange="togglePolicy('Secret Detection',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">License Allowlist</div><div style="font-size:10px;color:var(--text-muted);">Only MIT, Apache-2.0, BSD permitted • 1 rule</div></div><span class="badge bg-g">Active</span><label class="toggle"><input type="checkbox" checked onchange="togglePolicy('License Allowlist',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">Test Coverage Minimum</div><div style="font-size:10px;color:var(--text-muted);">Require ≥80% for safety-critical, ≥60% others • 2 rules</div></div><span class="badge bg-g">Active</span><label class="toggle"><input type="checkbox" checked onchange="togglePolicy('Test Coverage',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);"><div style="flex:1"><div style="font-size:12.5px;font-weight:500;">Container Image Scanning</div><div style="font-size:10px;color:var(--text-muted);">Block deploy if base image has known vulns • 1 rule</div></div><span class="badge bg-g">Active</span><label class="toggle"><input type="checkbox" checked onchange="togglePolicy('Container Scan',this.checked)"><span class="toggle-s"></span></label><button class="btn btn-xs" onclick="openPolicyModal()">Edit</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div><span class="card-t">Policy Change History</span></div></div>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:4px;">
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;font-size:12px;border-radius:var(--radius-sm);" class="enf-row"><span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">Feb 5, 14:32</span><span style="flex:1;">D. Kim activated <b>License Allowlist</b> policy</span><span class="badge bg-g">Activated</span></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;font-size:12px;border-radius:var(--radius-sm);" class="enf-row"><span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">Feb 4, 09:15</span><span style="flex:1;">S. Liu updated <b>CVE Severity Gate</b> — added CVSS threshold rule</span><span class="badge bg-b">Modified</span></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;font-size:12px;border-radius:var(--radius-sm);" class="enf-row"><span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">Feb 3, 16:41</span><span style="flex:1;">A. Kumar created draft <b>HIPAA Security Rule</b> policy</span><span class="badge bg-a">Draft</span></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;font-size:12px;border-radius:var(--radius-sm);" class="enf-row"><span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">Jan 30, 11:20</span><span style="flex:1;">D. Kim updated <b>IEC 62304 Class C</b> — increased coverage to 80%</span><span class="badge bg-b">Modified</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ SECURITY PAGE ═══════ -->
+    <div class="page pg" id="pg-security" style="padding:20px 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="font-size:20px;font-weight:700;">Security Findings</div><div style="font-size:13px;color:var(--text-muted);margin-top:4px;">17 open findings across all projects</div></div>
+        <div style="display:flex;gap:6px;"><button class="btn btn-g" onclick="showToast('AI generating fix MRs for all critical findings...','info')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>AI Fix All Critical</button><button class="btn" onclick="showToast('Full security report exported','ok')">Export</button></div>
+      </div>
+      <div class="stats" style="grid-template-columns:repeat(4,1fr);">
+        <div class="stat"><div class="stat-label">Critical</div><div class="stat-val" style="color:var(--accent-red);">2</div><div class="stat-chg chg-dn">↑ 1 new today</div></div>
+        <div class="stat"><div class="stat-label">High</div><div class="stat-val" style="color:#ff6347;">5</div><div class="stat-chg chg-up">↓ 2 resolved this week</div></div>
+        <div class="stat"><div class="stat-label">Medium</div><div class="stat-val" style="color:var(--accent-amber);">6</div><div class="stat-chg">Stable</div></div>
+        <div class="stat"><div class="stat-label">Low</div><div class="stat-val" style="color:var(--accent-blue);">4</div><div class="stat-chg chg-up">↓ 1 resolved</div></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div><span class="card-t">All Findings</span></div><div class="tabs"><button class="tab on" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Open</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Resolved</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Excepted</button></div></div>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:4px;">
+          <div class="enf-row"><span class="badge bg-r" style="width:56px;text-align:center;font-size:9px;">CRITICAL</span><div class="enf-info"><span class="enf-name">CVE-2026-1847 — OpenSSL Buffer Overflow</span><span class="enf-detail">openssl@3.1.2 • CVSS 9.8</span></div><span style="font-size:10.5px;color:var(--text-secondary);">cardiac-firmware</span><span class="enf-time">2d</span><div class="enf-actions"><button class="btn btn-xs btn-g" onclick="aiCreateMR(this)">AI Fix</button><button class="btn btn-xs" onclick="showExceptionModal('CVE-2026-1847')">Except</button></div></div>
+          <div class="enf-row"><span class="badge bg-r" style="width:56px;text-align:center;font-size:9px;">CRITICAL</span><div class="enf-info"><span class="enf-name">Hardcoded AWS credential</span><span class="enf-detail">src/config/cloud.py • Secret Detection</span></div><span style="font-size:10.5px;color:var(--text-secondary);">surgical-nav</span><span class="enf-time">6h</span><div class="enf-actions"><button class="btn btn-xs btn-g" onclick="aiCreateMR(this)">AI Fix</button><button class="btn btn-xs btn-r" onclick="showToast('Key rotation triggered','warn')">Rotate</button></div></div>
+          <div class="enf-row"><span class="badge" style="background:#ff634730;color:#ff6347;width:56px;text-align:center;font-size:9px;">HIGH</span><div class="enf-info"><span class="enf-name">SQL Injection — patient ID input</span><span class="enf-detail">api/patients/lookup.java:142 • SAST</span></div><span style="font-size:10.5px;color:var(--text-secondary);">diabetes-mgmt</span><span class="enf-time">1d</span><div class="enf-actions"><button class="btn btn-xs btn-g" onclick="aiCreateMR(this)">AI Fix</button><button class="btn btn-xs" onclick="showToast('Assigned to dev team','info')">Assign</button></div></div>
+          <div class="enf-row"><span class="badge" style="background:#ff634730;color:#ff6347;width:56px;text-align:center;font-size:9px;">HIGH</span><div class="enf-info"><span class="enf-name">Insecure deserialization in API gateway</span><span class="enf-detail">gateway/src/parser.py:88 • SAST</span></div><span style="font-size:10.5px;color:var(--text-secondary);">cardiac-monitor</span><span class="enf-time">3d</span><div class="enf-actions"><button class="btn btn-xs btn-g" onclick="aiCreateMR(this)">AI Fix</button><button class="btn btn-xs" onclick="showExceptionModal('Insecure Deserialization')">Except</button></div></div>
+          <div class="enf-row"><span class="badge bg-a" style="width:56px;text-align:center;font-size:9px;">MEDIUM</span><div class="enf-info"><span class="enf-name">Outdated TLS 1.1 configuration</span><span class="enf-detail">DAST • staging.medtronic-internal.com</span></div><span style="font-size:10.5px;color:var(--text-secondary);">spinal-imaging</span><span class="enf-time">5d</span><div class="enf-actions"><button class="btn btn-xs" onclick="showToast('Assigned to DevOps','info')">Assign</button></div></div>
+          <div class="enf-row"><span class="badge bg-a" style="width:56px;text-align:center;font-size:9px;">MEDIUM</span><div class="enf-info"><span class="enf-name">Missing rate limiting on auth endpoint</span><span class="enf-detail">DAST • api.medtronic-internal.com/auth</span></div><span style="font-size:10.5px;color:var(--text-secondary);">patient-portal</span><span class="enf-time">7d</span><div class="enf-actions"><button class="btn btn-xs" onclick="showToast('Assigned to backend team','info')">Assign</button></div></div>
+          <div class="enf-row"><span class="badge bg-b" style="width:56px;text-align:center;font-size:9px;">LOW</span><div class="enf-info"><span class="enf-name">Missing Content-Security-Policy header</span><span class="enf-detail">DAST • portal.medtronic-internal.com</span></div><span style="font-size:10.5px;color:var(--text-secondary);">patient-portal</span><span class="enf-time">12d</span><div class="enf-actions"><button class="btn btn-xs" onclick="showToast('Added to backlog','info')">Backlog</button></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ AI INTELLIGENCE PAGE ═══════ -->
+    <div class="page pg" id="pg-ai" style="padding:20px 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="font-size:20px;font-weight:700;">AI Intelligence</div><div style="font-size:13px;color:var(--text-muted);margin-top:4px;">Automated remediation, anomaly detection, predictive compliance</div></div>
+        <div style="display:flex;gap:6px;"><button class="btn" onclick="showToast('AI analysis refreshed','info')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Refresh</button></div>
+      </div>
+      <div class="stats" style="grid-template-columns:repeat(4,1fr);">
+        <div class="stat"><div class="stat-label">Auto-Remediations</div><div class="stat-val" style="color:var(--accent-green);">12</div><div class="stat-chg chg-up">8 merged this week</div></div>
+        <div class="stat"><div class="stat-label">Anomalies Detected</div><div class="stat-val" style="color:var(--accent-amber);">3</div><div class="stat-chg">1 resolved</div></div>
+        <div class="stat"><div class="stat-label">Predictions Made</div><div class="stat-val" style="color:var(--accent-blue);">47</div><div class="stat-chg chg-up">91% accuracy</div></div>
+        <div class="stat"><div class="stat-label">Policies Generated</div><div class="stat-val" style="color:var(--accent-purple);">6</div><div class="stat-chg">From natural language</div></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:linear-gradient(135deg,var(--accent-purple-dim),var(--accent-blue-dim));color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div><span class="card-t">AI Actions & Recommendations</span></div><div class="tabs"><button class="tab on" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Active</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Resolved</button></div></div>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:10px;">
+          <div class="ai-action ai-crit"><div class="ai-top"><div class="ai-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div><div class="ai-content"><div class="ai-label" style="color:var(--accent-red);">Auto-Remediation</div><div class="ai-title">CVE-2026-1847 — OpenSSL 3.1.2 → 3.1.4 fix ready</div><div class="ai-desc">Buffer overflow in BLE stack. AI prepared upgrade MR. All 847 tests passing against patched version.</div><div class="ai-actions"><button class="btn btn-sm btn-g" onclick="aiCreateMR(this)">Create Fix MR</button><button class="btn btn-sm" onclick="toggleDiff(this)">View Diff</button><button class="btn btn-sm btn-r" onclick="showOverrideModal('cardiac-firmware','CVE-2026-1847')">Override</button><button class="btn btn-sm" onclick="dismissAI(this)">Dismiss</button></div><div class="ai-diff"><span class="diff-rem">- openssl (3.1.2)</span><span class="diff-add">+ openssl (3.1.4)</span></div></div></div></div>
+          <div class="ai-action ai-warn"><div class="ai-top"><div class="ai-icon" style="background:var(--accent-amber-dim);color:var(--accent-amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div class="ai-content"><div class="ai-label" style="color:var(--accent-amber);">Anomaly Detected</div><div class="ai-title">Unusual commit velocity + permission changes — spinal-imaging-ml</div><div class="ai-desc">M. Fischer: 14 commits in 2h (4x normal). DICOM data access permissions modified. Risk elevated to HIGH.</div><div class="ai-actions"><button class="btn btn-sm btn-a" onclick="showToast('Extra review required on MR !912','warn')">Require Review</button><button class="btn btn-sm" onclick="showToast('Deploy held','warn')">Hold Deploy</button><button class="btn btn-sm" onclick="showToast('Manager notified via Slack','info')">Notify Manager</button><button class="btn btn-sm" onclick="dismissAI(this)">Dismiss</button></div></div></div></div>
+          <div class="ai-action ai-ok"><div class="ai-top"><div class="ai-icon" style="background:var(--accent-green-dim);color:var(--accent-green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="ai-content"><div class="ai-label" style="color:var(--accent-green);">Release Ready</div><div class="ai-title">insulin-pump-controller v4.1.0 — All criteria met</div><div class="ai-desc">24/24 policies pass. Zero CVEs. 312 deps approved. E-signatures 3/3. Traceability 100%.</div><div class="ai-actions"><button class="btn btn-sm btn-g" onclick="releaseAction('insulin-pump v4.1.0',this)">Release to Prod</button><button class="btn btn-sm" onclick="showToast('Evidence package downloaded','ok')">Evidence Pkg</button><button class="btn btn-sm" onclick="showToast('FDA submission package generated','info')">FDA Package</button></div></div></div></div>
+          <div class="ai-action ai-info"><div class="ai-top"><div class="ai-icon" style="background:var(--accent-blue-dim);color:var(--accent-blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="ai-content"><div class="ai-label" style="color:var(--accent-blue);">Predictive</div><div class="ai-title">PR #1204 in surgical-nav will fail IEC 62304</div><div class="ai-desc">Test coverage drops 94% → 71% for safety-critical modules. 12 untested code paths identified.</div><div class="ai-actions"><button class="btn btn-sm btn-p" onclick="aiCreateMR(this,'test stubs')">Generate Test Stubs</button><button class="btn btn-sm" onclick="showToast('Assigned to A. Kumar','info')">Assign</button><button class="btn btn-sm" onclick="dismissAI(this)">Dismiss</button></div></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ SBOM PAGE ═══════ -->
+    <div class="page pg" id="pg-sbom" style="padding:20px 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="font-size:20px;font-weight:700;">Software Bill of Materials</div><div style="font-size:13px;color:var(--text-muted);margin-top:4px;">1,247 dependencies across all projects — 96% coverage</div></div>
+        <div style="display:flex;gap:6px;"><button class="btn" onclick="showToast('CycloneDX SBOM exported','ok')">Export CycloneDX</button><button class="btn" onclick="showToast('SPDX SBOM exported','ok')">Export SPDX</button><button class="btn btn-p" onclick="showToast('Full SBOM validation running...','info')">Validate All</button></div>
+      </div>
+      <div class="stats" style="grid-template-columns:repeat(4,1fr);">
+        <div class="stat"><div class="stat-label">Total Dependencies</div><div class="stat-val">1,247</div></div>
+        <div class="stat"><div class="stat-label">Approved License</div><div class="stat-val" style="color:var(--accent-green);">1,198</div></div>
+        <div class="stat"><div class="stat-label">Under Review</div><div class="stat-val" style="color:var(--accent-amber);">38</div></div>
+        <div class="stat"><div class="stat-label">Banned / Flagged</div><div class="stat-val" style="color:var(--accent-red);">11</div></div>
+      </div>
+      <div class="g2">
+        <div class="card">
+          <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-red-dim);color:var(--accent-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div><span class="card-t">Vulnerable Dependencies</span></div></div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:4px;">
+            <div class="dep-row"><span class="dep-name">openssl</span><span class="dep-ver">3.1.2</span><span class="dep-lic lic-ok">Apache-2.0</span><span class="badge bg-r" style="font-size:8px;">2 CVEs</span><button class="btn btn-xs btn-g" onclick="aiCreateMR(this)">AI Fix</button></div>
+            <div class="dep-row"><span class="dep-name">jackson-databind</span><span class="dep-ver">2.14.0</span><span class="dep-lic lic-ok">Apache-2.0</span><span class="badge bg-a" style="font-size:8px;">1 CVE</span><button class="btn btn-xs btn-g" onclick="aiCreateMR(this)">AI Fix</button></div>
+            <div class="dep-row"><span class="dep-name">spring-core</span><span class="dep-ver">5.3.27</span><span class="dep-lic lic-ok">Apache-2.0</span><span class="badge bg-a" style="font-size:8px;">1 CVE</span><button class="btn btn-xs btn-g" onclick="aiCreateMR(this)">AI Fix</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-amber-dim);color:var(--accent-amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><span class="card-t">License Review Required</span></div></div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:4px;">
+            <div class="dep-row"><span class="dep-name">mongo-driver</span><span class="dep-ver">4.11.0</span><span class="dep-lic lic-rv">SSPL-1.0</span><span style="font-size:10px;color:var(--accent-amber);">⚠</span><button class="btn btn-xs btn-g" onclick="approveLicense(this)">Approve</button><button class="btn btn-xs btn-r" onclick="banDep(this)">Ban</button></div>
+            <div class="dep-row"><span class="dep-name">libgpl-crypto</span><span class="dep-ver">2.0.4</span><span class="dep-lic lic-no">GPL-3.0</span><span style="font-size:10px;color:var(--accent-red);">✗</span><button class="btn btn-xs btn-r" onclick="banDep(this)">Block</button></div>
+            <div class="dep-row"><span class="dep-name">elastic-apm</span><span class="dep-ver">1.38.0</span><span class="dep-lic lic-rv">Elastic-2.0</span><span style="font-size:10px;color:var(--accent-amber);">⚠</span><button class="btn btn-xs btn-g" onclick="approveLicense(this)">Approve</button><button class="btn btn-xs btn-r" onclick="banDep(this)">Ban</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-green-dim);color:var(--accent-green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div><span class="card-t">All Dependencies</span></div><div class="tabs"><button class="tab on" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">All</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Vulnerable</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Banned</button></div></div>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:3px;">
+          <div class="dep-row"><span class="dep-name">react</span><span class="dep-ver">18.3.1</span><span class="dep-lic lic-ok">MIT</span><span style="font-size:10px;color:var(--accent-green);">✓</span><span></span></div>
+          <div class="dep-row"><span class="dep-name">log4j-core</span><span class="dep-ver">2.17.1</span><span class="dep-lic lic-ok">Apache-2.0</span><span style="font-size:10px;color:var(--accent-green);">✓</span><span></span></div>
+          <div class="dep-row"><span class="dep-name">postgresql</span><span class="dep-ver">42.7.1</span><span class="dep-lic lic-ok">BSD-2</span><span style="font-size:10px;color:var(--accent-green);">✓</span><span></span></div>
+          <div class="dep-row"><span class="dep-name">spring-boot</span><span class="dep-ver">3.2.1</span><span class="dep-lic lic-ok">Apache-2.0</span><span style="font-size:10px;color:var(--accent-green);">✓</span><span></span></div>
+          <div class="dep-row"><span class="dep-name">guava</span><span class="dep-ver">32.1.3</span><span class="dep-lic lic-ok">Apache-2.0</span><span style="font-size:10px;color:var(--accent-green);">✓</span><span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ AUDIT LOG PAGE ═══════ -->
+    <div class="page pg" id="pg-audit" style="padding:20px 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="font-size:20px;font-weight:700;">Audit Log</div><div style="font-size:13px;color:var(--text-muted);margin-top:4px;">Immutable, exactly-once compliance record — FDA 21 CFR Part 11 compliant</div></div>
+        <div style="display:flex;gap:6px;"><button class="btn" onclick="showToast('Audit log exported as CSV','ok')">Export CSV</button><button class="btn btn-p" onclick="showToast('FDA evidence package generated from audit trail','ok')">Generate FDA Package</button></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div class="card-tg"><div class="card-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div><span class="card-t">Compliance Audit Trail</span></div><div class="tabs"><button class="tab on" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">All</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Enforcements</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Overrides</button><button class="tab" onclick="this.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));this.classList.add('on')">Approvals</button></div></div>
+        <div class="card-b" style="display:flex;flex-direction:column;gap:3px;">
+          <div class="enf-row" style="grid-template-columns:130px auto 1fr auto auto;">
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);">Feb 5, 14:47:32</span>
+            <span class="badge bg-r" style="font-size:8px;width:72px;text-align:center;">BLOCKED</span>
+            <div class="enf-info"><span class="enf-name">MR !847 blocked — CVE Severity Gate failed</span><span class="enf-detail">cardiac-firmware-v3.2 • CVE-2026-1847 • External status check: fail</span></div>
+            <span style="font-size:10px;color:var(--text-muted);">System</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);">txn:a8f3c2d1</span>
+          </div>
+          <div class="enf-row" style="grid-template-columns:130px auto 1fr auto auto;">
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);">Feb 5, 14:41:18</span>
+            <span class="badge bg-r" style="font-size:8px;width:72px;text-align:center;">BLOCKED</span>
+            <div class="enf-info"><span class="enf-name">MR !889 blocked — Secret Detection triggered</span><span class="enf-detail">surgical-nav • Hardcoded AWS key • Approval rule injected: Security Team</span></div>
+            <span style="font-size:10px;color:var(--text-muted);">System</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);">txn:b2e7f194</span>
+          </div>
+          <div class="enf-row" style="grid-template-columns:130px auto 1fr auto auto;">
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);">Feb 5, 14:22:05</span>
+            <span class="badge bg-g" style="font-size:8px;width:72px;text-align:center;">APPROVED</span>
+            <div class="enf-info"><span class="enf-name">MR !901 approved — All 24 policies passed</span><span class="enf-detail">insulin-pump-controller • External status check: pass • Env gate: released</span></div>
+            <span style="font-size:10px;color:var(--text-muted);">System</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);">txn:c4d9a287</span>
+          </div>
+          <div class="enf-row" style="grid-template-columns:130px auto 1fr auto auto;">
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);">Feb 5, 14:15:33</span>
+            <span class="badge bg-g" style="font-size:8px;width:72px;text-align:center;">DEPLOYED</span>
+            <div class="enf-info"><span class="enf-name">diabetes-analytics deployed to production</span><span class="enf-detail">Environment gate released by Sentinel • All scans clean</span></div>
+            <span style="font-size:10px;color:var(--text-muted);">System</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);">txn:d1f3b492</span>
+          </div>
+          <div class="enf-row" style="grid-template-columns:130px auto 1fr auto auto;">
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);">Feb 5, 13:58:11</span>
+            <span class="badge bg-b" style="font-size:8px;width:72px;text-align:center;">E-SIGNATURE</span>
+            <div class="enf-info"><span class="enf-name">S. Liu signed approval for insulin-pump !901</span><span class="enf-detail">E-signature collected • FDA 21 CFR Part 11 compliant • Approval 3/3</span></div>
+            <span style="font-size:10px;color:var(--text-muted);">S. Liu</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);">txn:e8a2c573</span>
+          </div>
+          <div class="enf-row" style="grid-template-columns:130px auto 1fr auto auto;">
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);">Feb 5, 12:30:44</span>
+            <span class="badge bg-a" style="font-size:8px;width:72px;text-align:center;">OVERRIDE</span>
+            <div class="enf-info"><span class="enf-name">TLS 1.1 finding exception granted for spinal-imaging</span><span class="enf-detail">Justification: "Internal-only endpoint, fix in v4.1.1" • Expires: Feb 12 • Approved by: Security Lead</span></div>
+            <span style="font-size:10px;color:var(--text-muted);">D. Kim</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);">txn:f7b4d681</span>
+          </div>
+          <div class="enf-row" style="grid-template-columns:130px auto 1fr auto auto;">
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);">Feb 5, 11:15:22</span>
+            <span class="badge" style="background:var(--accent-purple-dim);color:var(--accent-purple);font-size:8px;width:72px;text-align:center;">POLICY</span>
+            <div class="enf-info"><span class="enf-name">Policy "License Allowlist" activated</span><span class="enf-detail">Scope: All GitLab Groups • 1 rule • Enforcement: Block Merge Request</span></div>
+            <span style="font-size:10px;color:var(--text-muted);">D. Kim</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);">txn:a1c5e792</span>
+          </div>
+          <div class="enf-row" style="grid-template-columns:130px auto 1fr auto auto;">
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);">Feb 5, 10:45:09</span>
+            <span class="badge bg-b" style="font-size:8px;width:72px;text-align:center;">AI ACTION</span>
+            <div class="enf-info"><span class="enf-name">AI auto-generated fix MR for jackson-databind CVE</span><span class="enf-detail">Upgrade 2.14.0 → 2.16.1 • MR !938 created • cardiac-monitor-api</span></div>
+            <span style="font-size:10px;color:var(--text-muted);">Sentinel AI</span>
+            <span style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);">txn:b3d7f893</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══ Override/Exception Modal ═══ -->
+<div class="modal-bg" id="overrideModal">
+  <div class="modal" style="width:520px;">
+    <div class="modal-h"><span class="modal-t" id="overrideTitle">Override Policy Gate</span><button class="modal-x" onclick="closeModal('overrideModal')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="modal-body">
+      <div style="background:var(--accent-red-dim);border:1px solid rgba(248,113,113,0.2);border-radius:var(--radius-md);padding:12px;margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:600;color:var(--accent-red);margin-bottom:4px;">⚠ This action will be permanently recorded in the audit ledger</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);" id="overrideDesc">Overriding the CVE Severity Gate for cardiac-firmware-v3.2 will allow merge despite critical vulnerability CVE-2026-1847.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div><label class="pb-label">Justification (required)</label><textarea class="pb-input" style="min-height:80px;resize:vertical;margin-top:6px;" placeholder="Explain why this override is necessary..."></textarea></div>
+        <div><label class="pb-label">Exception Expiry</label><select class="pb-select" style="margin-top:6px;"><option>24 hours</option><option>48 hours</option><option>1 week</option><option>Until next release</option><option>Permanent (requires VP approval)</option></select></div>
+        <div><label class="pb-label">Additional Approver</label><select class="pb-select" style="margin-top:6px;"><option>Security Team Lead</option><option>VP Engineering</option><option>Compliance Officer</option><option>CISO</option></select></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+          <input type="checkbox" id="ackCheck" style="accent-color:var(--accent-red);">
+          <label for="ackCheck" style="font-size:11.5px;color:var(--text-secondary);">I acknowledge this override will be recorded with my identity and justification for FDA audit trail compliance.</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-f">
+      <button class="btn" onclick="closeModal('overrideModal')">Cancel</button>
+      <button class="btn btn-r" onclick="submitOverride()">Submit Override</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Policy Builder Modal ═══ -->
+<div class="modal-bg" id="policyModal">
+  <div class="modal" style="width:900px;">
+    <div class="modal-h"><span class="modal-t">Create New Policy</span><button class="modal-x" onclick="closeModal('policyModal')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="modal-body">
+      <!-- AI Natural Language Policy Creation -->
+      <div class="pb-nlp" style="margin-bottom:20px;">
+        <textarea placeholder="Describe your policy in plain English... e.g., 'Block any production deployment that has critical or high CVEs, requires at least 80% test coverage, and needs sign-off from the security team lead'" id="nlpInput"></textarea>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn btn-sm btn-p" onclick="generateFromNLP()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Generate Policy with AI</button></div>
+      </div>
+      <div class="pb-grid">
+        <div class="pb-section">
+          <label class="pb-label">Policy Name</label>
+          <input class="pb-input" placeholder="e.g., Production CVE Gate" id="pbName">
+          <label class="pb-label">Scope</label>
+          <select class="pb-select"><option>All GitLab Groups</option><option>Cardiac Devices</option><option>Surgical Navigation</option><option>Diabetes Management</option></select>
+          <label class="pb-label">Enforcement</label>
+          <select class="pb-select"><option>Block Merge Request</option><option>Block Deployment</option><option>Require Additional Approval</option><option>Flag for Review (Non-blocking)</option></select>
+          <label class="pb-label">Regulatory Framework</label>
+          <select class="pb-select"><option>None</option><option>FDA 21 CFR Part 11</option><option>IEC 62304</option><option>ISO 13485</option><option>HIPAA</option></select>
+          <label class="pb-label">Rules</label>
+          <div class="pb-rule"><div class="pb-rule-hdr"><span class="pb-rule-t">Rule 1</span><button class="pb-rule-rm">Remove</button></div><div class="pb-rule-row"><select style="flex:1.2"><option>CVE Severity</option><option>Test Coverage</option><option>License Type</option><option>Secret Detected</option><option>Required Approvals</option></select><select style="flex:0.8"><option>equals</option><option>greater than</option><option>less than</option><option>contains</option></select><input style="flex:1" value="Critical, High"></div></div>
+          <div class="pb-rule"><div class="pb-rule-hdr"><span class="pb-rule-t">Rule 2</span><button class="pb-rule-rm">Remove</button></div><div class="pb-rule-row"><select style="flex:1.2"><option>Test Coverage</option><option>CVE Severity</option></select><select style="flex:0.8"><option>less than</option><option>greater than</option></select><input style="flex:1" value="80%"></div></div>
+          <button class="pb-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Rule</button>
+        </div>
+        <div class="pb-section">
+          <label class="pb-label">Generated OPA Rego</label>
+          <div class="rego" id="regoCode"><span class="rc"># Auto-generated by Sentinel AI</span>
+<span class="rc"># Policy: Production CVE Gate</span>
+
+<span class="rk">package</span> sentinel.policies.cve_gate
+
+<span class="rk">import</span> future.keywords.in
+
+<span class="rk">default</span> allow := <span class="rk">false</span>
+
+<span class="rc"># Rule 1: Block Critical/High CVEs</span>
+<span class="rk">deny</span>[msg] {
+    vuln := input.security_report.vulnerabilities[_]
+    vuln.severity <span class="rk">in</span> {<span class="rs">"Critical"</span>, <span class="rs">"High"</span>}
+    msg := sprintf(<span class="rs">"CVE %s (%s) in %s"</span>,
+      [vuln.cve_id, vuln.severity, vuln.package])
+}
+
+<span class="rc"># Rule 2: Minimum test coverage</span>
+<span class="rk">deny</span>[msg] {
+    input.test_coverage &lt; 80
+    msg := sprintf(<span class="rs">"Coverage %d%% &lt; 80%%"</span>,
+      [input.test_coverage])
+}
+
+<span class="rk">allow</span> { count(<span class="rk">deny</span>) == 0 }</div>
+          <label class="pb-label" style="margin-top:14px;">Enforcement Simulation</label>
+          <div class="sim">
+            <div class="sim-title"><div class="sim-dot"></div><span style="font-size:11.5px;font-weight:600;">Live Simulation</span></div>
+            <div class="sim-lines">
+→ MR opened on cardiac-firmware
+→ Pipeline completes, webhook fires
+→ <span style="color:var(--accent-blue);">OPA evaluates 2 rules</span>
+→ <span style="color:var(--accent-red);">Rule 1 FAIL:</span> CVE-2026-1847 (Critical)
+→ <span style="color:var(--accent-green);">Rule 2 PASS:</span> Coverage 87%
+→ <span style="color:var(--accent-red);">External status check: BLOCKED</span>
+→ Required approval: Security Team
+→ <span style="color:var(--text-muted);">Audit entry → ledger (exactly-once)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-f">
+      <button class="btn" onclick="closeModal('policyModal')">Cancel</button>
+      <button class="btn" onclick="showToast('Policy saved as draft', 'info')">Save Draft</button>
+      <button class="btn btn-g" onclick="activatePolicy()">Activate Policy</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ AI Chat ═══ -->
+<div class="chat-panel" id="chatPanel">
+  <div class="chat-hdr">
+    <div class="chat-tg"><div class="chat-dot"></div><span class="chat-tt">Sentinel AI</span></div>
+    <button class="modal-x" onclick="toggleChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  </div>
+  <div class="chat-msgs" id="chatMsgs">
+    <div class="msg ai">I'm Sentinel AI. I can take actions for you — create policies from natural language, query compliance, trigger remediations, generate reports, or manage approvals. What do you need?</div>
+  </div>
+  <div class="chat-suggest" id="chatSuggestions">
+    <button class="chat-sug-btn" onclick="sendSuggestion(this)">Create a policy blocking GPL deps</button>
+    <button class="chat-sug-btn" onclick="sendSuggestion(this)">Show blocked deployments</button>
+    <button class="chat-sug-btn" onclick="sendSuggestion(this)">Generate FDA evidence for v4.1.0</button>
+    <button class="chat-sug-btn" onclick="sendSuggestion(this)">Fix all critical CVEs</button>
+  </div>
+  <div class="chat-input">
+    <input placeholder="Ask or command Sentinel AI..." id="chatIn">
+    <button class="chat-send" onclick="sendChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+  </div>
+</div>
+
+<button class="fab" id="fab" onclick="toggleChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></button>
+
+<script>
+// ─── Toast System ───
+function showToast(msg, type = 'ok') {
+  const wrap = document.getElementById('toasts');
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  const icons = { ok: '✓', err: '✗', info: 'ℹ', warn: '⚠' };
+  t.innerHTML = `<span>${icons[type] || '•'}</span> ${msg}`;
+  wrap.appendChild(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+// ─── Navigation ───
+document.querySelectorAll('.rb[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.rb').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    document.getElementById('pageTitle').textContent = btn.title;
+    // Switch pages
+    document.querySelectorAll('.pg').forEach(p => p.classList.remove('active'));
+    const pg = document.getElementById('pg-' + btn.dataset.page);
+    if (pg) pg.classList.add('active');
+  });
+});
+
+document.querySelectorAll('.si').forEach(item => {
+  item.addEventListener('click', () => {
+    item.closest('.ss').querySelectorAll('.si').forEach(i => i.classList.remove('on'));
+    item.classList.add('on');
+  });
+});
+
+// ─── Modals ───
+function closeModal(id) { document.getElementById(id).classList.remove('on'); }
+function openPolicyModal() { document.getElementById('policyModal').classList.add('on'); }
+
+document.getElementById('openPB').addEventListener('click', openPolicyModal);
+document.getElementById('openPB2').addEventListener('click', openPolicyModal);
+
+document.querySelectorAll('.modal-bg').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('on'); });
+});
+
+// ─── Override Modal ───
+function showOverrideModal(pipeline, finding) {
+  document.getElementById('overrideTitle').textContent = `Override — ${pipeline}`;
+  document.getElementById('overrideDesc').textContent = `Overriding the policy gate for ${pipeline}. Finding: ${finding}. This will allow the merge/deploy to proceed despite the violation.`;
+  document.getElementById('overrideModal').classList.add('on');
+}
+
+function showExceptionModal(finding) {
+  document.getElementById('overrideTitle').textContent = `Security Exception — ${finding}`;
+  document.getElementById('overrideDesc').textContent = `Granting a security exception for ${finding}. This exception will be recorded with your identity, justification, and expiry date in the compliance audit trail.`;
+  document.getElementById('overrideModal').classList.add('on');
+}
+
+function submitOverride() {
+  const ack = document.getElementById('ackCheck');
+  if (!ack.checked) { showToast('You must acknowledge the audit trail recording', 'err'); return; }
+  closeModal('overrideModal');
+  showToast('Override submitted — pending additional approver sign-off', 'warn');
+}
+
+// ─── Pipeline Actions ───
+function approveAction(name, btn) {
+  btn.closest('.pl-actions').innerHTML = '<span style="font-size:10.5px;color:var(--accent-green);font-weight:600;">✓ Approved</span>';
+  showToast(`${name} approved — deploying to staging`, 'ok');
+}
+
+function rejectAction(name, btn) {
+  btn.closest('.pl-actions').innerHTML = '<span style="font-size:10.5px;color:var(--accent-red);font-weight:600;">✗ Rejected</span>';
+  showToast(`${name} deployment rejected`, 'err');
+}
+
+function releaseAction(name, btn) {
+  if (typeof btn === 'object' && btn.closest) {
+    btn.closest('.ai-actions, .pl-actions').innerHTML = '<span style="font-size:10.5px;color:var(--accent-green);font-weight:600;">✓ Released</span>';
+  }
+  showToast(`${name} released to production — environment gate opened`, 'ok');
+}
+
+// ─── AI Actions ───
+function aiCreateMR(btn, type) {
+  const label = type ? `Test stub MR` : `Fix MR`;
+  btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11" style="animation:spin 1s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Creating...`;
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.innerHTML = `✓ MR Created`;
+    btn.className = 'btn btn-sm';
+    btn.style.color = 'var(--accent-green)';
+    btn.style.borderColor = 'var(--accent-green)';
+    showToast(`${label} created in GitLab — assigned for review`, 'ok');
+  }, 1500);
+}
+
+function toggleDiff(btn) {
+  const diff = btn.closest('.ai-action').querySelector('.ai-diff');
+  diff.classList.toggle('show');
+  btn.textContent = diff.classList.contains('show') ? 'Hide Diff' : 'View Diff';
+}
+
+function dismissAI(btn) {
+  const card = btn.closest('.ai-action');
+  card.style.opacity = '0.3';
+  card.style.pointerEvents = 'none';
+  showToast('Dismissed — moved to resolved', 'info');
+}
+
+// ─── Policy Actions ───
+function togglePolicy(name, active) {
+  showToast(`${name} ${active ? 'activated' : 'deactivated'} — ${active ? 'enforcement enabled' : 'enforcement paused'}`, active ? 'ok' : 'warn');
+}
+
+function activatePolicy() {
+  closeModal('policyModal');
+  showToast('Policy activated — OPA rules deployed, enforcement live on next pipeline run', 'ok');
+}
+
+function generateFromNLP() {
+  const input = document.getElementById('nlpInput').value;
+  if (!input.trim()) { showToast('Describe your policy in plain English first', 'err'); return; }
+  showToast('AI generating policy from description...', 'info');
+  setTimeout(() => {
+    document.getElementById('pbName').value = 'AI-Generated: ' + input.substring(0, 40) + '...';
+    showToast('Policy generated — review rules and Rego below', 'ok');
+  }, 1500);
+}
+
+// ─── SBOM Actions ───
+function approveLicense(btn) {
+  btn.innerHTML = '✓';
+  btn.disabled = true;
+  btn.style.color = 'var(--accent-green)';
+  btn.style.borderColor = 'var(--accent-green)';
+  const lic = btn.closest('.dep-row').querySelector('.dep-lic');
+  lic.className = 'dep-lic lic-ok';
+  lic.textContent = 'SSPL-1.0 ✓';
+  showToast('SSPL-1.0 added to approved license list', 'ok');
+}
+
+function banDep(btn) {
+  btn.innerHTML = '✗ Blocked';
+  btn.disabled = true;
+  showToast('libgpl-crypto blocked — all projects using this dependency will fail policy check', 'warn');
+}
+
+// ─── GitLab Sync ───
+document.getElementById('syncBtn').addEventListener('click', function() {
+  const b = this;
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="animation:spin 1s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Syncing...';
+  b.disabled = true;
+  setTimeout(() => {
+    b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>Synced';
+    showToast('GitLab sync complete — 4 new pipeline events, 2 new MRs', 'ok');
+    setTimeout(() => { b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Sync GitLab'; b.disabled = false; }, 2000);
+  }, 1800);
+});
+
+// ─── AI Chat ───
+const chatPanel = document.getElementById('chatPanel');
+const fab = document.getElementById('fab');
+function toggleChat() { chatPanel.classList.toggle('on'); fab.classList.toggle('hide'); }
+
+const chatResponses = {
+  'create a policy blocking gpl deps': {
+    text: 'I\'ve drafted a policy to block all GPL-licensed dependencies. Here\'s what it does:\n\n• Scans SBOM for GPL-2.0, GPL-3.0, LGPL, AGPL\n• Blocks merge if any found\n• Scope: All projects\n\nShall I activate it?',
+    actions: ['Activate Now', 'Edit First', 'Save as Draft']
+  },
+  'show blocked deployments': {
+    text: 'Currently 3 deployments are blocked:\n\n1. cardiac-firmware-v3.2 — CVE-2026-1847 (Critical)\n2. surgical-nav !889 — Hardcoded credential\n3. spine-ortho-utils — GPL dependency detected\n\nWhat would you like to do?',
+    actions: ['Override #1', 'Auto-fix All', 'View Details']
+  },
+  'generate fda evidence for v4.1.0': {
+    text: 'Generating FDA evidence package for insulin-pump-controller v4.1.0...\n\n✓ Policy evaluation results (24/24 pass)\n✓ SBOM with 312 dependencies\n✓ Security scan reports (0 CVEs)\n✓ E-signatures (3/3 collected)\n✓ Traceability matrix (100% coverage)\n✓ Audit log extract\n\nPackage ready for download.',
+    actions: ['Download Package', 'Email to Regulatory', 'View Summary']
+  },
+  'fix all critical cves': {
+    text: 'Found 2 critical CVEs across all projects. AI has prepared fixes:\n\n1. CVE-2026-1847 (openssl) → Upgrade 3.1.2 → 3.1.4\n   Tests: 847/847 passing ✓\n\n2. Hardcoded AWS key → Move to Secrets Manager\n   Tests: 234/234 passing ✓\n\nBoth fix MRs are ready. Create them?',
+    actions: ['Create Both MRs', 'Review Diffs', 'Fix #1 Only']
+  }
+};
+
+function sendChat() {
+  const input = document.getElementById('chatIn');
+  const text = input.value.trim();
+  if (!text) return;
+  addMsg(text, 'user');
+  input.value = '';
+  document.getElementById('chatSuggestions').style.display = 'none';
+  
+  setTimeout(() => {
+    const key = text.toLowerCase();
+    const resp = chatResponses[key];
+    if (resp) {
+      addMsg(resp.text, 'ai', resp.actions);
+    } else {
+      addMsg(`Analyzing: "${text}"...\n\nI can help with that. Let me query the policy engine and GitLab data. Processing your request against 24 active policies and 47 pipeline runs from today.`, 'ai', ['Show Results', 'Export Report']);
+    }
+  }, 800);
+}
+
+function sendSuggestion(btn) {
+  document.getElementById('chatIn').value = btn.textContent;
+  sendChat();
+}
+
+function addMsg(text, type, actions) {
+  const msgs = document.getElementById('chatMsgs');
+  const div = document.createElement('div');
+  div.className = `msg ${type}`;
+  div.style.whiteSpace = 'pre-wrap';
+  div.textContent = text;
+  if (actions) {
+    const actDiv = document.createElement('div');
+    actDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;';
+    actions.forEach(a => {
+      const btn = document.createElement('span');
+      btn.className = 'msg-action';
+      btn.textContent = a;
+      btn.onclick = () => { showToast(`${a} — executing...`, 'info'); btn.style.opacity = '0.5'; };
+      actDiv.appendChild(btn);
+    });
+    div.appendChild(actDiv);
+  }
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+document.getElementById('chatIn').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+// ─── Tab switching ───
+document.querySelectorAll('.tabs').forEach(tabs => {
+  tabs.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+      tab.classList.add('on');
+    });
+  });
+});
+
+// ─── Enforcement Simulation ───
+function runSimulation() {
+  const btn = document.getElementById('simBtn');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="animation:spin 1s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Running...';
+  btn.disabled = true;
+  resetFlow();
+
+  setTimeout(() => {
+    document.getElementById('fn-1').classList.add('fn-active');
+    document.getElementById('fn-1').querySelector('.flow-node-badge').style.cssText = 'background:var(--accent-blue);color:white';
+    document.getElementById('fn-1').querySelector('.flow-node-badge').textContent = 'RECEIVED';
+    addWebhook('pipeline', 'cardiac-firmware #4822 — completed', 'PROCESSING');
+    showToast('Webhook received: pipeline complete', 'info');
+  }, 500);
+
+  setTimeout(() => {
+    document.getElementById('fn-2').classList.add('fn-active');
+    document.getElementById('fn-2').querySelector('.flow-node-badge').style.cssText = 'background:var(--accent-cyan);color:white';
+    document.getElementById('fn-2').querySelector('.flow-node-badge').textContent = 'FETCHED';
+    addApiCall('GET', '/projects/142/pipelines/4822/security_report', '200');
+  }, 1500);
+
+  setTimeout(() => {
+    document.getElementById('fn-3').classList.add('fn-pending');
+    document.getElementById('fn3-badge').style.cssText = 'background:var(--accent-amber);color:white';
+    document.getElementById('fn3-badge').textContent = 'EVALUATING';
+    showToast('OPA evaluating 24 policies...', 'info');
+  }, 2500);
+
+  setTimeout(() => {
+    document.getElementById('fn-3').classList.remove('fn-pending');
+    document.getElementById('fn-3').classList.add('fn-fail');
+    document.getElementById('fn3-badge').style.cssText = 'background:var(--accent-red);color:white';
+    document.getElementById('fn3-badge').textContent = '2 FAILED';
+    showToast('Policy: 22 pass, 2 fail (CVE gate, coverage)', 'warn');
+  }, 3800);
+
+  setTimeout(() => {
+    document.getElementById('fn-4').classList.add('fn-fail');
+    document.getElementById('fn4-badge').style.cssText = 'background:var(--accent-red);color:white';
+    document.getElementById('fn4-badge').textContent = 'BLOCKED';
+    addApiCall('POST', '/projects/142/statuses/b4c9e1a — state: failed', '201');
+    addApiCall('PUT', '/projects/142/merge_requests/852/approval_rules — add: Security', '200');
+    showToast('MR blocked via external status check + approval rule', 'err');
+  }, 5000);
+
+  setTimeout(() => {
+    document.getElementById('fn-5').classList.add('fn-pass');
+    document.getElementById('fn5-badge').style.cssText = 'background:var(--accent-green);color:white';
+    document.getElementById('fn5-badge').textContent = 'RECORDED';
+    showToast('Audit ledger entry written — exactly-once', 'ok');
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>Complete';
+    setTimeout(() => { btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polygon points="5 3 19 12 5 21 5 3"/></svg>Run Simulation'; btn.disabled = false; }, 3000);
+  }, 6200);
+}
+
+function resetFlow() {
+  for (let i = 1; i <= 5; i++) {
+    const n = document.getElementById('fn-' + i);
+    if (!n) continue;
+    n.classList.remove('fn-active', 'fn-pass', 'fn-fail', 'fn-pending');
+    const b = n.querySelector('.flow-node-badge');
+    if (b) { b.style.cssText = 'background:var(--border);color:var(--text-muted)'; b.textContent = 'WAITING'; }
+  }
+}
+
+function addWebhook(event, detail, status) {
+  const log = document.getElementById('webhookLog');
+  if (!log) return;
+  const row = document.createElement('div');
+  row.className = 'wh-row';
+  row.style.animation = 'fadeUp 0.3s ease';
+  row.innerHTML = `<span class="wh-event">${event}</span><span class="wh-detail">${detail}</span><span class="wh-status" style="background:var(--accent-blue-dim);color:var(--accent-blue);">${status}</span><span class="wh-time">now</span>`;
+  log.insertBefore(row, log.firstChild);
+}
+
+function addApiCall(method, path, status) {
+  const log = document.getElementById('apiLog');
+  if (!log) return;
+  const row = document.createElement('div');
+  row.className = 'api-row';
+  row.style.animation = 'fadeUp 0.3s ease';
+  const cls = { GET: 'api-get', POST: 'api-post', PUT: 'api-put' };
+  row.innerHTML = `<span class="api-method ${cls[method]}">${method}</span><span class="api-path">${path}</span><span class="api-status api-ok">${status}</span><span class="api-time-col">now</span>`;
+  log.insertBefore(row, log.firstChild);
+}
+</script>
+</body>
+</html>

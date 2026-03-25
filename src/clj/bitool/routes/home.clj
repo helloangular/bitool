@@ -197,9 +197,15 @@
          gid (:gid params)
          _ (println (str "home gid : " gid))
          graph (db/getGraph (Integer. gid))
+         ver (get-in graph [:a :v])
+         session (:session request)
        ]
      ;; (http-response/ok { "alias" "Output" "btype" "O" "x" "250" "y" "250" "id" 1 "parent" 0 })))
-     (http-response/ok (mapCoordinates graph))))
+     (-> (http-response/ok (mapCoordinates graph))
+         (assoc :session (assoc session :gid (Integer. gid) :ver ver)))))
+
+(defn list-models [_request]
+  (http-response/ok (db/list-models)))
 
      ;; (layout/render request "graphbody.html" {:items  (g2/displayGraph graph) :gid gid  })))
       ;; (http-response/ok (mapCoordinates (db/getGraph gid)))))
@@ -2472,6 +2478,7 @@
    ["/save/:fn" {:post fn-handler}]
    ["/customWebComponent" {:get custom}]
    ["/graph" {:post graph-page}]
+   ["/listModels" {:get list-models}]
    ["/newgraph" {:post new-graph}]
    ["/getItem" {:get get-item}]
    ["/getEndpoints" {:get get-endpoints}]

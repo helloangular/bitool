@@ -103,4 +103,39 @@ export default class PanZoom {
     this.offsetY = 0;
     this._applyTransform();
   }
+
+  fitToContent(padding = 40) {
+    const nodes = this.viewport.querySelectorAll("rectangle-component");
+    if (!nodes.length) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+      const x = parseFloat(n.style.left) || 0;
+      const y = parseFloat(n.style.top) || 0;
+      const w = n.offsetWidth || 110;
+      const h = n.offsetHeight || 50;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + w > maxX) maxX = x + w;
+      if (y + h > maxY) maxY = y + h;
+    });
+
+    const contentW = maxX - minX;
+    const contentH = maxY - minY;
+    const containerRect = this.container.getBoundingClientRect();
+    const availW = containerRect.width - padding * 2;
+    const availH = containerRect.height - padding * 2;
+
+    const scaleX = availW / contentW;
+    const scaleY = availH / contentH;
+    this.scale = Math.min(scaleX, scaleY, 1.2);
+    this.scale = Math.max(this.minScale, Math.min(this.maxScale, this.scale));
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    this.offsetX = (containerRect.width / 2) - (centerX * this.scale);
+    this.offsetY = (containerRect.height / 2) - (centerY * this.scale);
+
+    this._applyTransform();
+  }
 }

@@ -17,3 +17,16 @@
         (is (= 200 (:status resp)))
         (is (= true (get-in resp [:body :ok])))
         (is (= 1 (:retry-count resp)))))))
+
+(deftest next-url+request-joins-base-url-and-endpoint-with-missing-slash
+  (let [request (@#'bitool.connector.api/next-url+request
+                 {:base-url "http://localhost:3001"
+                  :endpoint "fleet/vehicles"
+                  :state {}
+                  :first? true
+                  :pagination "none"
+                  :query-builder {}
+                  :body-builder {}
+                  :out-key-map {}
+                  :pagination-location :query})]
+    (is (= "http://localhost:3001/fleet/vehicles" (:url request)))))

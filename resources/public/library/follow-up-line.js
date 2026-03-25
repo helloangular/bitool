@@ -5,10 +5,22 @@ export default class FollowUpLine {
     this.previewLine = null;
   }
 
+  _toSvgPoint(ev) {
+    const ctm = this.svg.getScreenCTM?.();
+    if (ctm && typeof DOMPoint === "function") {
+      const point = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(ctm.inverse());
+      return { x: point.x, y: point.y };
+    }
+    return {
+      x: ev.clientX - this.svgBound.left,
+      y: ev.clientY - this.svgBound.top,
+    };
+  }
+
   start(fromEl, ev) {
     if (fromEl) {
       this.svgBound = this.svg.getBoundingClientRect();
-      const {x, y} = this.calculatePoint(fromEl, ev);
+      const {x, y} = this._toSvgPoint(ev);
 
       this.previewLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
       this.previewLine.setAttribute("x1", x);
@@ -24,22 +36,22 @@ export default class FollowUpLine {
   }
 
   preview(ev) {
-    this.previewLine.setAttribute("x2", ev.clientX - this.svgBound.left);
-    this.previewLine.setAttribute("y2", ev.clientY - this.svgBound.top);
+    const {x, y} = this._toSvgPoint(ev);
+    this.previewLine.setAttribute("x2", x);
+    this.previewLine.setAttribute("y2", y);
   }
 
   end(endRect = null, ev = null) {
-    if (endRect, ev) {
-      const point = this.calculatePoint(endRect, ev);
-
-      this.svg.removeChild(this.previewLine);
-      this.previewLine = null;
-      
-      return point
-    } else {
-      this.svg.removeChild(this.previewLine);
-      this.previewLine = null;
-    }
+    if (!this.previewLine) return null;
+    const points = {
+      x1: Number(this.previewLine.getAttribute("x1")),
+      y1: Number(this.previewLine.getAttribute("y1")),
+      x2: Number(this.previewLine.getAttribute("x2")),
+      y2: Number(this.previewLine.getAttribute("y2")),
+    };
+    this.svg.removeChild(this.previewLine);
+    this.previewLine = null;
+    return points;
   }
 
   calculatePoint(el, ev) {

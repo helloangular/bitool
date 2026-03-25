@@ -20,8 +20,9 @@ const FORMS = {
       { name: "session_timeout_ms", label: "Session Timeout (ms)", type: "number", value: "30000" },
       { name: "heartbeat_interval_ms", label: "Heartbeat Interval (ms)", type: "number", value: "10000" },
     ],
-    treeParent: "Kafka",
+    treeParent: "Kafka Stream",
     saveUrl: "/saveConnectorConnection",
+    nodetype: "kafka-source",
   },
   kafka_consumer: {
     title: "Kafka Consumer Connection",
@@ -39,8 +40,9 @@ const FORMS = {
       { name: "poll_timeout_ms", label: "Poll Timeout (ms)", type: "number", value: "5000" },
       { name: "max_poll_cycles", label: "Max Poll Cycles (0=unlimited)", type: "number", value: "0" },
     ],
-    treeParent: "Kafka",
+    treeParent: "Kafka Consumer",
     saveUrl: "/saveConnectorConnection",
+    nodetype: "kafka-source",
   },
   local_files: {
     title: "Local / Mounted File Connection",
@@ -58,6 +60,7 @@ const FORMS = {
     ],
     treeParent: "Files",
     saveUrl: "/saveConnectorConnection",
+    nodetype: "file-source",
   },
   remote_files: {
     title: "Remote File Connection (S3 / Azure Blob / SFTP)",
@@ -76,6 +79,7 @@ const FORMS = {
     ],
     treeParent: "Files",
     saveUrl: "/saveConnectorConnection",
+    nodetype: "file-source",
   },
   mainframe_files: {
     title: "Mainframe File Connection",
@@ -94,6 +98,110 @@ const FORMS = {
     ],
     treeParent: "Mainframe",
     saveUrl: "/saveConnectorConnection",
+    nodetype: "file-source",
+  },
+
+  // ── Database connections ──
+  postgresql: {
+    title: "PostgreSQL Connection",
+    subtitle: "Connect to a PostgreSQL database",
+    fields: [
+      { name: "connection_name", label: "Connection Name", type: "text", required: true },
+      { name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
+      { name: "port", label: "Port", type: "number", value: "5432", required: true },
+      { name: "dbname", label: "Database", type: "text", required: true },
+      { name: "schema", label: "Schema", type: "text", value: "public" },
+      { name: "username", label: "Username", type: "text", required: true },
+      { name: "password", label: "Password", type: "password", required: true },
+    ],
+    treeParent: "RDBMS",
+    saveUrl: "/saveDbConnection",
+    testUrl: "/testDbConnection",
+    dbtype: "postgresql",
+  },
+  oracle: {
+    title: "Oracle Connection",
+    subtitle: "Connect to an Oracle database",
+    fields: [
+      { name: "connection_name", label: "Connection Name", type: "text", required: true },
+      { name: "host", label: "Host", type: "text", required: true },
+      { name: "port", label: "Port", type: "number", value: "1521", required: true },
+      { name: "sid", label: "SID", type: "text", placeholder: "ORCL (use SID or Service Name)" },
+      { name: "service", label: "Service Name", type: "text", placeholder: "service.name" },
+      { name: "username", label: "Username", type: "text", required: true },
+      { name: "password", label: "Password", type: "password", required: true },
+    ],
+    treeParent: "RDBMS",
+    saveUrl: "/saveDbConnection",
+    testUrl: "/testDbConnection",
+    dbtype: "oracle",
+  },
+  sql_server: {
+    title: "SQL Server Connection",
+    subtitle: "Connect to a Microsoft SQL Server database",
+    fields: [
+      { name: "connection_name", label: "Connection Name", type: "text", required: true },
+      { name: "host", label: "Host", type: "text", required: true },
+      { name: "port", label: "Port", type: "number", value: "1433", required: true },
+      { name: "dbname", label: "Database", type: "text", required: true },
+      { name: "schema", label: "Schema", type: "text", value: "dbo" },
+      { name: "username", label: "Username", type: "text", required: true },
+      { name: "password", label: "Password", type: "password", required: true },
+    ],
+    treeParent: "RDBMS",
+    saveUrl: "/saveDbConnection",
+    testUrl: "/testDbConnection",
+    dbtype: "sqlserver",
+  },
+  snowflake: {
+    title: "Snowflake Connection",
+    subtitle: "Connect to Snowflake data warehouse",
+    fields: [
+      { name: "connection_name", label: "Connection Name", type: "text", required: true },
+      { name: "host", label: "Account URL", type: "text", required: true, placeholder: "xyz12345.snowflakecomputing.com" },
+      { name: "dbname", label: "Database", type: "text", required: true },
+      { name: "schema", label: "Schema", type: "text", value: "public" },
+      { name: "warehouse", label: "Warehouse", type: "text", required: true, placeholder: "COMPUTE_WH" },
+      { name: "role", label: "Role", type: "text", placeholder: "SYSADMIN" },
+      { name: "username", label: "Username", type: "text", required: true },
+      { name: "password", label: "Password", type: "password", required: true },
+    ],
+    treeParent: "Snowflake",
+    saveUrl: "/saveDbConnection",
+    testUrl: "/testDbConnection",
+    dbtype: "snowflake",
+  },
+  databricks: {
+    title: "Databricks Connection",
+    subtitle: "Connect to Databricks SQL warehouse or cluster",
+    fields: [
+      { name: "connection_name", label: "Connection Name", type: "text", required: true },
+      { name: "host", label: "Server Hostname", type: "text", required: true, placeholder: "adb-123456.azuredatabricks.net" },
+      { name: "port", label: "Port", type: "number", value: "443" },
+      { name: "http_path", label: "HTTP Path", type: "text", required: true, placeholder: "/sql/1.0/warehouses/abc123" },
+      { name: "catalog", label: "Catalog", type: "text", required: true, placeholder: "main" },
+      { name: "schema", label: "Schema", type: "text", value: "default" },
+      { name: "token", label: "Personal Access Token", type: "password", required: true },
+    ],
+    treeParent: "Databricks",
+    saveUrl: "/saveDbConnection",
+    testUrl: "/testDbConnection",
+    dbtype: "databricks",
+  },
+  bigquery: {
+    title: "Google BigQuery Connection",
+    subtitle: "Connect to Google Cloud BigQuery",
+    fields: [
+      { name: "connection_name", label: "Connection Name", type: "text", required: true },
+      { name: "host", label: "Project ID", type: "text", required: true, placeholder: "my-gcp-project" },
+      { name: "dbname", label: "Dataset", type: "text", required: true, placeholder: "my_dataset" },
+      { name: "schema", label: "Location", type: "text", value: "US", placeholder: "US, EU, etc." },
+      { name: "token", label: "Service Account JSON Key", type: "textarea", required: true, placeholder: '{"type":"service_account","project_id":"...",...}' },
+    ],
+    treeParent: "GCP",
+    saveUrl: "/saveDbConnection",
+    testUrl: "/testDbConnection",
+    dbtype: "bigquery",
   },
 };
 
@@ -101,65 +209,83 @@ function buildTemplate() {
   const t = document.createElement("template");
   t.innerHTML = `
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
   :host { display: none; }
   :host([open]) { display: block; }
+  * { box-sizing: border-box; }
   .backdrop {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.4); z-index: 9000;
+    background: rgba(26,29,38,0.25); backdrop-filter: blur(3px);
+    z-index: 9000;
     display: flex; align-items: center; justify-content: center;
   }
   .modal {
-    background: #fff; width: 520px; max-width: 92vw; max-height: 86vh;
-    overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.18);
-    font-family: Georgia, "Times New Roman", serif; color: #1a1a2e;
+    background: #fff; width: 540px; max-width: 92vw; max-height: 86vh;
+    overflow-y: auto; border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.04);
+    font-family: 'DM Sans', -apple-system, sans-serif; color: #1a1d26;
   }
+  .modal::-webkit-scrollbar { width: 5px; }
+  .modal::-webkit-scrollbar-thumb { background: #e2e4ea; border-radius: 3px; }
   .modal-header {
-    padding: 18px 20px 12px; border-bottom: 1px solid #e5e7eb;
+    padding: 20px 24px 14px; border-bottom: 1px solid #eceef2;
     display: flex; justify-content: space-between; align-items: flex-start;
   }
-  .modal-header h3 { margin: 0; font-size: 18px; font-weight: 700; }
-  .modal-header p { margin: 4px 0 0; font-size: 12px; color: #6b7280; }
+  .modal-header h3 { margin: 0; font-size: 16px; font-weight: 700; color: #1a1d26; }
+  .modal-header p { margin: 4px 0 0; font-size: 11.5px; color: #8b91a3; font-weight: 500; }
   .modal-header button {
-    background: none; border: none; font-size: 20px; cursor: pointer;
-    color: #6b7280; padding: 0 4px; line-height: 1;
+    width: 28px; height: 28px; border-radius: 6px; border: 1px solid #e2e4ea;
+    background: #f5f6f8; color: #5c6070; font-size: 16px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: 0.2s;
   }
-  .modal-body { padding: 16px 20px; }
-  .field { margin-bottom: 12px; }
+  .modal-header button:hover { background: #e2e4ea; color: #1a1d26; }
+  .modal-body { padding: 18px 24px; }
+  .field { margin-bottom: 14px; }
   .field label {
-    display: block; font-size: 12px; font-weight: 600; color: #374151;
-    margin-bottom: 3px;
+    display: block; font-size: 11.5px; font-weight: 600; color: #5c6070;
+    margin-bottom: 5px; letter-spacing: 0.2px;
   }
-  .field label .req { color: #dc2626; }
+  .field label .req { color: #e5484d; }
   .field input, .field select, .field textarea {
-    width: 100%; box-sizing: border-box; border: 1px solid #d1d5db;
-    background: #fff; padding: 7px 10px; font-size: 13px; color: #1a1a2e;
-    font-family: inherit;
+    width: 100%; border: 1px solid #e2e4ea; border-radius: 8px;
+    background: #fff; padding: 9px 12px; font-size: 13px; color: #1a1d26;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    transition: 0.2s;
   }
   .field input:focus, .field select:focus, .field textarea:focus {
-    outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.1);
+    outline: none; border-color: #3b7ddd; box-shadow: 0 0 0 3px rgba(59,125,221,0.1);
   }
+  .field input::placeholder, .field textarea::placeholder { color: #8b91a3; }
   .field textarea {
     min-height: 90px; resize: vertical;
-    font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
   }
   .field .checkbox-row { display: flex; align-items: center; gap: 8px; }
-  .field .checkbox-row input { width: auto; }
+  .field .checkbox-row input { width: auto; accent-color: #3b7ddd; }
   .modal-footer {
-    padding: 12px 20px 16px; border-top: 1px solid #e5e7eb;
+    padding: 14px 24px 18px; border-top: 1px solid #eceef2;
     display: flex; justify-content: flex-end; gap: 8px;
+    background: #fafbfc;
+    border-radius: 0 0 14px 14px;
   }
   button.primary {
-    background: #203326; color: #fffdf8; border: 1px solid #203326;
-    padding: 8px 18px; cursor: pointer; font-size: 13px; font-family: inherit;
+    background: #3b7ddd; color: #fff; border: 1px solid #3b7ddd;
+    padding: 8px 20px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+    font-family: 'DM Sans', sans-serif; border-radius: 8px; transition: 0.2s;
   }
+  button.primary:hover { background: #2d6bc4; border-color: #2d6bc4; }
   button.secondary {
-    background: transparent; color: #203326; border: 1px solid #203326;
-    padding: 8px 18px; cursor: pointer; font-size: 13px; font-family: inherit;
+    background: #fff; color: #5c6070; border: 1px solid #e2e4ea;
+    padding: 8px 20px; cursor: pointer; font-size: 12.5px; font-weight: 500;
+    font-family: 'DM Sans', sans-serif; border-radius: 8px; transition: 0.2s;
   }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .status { font-size: 12px; color: #6b7280; min-height: 18px; margin-top: 4px; padding: 0 20px; }
-  .status.error { color: #dc2626; }
-  .status.success { color: #16a34a; }
+  button.secondary:hover { background: #f0f1f4; color: #1a1d26; border-color: #8b91a3; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status { font-size: 11.5px; color: #8b91a3; min-height: 18px; margin-top: 4px; padding: 0 24px; font-weight: 500; }
+  .status.error { color: #e5484d; }
+  .status.success { color: #0fa968; }
 </style>
 <div class="backdrop">
   <div class="modal">
@@ -242,6 +368,35 @@ class ConnectorConfigModal extends HTMLElement {
   close() {
     this.removeAttribute("open");
     this._formType = null;
+    this._editConnId = null;
+  }
+
+  async openForEdit(formType, treeLabel, connId) {
+    const config = FORMS[formType];
+    if (!config) { console.error("Unknown connector form type:", formType); return; }
+    this._formType = formType;
+    this._treeLabel = treeLabel;
+    this._editConnId = connId;
+    this.$title.textContent = config.title + " (Edit)";
+    this.$subtitle.textContent = config.subtitle;
+    this._renderFields(config.fields);
+    this.$status.textContent = "Loading...";
+    this.$status.className = "status";
+    this.setAttribute("open", "");
+
+    try {
+      const data = await request(`/getConnectionDetail?conn_id=${connId}`);
+      for (const f of config.fields) {
+        const el = this.$body.querySelector(`[name="${f.name}"]`);
+        if (!el) continue;
+        const val = data[f.name];
+        if (val != null) el.value = val;
+      }
+      this.$status.textContent = "";
+    } catch (e) {
+      this.$status.textContent = "Failed to load: " + (e.message || e);
+      this.$status.className = "status error";
+    }
   }
 
   _renderFields(fields) {
@@ -306,30 +461,40 @@ class ConnectorConfigModal extends HTMLElement {
     this.$status.className = "status";
 
     try {
-      const data = await request(config.saveUrl, { method: "POST", body: values });
+      if (config.dbtype) values.dbtype = config.dbtype;
 
-      // Update tree sidebar
-      const parentLabel = this._treeLabel || config.treeParent;
-      updateTreeItems((treeItems) => {
-        if (!Array.isArray(treeItems)) return treeItems;
-        const parent = findItemData(parentLabel, treeItems);
-        if (!parent) return treeItems;
-        const newItem = data?.["tree-data"] || {
-          label: values.connection_name,
-          conn_id: data?.["conn-id"] || data?.connection_id,
-          items: [],
-        };
-        const connId = data?.["conn-id"] || data?.connection_id || "";
-        return mapItems(parent, treeItems, addTableMetadata(newItem, connId, values.connection_name));
-      });
+      if (this._editConnId) {
+        // Update existing connection
+        values.conn_id = this._editConnId;
+        await request("/updateDbConnection", { method: "POST", body: values });
+        this.$status.textContent = "Connection updated.";
+        this.$status.className = "status success";
+        setTimeout(() => this.close(), 800);
+      } else {
+        // Create new connection
+        const data = await request(config.saveUrl, { method: "POST", body: values });
 
-      // Re-render tree
-      const tree = document.querySelector("tree-component");
-      if (tree?.renderItems) tree.renderItems();
+        // Update tree sidebar
+        const parentLabel = this._treeLabel || config.treeParent;
+        updateTreeItems((treeItems) => {
+          if (!Array.isArray(treeItems)) return treeItems;
+          const parent = findItemData(parentLabel, treeItems);
+          if (!parent) return treeItems;
+          const connId = data?.["conn-id"] || data?.connection_id || "";
+          const newItem = data?.["tree-data"] || { label: values.connection_name, items: [] };
+          newItem.conn_id = connId;
+          if (config.dbtype) newItem.dbtype = config.dbtype;
+          if (config.nodetype) newItem.nodetype = config.nodetype;
+          return mapItems(parent, treeItems, addTableMetadata(newItem, connId, values.connection_name));
+        });
 
-      this.$status.textContent = "Connection saved.";
-      this.$status.className = "status success";
-      setTimeout(() => this.close(), 800);
+        const tree = document.querySelector("tree-component");
+        if (tree?.renderItems) tree.renderItems();
+
+        this.$status.textContent = "Connection saved.";
+        this.$status.className = "status success";
+        setTimeout(() => this.close(), 800);
+      }
     } catch (e) {
       this.$status.textContent = "Save failed: " + (e.message || e);
       this.$status.className = "status error";
@@ -345,7 +510,10 @@ class ConnectorConfigModal extends HTMLElement {
     this.$status.className = "status";
 
     try {
-      await request("/testConnectorConnection", { method: "POST", body: values });
+      const config = FORMS[this._formType];
+      if (config?.dbtype) values.dbtype = config.dbtype;
+      const testUrl = config?.testUrl || "/testConnectorConnection";
+      await request(testUrl, { method: "POST", body: values });
       this.$status.textContent = "Connection successful.";
       this.$status.className = "status success";
     } catch (e) {

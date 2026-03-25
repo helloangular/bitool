@@ -1,0 +1,12 @@
+{
+  "name": "oracle-ebs-mock-api",
+  "version": "1.0.0",
+  "description": "Mock REST API serving Oracle EBS AP_INVOICES_ALL data",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

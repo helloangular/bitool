@@ -1,0 +1,996 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Oracle EBS AP Invoices API",
+    "description": "Mock REST API serving Oracle EBS AP_INVOICES_ALL data",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3002",
+      "description": "Local mock"
+    }
+  ],
+  "paths": {
+    "/ap/invoices": {
+      "get": {
+        "operationId": "listInvoices",
+        "summary": "List AP invoices with pagination and filtering",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Watermark filter on LAST_UPDATE_DATE"
+          },
+          {
+            "name": "vendor_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invoice_type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "STANDARD",
+                "CREDIT",
+                "DEBIT",
+                "PREPAYMENT",
+                "MIXED"
+              ]
+            }
+          },
+          {
+            "name": "org_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of invoices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Invoice"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/Pagination"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ap/invoices/{invoice_id}": {
+      "get": {
+        "operationId": "getInvoice",
+        "summary": "Get a single invoice by ID",
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Single invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Invoice"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/ap/invoices/summary": {
+      "get": {
+        "operationId": "getInvoiceSummary",
+        "summary": "Aggregate invoice statistics",
+        "responses": {
+          "200": {
+            "description": "Summary stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "total_invoices": {
+                          "type": "integer"
+                        },
+                        "total_amount": {
+                          "type": "number"
+                        },
+                        "unique_vendors": {
+                          "type": "integer"
+                        },
+                        "currencies": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "invoice_types": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ap/schema": {
+      "get": {
+        "operationId": "getSchema",
+        "summary": "Column metadata for AP invoices",
+        "responses": {
+          "200": {
+            "description": "Schema metadata"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Invoice": {
+        "type": "object",
+        "properties": {
+          "ParentSystemId": {
+            "type": "integer",
+            "example": "76"
+          },
+          "SystemId": {
+            "type": "integer",
+            "example": "2578"
+          },
+          "INVOICE_ID": {
+            "type": "integer",
+            "example": "10656553"
+          },
+          "LAST_UPDATE_DATE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-10-30 08:27:46.000000 UTC"
+          },
+          "LAST_UPDATED_BY": {
+            "type": "integer",
+            "example": "885456"
+          },
+          "VENDOR_ID": {
+            "type": "integer",
+            "example": "5143414"
+          },
+          "INVOICE_NUM": {
+            "type": "string",
+            "example": "INV2301584"
+          },
+          "SET_OF_BOOKS_ID": {
+            "type": "integer",
+            "example": "339"
+          },
+          "INVOICE_CURRENCY_CODE": {
+            "type": "string",
+            "example": "ZAR"
+          },
+          "PAYMENT_CURRENCY_CODE": {
+            "type": "string",
+            "example": "ZAR"
+          },
+          "PAYMENT_CROSS_RATE": {
+            "type": "integer",
+            "example": "1"
+          },
+          "INVOICE_AMOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "20512.8"
+          },
+          "VENDOR_SITE_ID": {
+            "type": "integer",
+            "example": "5793923"
+          },
+          "AMOUNT_PAID": {
+            "type": "number",
+            "format": "double",
+            "example": "0.0"
+          },
+          "DISCOUNT_AMOUNT_TAKEN": {
+            "type": "number",
+            "format": "double",
+            "example": "0.0"
+          },
+          "INVOICE_DATE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-10-01 00:00:00.000000 UTC"
+          },
+          "SOURCE": {
+            "type": "string",
+            "example": "CALERO"
+          },
+          "INVOICE_TYPE_LOOKUP_CODE": {
+            "type": "string",
+            "example": "STANDARD"
+          },
+          "DESCRIPTION": {
+            "type": "string",
+            "example": "NON PO|Telco Account#TTE003|Period of(01-Oct-23 - "
+          },
+          "BATCH_ID": {
+            "type": "string",
+            "example": "Paul | EXPENSE REIMBURSEMENT | 122216\""
+          },
+          "AMOUNT_APPLICABLE_TO_DISCOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "20512.8"
+          },
+          "TAX_AMOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "6.36"
+          },
+          "TERMS_ID": {
+            "type": "integer",
+            "example": "10107"
+          },
+          "TERMS_DATE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-10-01 00:00:00.000000 UTC"
+          },
+          "PAYMENT_METHOD_LOOKUP_CODE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2016-12-22 00:00:00.000000 UTC"
+          },
+          "PAY_GROUP_LOOKUP_CODE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2006-08-25 00:00:00.000000 UTC"
+          },
+          "ACCTS_PAY_CODE_COMBINATION_ID": {
+            "type": "integer",
+            "example": "15010311"
+          },
+          "PAYMENT_STATUS_FLAG": {
+            "type": "string",
+            "example": "N"
+          },
+          "CREATION_DATE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-10-30 08:27:46.000000 UTC"
+          },
+          "CREATED_BY": {
+            "type": "integer",
+            "example": "885456"
+          },
+          "BASE_AMOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "6.0"
+          },
+          "VAT_CODE": {
+            "type": "integer",
+            "example": "5"
+          },
+          "LAST_UPDATE_LOGIN": {
+            "type": "string",
+            "example": "-1"
+          },
+          "EXCLUSIVE_PAYMENT_FLAG": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "PO_HEADER_ID": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "FREIGHT_AMOUNT": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "GOODS_RECEIVED_DATE": {
+            "type": "string"
+          },
+          "INVOICE_RECEIVED_DATE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-10-27 00:00:00.000000 UTC"
+          },
+          "VOUCHER_NUM": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2016-12-22 00:00:00.000000 UTC"
+          },
+          "APPROVED_AMOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "500.0"
+          },
+          "RECURRING_PAYMENT_ID": {
+            "type": "number",
+            "format": "double",
+            "example": "7.0"
+          },
+          "EXCHANGE_RATE": {
+            "type": "number",
+            "format": "double",
+            "example": "0.01199"
+          },
+          "EXCHANGE_RATE_TYPE": {
+            "type": "string",
+            "example": "Spot"
+          },
+          "EXCHANGE_DATE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-12-07 00:00:00.000000 UTC"
+          },
+          "EARLIEST_SETTLEMENT_DATE": {
+            "type": "string"
+          },
+          "ORIGINAL_PREPAYMENT_AMOUNT": {
+            "type": "string"
+          },
+          "DOC_SEQUENCE_ID": {
+            "type": "string"
+          },
+          "DOC_SEQUENCE_VALUE": {
+            "type": "string"
+          },
+          "DOC_CATEGORY_CODE": {
+            "type": "string"
+          },
+          "ATTRIBUTE1": {
+            "type": "string"
+          },
+          "ATTRIBUTE2": {
+            "type": "string"
+          },
+          "ATTRIBUTE3": {
+            "type": "string"
+          },
+          "ATTRIBUTE4": {
+            "type": "string"
+          },
+          "ATTRIBUTE5": {
+            "type": "string"
+          },
+          "ATTRIBUTE6": {
+            "type": "string",
+            "example": "NO BOLETO"
+          },
+          "ATTRIBUTE7": {
+            "type": "string",
+            "example": "NO BOLETO"
+          },
+          "ATTRIBUTE8": {
+            "type": "string"
+          },
+          "ATTRIBUTE9": {
+            "type": "string",
+            "example": "INV"
+          },
+          "ATTRIBUTE10": {
+            "type": "string",
+            "example": "INV"
+          },
+          "ATTRIBUTE11": {
+            "type": "string"
+          },
+          "ATTRIBUTE12": {
+            "type": "string"
+          },
+          "ATTRIBUTE13": {
+            "type": "string"
+          },
+          "ATTRIBUTE14": {
+            "type": "string"
+          },
+          "ATTRIBUTE15": {
+            "type": "integer",
+            "example": "5815906"
+          },
+          "ATTRIBUTE_CATEGORY": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "APPROVAL_STATUS": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "APPROVAL_DESCRIPTION": {
+            "type": "string"
+          },
+          "INVOICE_DISTRIBUTION_TOTAL": {
+            "type": "string"
+          },
+          "POSTING_STATUS": {
+            "type": "string",
+            "example": "N"
+          },
+          "PREPAY_FLAG": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "AUTHORIZED_BY": {
+            "type": "string",
+            "example": "N"
+          },
+          "CANCELLED_DATE": {
+            "type": "string"
+          },
+          "CANCELLED_BY": {
+            "type": "string"
+          },
+          "CANCELLED_AMOUNT": {
+            "type": "string"
+          },
+          "TEMP_CANCELLED_AMOUNT": {
+            "type": "string"
+          },
+          "PROJECT_ACCOUNTING_CONTEXT": {
+            "type": "string"
+          },
+          "USSGL_TRANSACTION_CODE": {
+            "type": "string"
+          },
+          "USSGL_TRX_CODE_CONTEXT": {
+            "type": "string"
+          },
+          "PROJECT_ID": {
+            "type": "string"
+          },
+          "TASK_ID": {
+            "type": "string"
+          },
+          "EXPENDITURE_TYPE": {
+            "type": "string"
+          },
+          "EXPENDITURE_ITEM_DATE": {
+            "type": "string"
+          },
+          "PA_QUANTITY": {
+            "type": "string"
+          },
+          "EXPENDITURE_ORGANIZATION_ID": {
+            "type": "string"
+          },
+          "PA_DEFAULT_DIST_CCID": {
+            "type": "string"
+          },
+          "VENDOR_PREPAY_AMOUNT": {
+            "type": "integer",
+            "example": "0"
+          },
+          "PAYMENT_AMOUNT_TOTAL": {
+            "type": "string"
+          },
+          "AWT_FLAG": {
+            "type": "string"
+          },
+          "AWT_GROUP_ID": {
+            "type": "string"
+          },
+          "REFERENCE_1": {
+            "type": "string"
+          },
+          "REFERENCE_2": {
+            "type": "string"
+          },
+          "ORG_ID": {
+            "type": "integer",
+            "example": "6536"
+          },
+          "PRE_WITHHOLDING_AMOUNT": {
+            "type": "integer",
+            "example": "36893"
+          },
+          "GLOBAL_ATTRIBUTE_CATEGORY": {
+            "type": "string",
+            "example": "JL.MX.APXINWKB.INVOICE_INFO"
+          },
+          "GLOBAL_ATTRIBUTE1": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE2": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE3": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE4": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE5": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE6": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE7": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE8": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE9": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE10": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE11": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE12": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE13": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE14": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE15": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE16": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE17": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE18": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE19": {
+            "type": "string"
+          },
+          "GLOBAL_ATTRIBUTE20": {
+            "type": "string"
+          },
+          "AUTO_TAX_CALC_FLAG": {
+            "type": "string",
+            "example": "N"
+          },
+          "PAYMENT_CROSS_RATE_TYPE": {
+            "type": "string"
+          },
+          "PAYMENT_CROSS_RATE_DATE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-10-01 00:00:00.000000 UTC"
+          },
+          "PAY_CURR_INVOICE_AMOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "20512.8"
+          },
+          "MRC_BASE_AMOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "7.0"
+          },
+          "MRC_EXCHANGE_RATE": {
+            "type": "number",
+            "format": "double",
+            "example": "647.75"
+          },
+          "MRC_EXCHANGE_RATE_TYPE": {
+            "type": "string"
+          },
+          "MRC_EXCHANGE_DATE": {
+            "type": "string"
+          },
+          "MRC_POSTING_STATUS": {
+            "type": "string"
+          },
+          "GL_DATE": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-09-30 00:00:00.000000 UTC"
+          },
+          "AWARD_ID": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2016-12-21 00:00:00.000000 UTC"
+          },
+          "PAID_ON_BEHALF_EMPLOYEE_ID": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2006-08-25 00:00:00.000000 UTC"
+          },
+          "AMT_DUE_CCARD_COMPANY": {
+            "type": "string"
+          },
+          "AMT_DUE_EMPLOYEE": {
+            "type": "string"
+          },
+          "APPROVAL_READY_FLAG": {
+            "type": "boolean",
+            "example": "true"
+          },
+          "APPROVAL_ITERATION": {
+            "type": "boolean",
+            "example": "true"
+          },
+          "WFAPPROVAL_STATUS": {
+            "type": "string",
+            "example": "NOT REQUIRED"
+          },
+          "REQUESTER_ID": {
+            "type": "string",
+            "example": "NOT REQUIRED"
+          },
+          "VALIDATION_REQUEST_ID": {
+            "type": "string",
+            "example": "NOT REQUIRED"
+          },
+          "VALIDATED_TAX_AMOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "60.0"
+          },
+          "QUICK_CREDIT": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "CREDITED_INVOICE_ID": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "DISTRIBUTION_SET_ID": {
+            "type": "string"
+          },
+          "APPLICATION_ID": {
+            "type": "string"
+          },
+          "PRODUCT_TABLE": {
+            "type": "string"
+          },
+          "REFERENCE_KEY1": {
+            "type": "string"
+          },
+          "REFERENCE_KEY2": {
+            "type": "string"
+          },
+          "REFERENCE_KEY3": {
+            "type": "string"
+          },
+          "REFERENCE_KEY4": {
+            "type": "string"
+          },
+          "REFERENCE_KEY5": {
+            "type": "string"
+          },
+          "TOTAL_TAX_AMOUNT": {
+            "type": "number",
+            "format": "double",
+            "example": "0.0"
+          },
+          "SELF_ASSESSED_TAX_AMOUNT": {
+            "type": "integer",
+            "example": "0"
+          },
+          "TAX_RELATED_INVOICE_ID": {
+            "type": "integer",
+            "example": "0"
+          },
+          "TRX_BUSINESS_CATEGORY": {
+            "type": "string"
+          },
+          "USER_DEFINED_FISC_CLASS": {
+            "type": "string"
+          },
+          "TAXATION_COUNTRY": {
+            "type": "string",
+            "example": "ZA"
+          },
+          "DOCUMENT_SUB_TYPE": {
+            "type": "string",
+            "example": "AU"
+          },
+          "SUPPLIER_TAX_INVOICE_NUMBER": {
+            "type": "string"
+          },
+          "SUPPLIER_TAX_INVOICE_DATE": {
+            "type": "string"
+          },
+          "SUPPLIER_TAX_EXCHANGE_RATE": {
+            "type": "string"
+          },
+          "TAX_INVOICE_RECORDING_DATE": {
+            "type": "string"
+          },
+          "TAX_INVOICE_INTERNAL_SEQ": {
+            "type": "string"
+          },
+          "LEGAL_ENTITY_ID": {
+            "type": "integer",
+            "example": "79323"
+          },
+          "HISTORICAL_FLAG": {
+            "type": "integer",
+            "example": "59323"
+          },
+          "FORCE_REVALIDATION_FLAG": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "BANK_CHARGE_BEARER": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "REMITTANCE_MESSAGE1": {
+            "type": "string"
+          },
+          "REMITTANCE_MESSAGE2": {
+            "type": "string"
+          },
+          "REMITTANCE_MESSAGE3": {
+            "type": "string"
+          },
+          "UNIQUE_REMITTANCE_IDENTIFIER": {
+            "type": "string"
+          },
+          "URI_CHECK_DIGIT": {
+            "type": "string"
+          },
+          "SETTLEMENT_PRIORITY": {
+            "type": "string"
+          },
+          "PAYMENT_REASON_CODE": {
+            "type": "string"
+          },
+          "PAYMENT_REASON_COMMENTS": {
+            "type": "string"
+          },
+          "PAYMENT_METHOD_CODE": {
+            "type": "string",
+            "example": "WIRE"
+          },
+          "DELIVERY_CHANNEL_CODE": {
+            "type": "string",
+            "example": "EFT"
+          },
+          "QUICK_PO_HEADER_ID": {
+            "type": "integer",
+            "example": "5122662"
+          },
+          "NET_OF_RETAINAGE_FLAG": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "RELEASE_AMOUNT_NET_OF_TAX": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "CONTROL_AMOUNT": {
+            "type": "string"
+          },
+          "PARTY_ID": {
+            "type": "integer",
+            "example": "13011073"
+          },
+          "PARTY_SITE_ID": {
+            "type": "integer",
+            "example": "4954620"
+          },
+          "PAY_PROC_TRXN_TYPE_CODE": {
+            "type": "string",
+            "example": "PAYABLES_DOC"
+          },
+          "PAYMENT_FUNCTION": {
+            "type": "string",
+            "example": "PAYABLES_DISB"
+          },
+          "CUST_REGISTRATION_CODE": {
+            "type": "string"
+          },
+          "CUST_REGISTRATION_NUMBER": {
+            "type": "string"
+          },
+          "PORT_OF_ENTRY_CODE": {
+            "type": "string"
+          },
+          "EXTERNAL_BANK_ACCOUNT_ID": {
+            "type": "integer",
+            "example": "147114"
+          },
+          "VENDOR_CONTACT_ID": {
+            "type": "integer",
+            "example": "88013"
+          },
+          "INTERNAL_CONTACT_EMAIL": {
+            "type": "string"
+          },
+          "DISC_IS_INV_LESS_TAX_FLAG": {
+            "type": "boolean",
+            "example": "true"
+          },
+          "EXCLUDE_FREIGHT_FROM_DISCOUNT": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "PAY_AWT_GROUP_ID": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "ORIGINAL_INVOICE_AMOUNT": {
+            "type": "string"
+          },
+          "DISPUTE_REASON": {
+            "type": "string"
+          },
+          "REMIT_TO_SUPPLIER_NAME": {
+            "type": "string",
+            "example": "SECRETARIA DA RECEITA FEDERAL"
+          },
+          "REMIT_TO_SUPPLIER_ID": {
+            "type": "integer",
+            "example": "59539"
+          },
+          "REMIT_TO_SUPPLIER_SITE": {
+            "type": "string",
+            "example": "SECRETARIA DA RECEITA FEDERAL"
+          },
+          "REMIT_TO_SUPPLIER_SITE_ID": {
+            "type": "integer",
+            "example": "65092"
+          },
+          "RELATIONSHIP_ID": {
+            "type": "string",
+            "example": "-1"
+          },
+          "CreateBy": {
+            "type": "string",
+            "example": "svc_hop_etl_node2"
+          },
+          "CreateDate": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-10-04 15:15:53.717303 UTC"
+          },
+          "CreateProcess": {
+            "type": "string",
+            "example": "Corp_OracleEbs_BigQuery_AP_INVOICES_ALL_Import"
+          },
+          "UpdateBy": {
+            "type": "string",
+            "example": "svc_hop_etl_node2"
+          },
+          "UpdateDate": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-12-05 17:28:19.126481 UTC"
+          },
+          "UpdateProcess": {
+            "type": "string",
+            "example": "Corp_OracleEbs_BigQuery_AP_INVOICES_ALL_Import"
+          },
+          "InactiveInd": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "InactiveDate": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "InactiveReason": {
+            "type": "boolean",
+            "example": "false"
+          },
+          "LoadBy": {
+            "type": "string",
+            "example": "svc_hop_etl_node2"
+          },
+          "LoadDate": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2023-12-05 17:28:19.126481 UTC"
+          },
+          "LoadProcess": {
+            "type": "string",
+            "example": "Corp_OracleEbs_BigQuery_AP_INVOICES_ALL_Import"
+          }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "nextOffset": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,68 @@
+;; Canonical semantic entities — the stable Silver contract
+;; Each entity defines its minimum semantic shape.
+;; Gold models depend on these entities, not on raw Bronze sources.
+
+{:vehicle     {:keys       ["vehicle_id"]
+               :attributes ["vehicle_name" "make" "model" "year" "vin" "updated_at"]
+               :entity-kind "dimension"}
+
+ :driver      {:keys       ["driver_id"]
+               :attributes ["driver_name" "username" "email" "phone" "status" "updated_at"]
+               :entity-kind "dimension"}
+
+ :trip        {:keys       ["trip_id"]
+               :attributes ["driver_id" "vehicle_id" "start_time" "end_time" "distance_meters"]
+               :entity-kind "fact"}
+
+ :safety_event {:keys       ["event_id"]
+                :attributes ["driver_id" "vehicle_id" "event_time" "behavior_label" "severity"]
+                :entity-kind "fact"}
+
+ :fuel_energy {:keys       ["vehicle_id" "start_time"]
+               :attributes ["end_time" "fuel_consumed_ml" "energy_used_kwh"]
+               :entity-kind "fact"}
+
+ :vehicle_stat {:keys       ["vehicle_id" "time"]
+                :attributes ["engine_state" "speed" "odometer" "fuel_percent"]
+                :entity-kind "fact"}
+
+ :vehicle_location {:keys       ["vehicle_id" "time"]
+                    :attributes ["latitude" "longitude" "heading" "speed"]
+                    :entity-kind "fact"}
+
+ :tag         {:keys       ["tag_id"]
+               :attributes ["tag_name" "parent_tag_id"]
+               :entity-kind "dimension"}
+
+ ;; Cross-domain canonical entities
+ :customer    {:keys       ["customer_id"]
+               :attributes ["name" "email" "created_at" "updated_at"]
+               :entity-kind "dimension"}
+
+ :payment     {:keys       ["payment_id"]
+               :attributes ["customer_id" "amount" "currency" "status" "event_time"]
+               :entity-kind "fact"}
+
+ :refund      {:keys       ["refund_id"]
+               :attributes ["payment_id" "amount" "currency" "reason" "event_time"]
+               :entity-kind "fact"}
+
+ :subscription {:keys       ["subscription_id"]
+                :attributes ["customer_id" "plan_id" "status" "start_date" "end_date" "mrr"]
+                :entity-kind "fact"}
+
+ :order       {:keys       ["order_id"]
+               :attributes ["customer_id" "total_amount" "currency" "status" "created_at"]
+               :entity-kind "fact"}
+
+ :ticket      {:keys       ["ticket_id"]
+               :attributes ["customer_id" "subject" "status" "priority" "created_at" "resolved_at"]
+               :entity-kind "fact"}
+
+ :campaign    {:keys       ["campaign_id"]
+               :attributes ["name" "channel" "spend" "start_date" "end_date"]
+               :entity-kind "dimension"}
+
+ :opportunity {:keys       ["opportunity_id"]
+               :attributes ["name" "account_id" "stage" "amount" "close_date"]
+               :entity-kind "fact"}}

@@ -1,0 +1,160 @@
+{:system       "samsara"
+ :display-name "Samsara"
+ :auth-method  "bearer"
+ :base-url     "https://api.samsara.com"
+ :pagination   {:strategy     "cursor"
+                :cursor-field "pagination.endCursor"
+                :cursor-param "after"
+                :has-next-field "pagination.hasNextPage"}
+ :endpoints
+ [{:path      "fleet/vehicles"
+   :method    "GET"
+   :entity    "vehicle"
+   :grain     "entity"
+   :explode   "data"
+   :key       "id"
+   :watermark "updatedAtTime"
+   :fields    [{:name "id"              :type "STRING"    :role "key"}
+               {:name "name"            :type "STRING"    :role "attribute"}
+               {:name "make"            :type "STRING"    :role "attribute"}
+               {:name "model"           :type "STRING"    :role "attribute"}
+               {:name "year"            :type "INT"       :role "attribute"}
+               {:name "vin"             :type "STRING"    :role "attribute"}
+               {:name "serial"          :type "STRING"    :role "attribute"}
+               {:name "licensePlate"    :type "STRING"    :role "attribute"}
+               {:name "updatedAtTime"   :type "TIMESTAMP" :role "watermark"}
+               {:name "createdAtTime"   :type "TIMESTAMP" :role "timestamp"}]}
+  {:path      "fleet/drivers"
+   :method    "GET"
+   :entity    "driver"
+   :grain     "entity"
+   :explode   "data"
+   :key       "id"
+   :watermark "updatedAtTime"
+   :fields    [{:name "id"              :type "STRING"    :role "key"}
+               {:name "name"            :type "STRING"    :role "attribute"}
+               {:name "username"        :type "STRING"    :role "attribute"}
+               {:name "phone"           :type "STRING"    :role "attribute"}
+               {:name "email"           :type "STRING"    :role "attribute"}
+               {:name "status"          :type "STRING"    :role "attribute"}
+               {:name "updatedAtTime"   :type "TIMESTAMP" :role "watermark"}
+               {:name "createdAtTime"   :type "TIMESTAMP" :role "timestamp"}]}
+  {:path      "fleet/vehicles/stats"
+   :method    "GET"
+   :entity    "vehicle_stat"
+   :grain     "event"
+   :explode   "data"
+   :key       "id"
+   :watermark "time"
+   :fields    [{:name "id"              :type "STRING"    :role "key"}
+               {:name "time"            :type "TIMESTAMP" :role "watermark"}
+               {:name "engineState"     :type "STRING"    :role "attribute"}
+               {:name "speed"           :type "DOUBLE"    :role "measure"}
+               {:name "odometer"        :type "DOUBLE"    :role "measure"}
+               {:name "fuelPercent"     :type "DOUBLE"    :role "measure"}]}
+  {:path      "fleet/vehicles/locations"
+   :method    "GET"
+   :entity    "vehicle_location"
+   :grain     "event"
+   :explode   "data"
+   :key       "id"
+   :watermark "time"
+   :fields    [{:name "id"              :type "STRING"    :role "key"}
+               {:name "time"            :type "TIMESTAMP" :role "watermark"}
+               {:name "latitude"        :type "DOUBLE"    :role "measure"}
+               {:name "longitude"       :type "DOUBLE"    :role "measure"}
+               {:name "heading"         :type "DOUBLE"    :role "measure"}
+               {:name "speed"           :type "DOUBLE"    :role "measure"}]}
+  {:path      "fleet/vehicles/fuel-energy"
+   :method    "GET"
+   :entity    "fuel_energy"
+   :grain     "event"
+   :explode   "data"
+   :key       "vehicleId"
+   :watermark "startTime"
+   :fields    [{:name "vehicleId"       :type "STRING"    :role "key"}
+               {:name "startTime"       :type "TIMESTAMP" :role "watermark"}
+               {:name "endTime"         :type "TIMESTAMP" :role "timestamp"}
+               {:name "fuelConsumedMl"  :type "DOUBLE"    :role "measure"}
+               {:name "energyUsedKwh"   :type "DOUBLE"    :role "measure"}]}
+  {:path      "fleet/trips"
+   :method    "GET"
+   :entity    "trip"
+   :grain     "event"
+   :explode   "data"
+   :key       "id"
+   :watermark "updatedAtTime"
+   :fields    [{:name "id"              :type "STRING"    :role "key"}
+               {:name "driverId"        :type "STRING"    :role "foreign_key"}
+               {:name "vehicleId"       :type "STRING"    :role "foreign_key"}
+               {:name "startTime"       :type "TIMESTAMP" :role "timestamp"}
+               {:name "endTime"         :type "TIMESTAMP" :role "timestamp"}
+               {:name "distanceMeters"  :type "DOUBLE"    :role "measure"}
+               {:name "updatedAtTime"   :type "TIMESTAMP" :role "watermark"}]}
+  {:path      "fleet/safety/events"
+   :method    "GET"
+   :entity    "safety_event"
+   :grain     "event"
+   :explode   "data"
+   :key       "id"
+   :watermark "time"
+   :fields    [{:name "id"              :type "STRING"    :role "key"}
+               {:name "time"            :type "TIMESTAMP" :role "watermark"}
+               {:name "driverId"        :type "STRING"    :role "foreign_key"}
+               {:name "vehicleId"       :type "STRING"    :role "foreign_key"}
+               {:name "behaviorLabel"   :type "STRING"    :role "attribute"}
+               {:name "severity"        :type "STRING"    :role "attribute"}]}
+  {:path      "tags"
+   :method    "GET"
+   :entity    "tag"
+   :grain     "entity"
+   :explode   "data"
+   :key       "id"
+   :watermark nil
+   :fields    [{:name "id"              :type "STRING"    :role "key"}
+               {:name "name"            :type "STRING"    :role "attribute"}
+               {:name "parentTagId"     :type "STRING"    :role "foreign_key"}]}
+  {:path      "fleet/hos/logs"
+   :method    "GET"
+   :entity    "hos_log"
+   :grain     "event"
+   :explode   "data"
+   :key       "id"
+   :watermark "startTime"
+   :fields    [{:name "id"              :type "STRING"    :role "key"}
+               {:name "driverId"        :type "STRING"    :role "foreign_key"}
+               {:name "startTime"       :type "TIMESTAMP" :role "watermark"}
+               {:name "endTime"         :type "TIMESTAMP" :role "timestamp"}
+               {:name "statusType"      :type "STRING"    :role "attribute"}
+               {:name "vehicleId"       :type "STRING"    :role "foreign_key"}]}]
+
+ :metric-packages
+ [{:name     "fleet_analytics"
+   :entities ["vehicle" "driver" "vehicle_stat" "trip"]
+   :gold-models
+   [{:table    "fleet_utilization_daily"
+     :grain    "day"
+     :measures ["active_vehicles" "total_trips" "total_distance_km"]
+     :depends-on ["dim_vehicle" "fct_trip"]}
+    {:table    "driver_performance_daily"
+     :grain    "day"
+     :measures ["trips_completed" "distance_driven_km" "avg_speed"]
+     :depends-on ["dim_driver" "fct_trip"]}]}
+  {:name     "safety_analytics"
+   :entities ["vehicle" "driver" "safety_event"]
+   :gold-models
+   [{:table    "safety_events_daily"
+     :grain    "day"
+     :measures ["total_events" "harsh_braking" "harsh_accel" "speeding"]
+     :depends-on ["dim_vehicle" "dim_driver" "fct_safety_event"]}
+    {:table    "driver_safety_score"
+     :grain    "day"
+     :measures ["safety_score" "event_count"]
+     :depends-on ["dim_driver" "fct_safety_event"]}]}
+  {:name     "fuel_analytics"
+   :entities ["vehicle" "fuel_energy"]
+   :gold-models
+   [{:table    "fuel_consumption_daily"
+     :grain    "day"
+     :measures ["total_fuel_ml" "total_energy_kwh" "avg_fuel_per_vehicle"]
+     :depends-on ["dim_vehicle" "fct_fuel_energy"]}]}]}

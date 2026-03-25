@@ -4,6 +4,7 @@
             [bitool.connector.file :as file-connector]
             [bitool.connector.kafka :as kafka]
             [bitool.control-plane :as control-plane]
+            [bitool.ingest.databricks-control-plane :as dbx-control]
             [bitool.databricks.jobs :as dbx-jobs]
             [bitool.db :as db]
             [bitool.graph2 :as g2]
@@ -65,6 +66,10 @@
    {:column_name "started_at_utc"      :data_type "STRING"    :is_nullable "NO"}
    {:column_name "committed_at_utc"    :data_type "STRING"    :is_nullable "YES"}])
 
+(defn- ingest-summary-logging-enabled? []
+  (contains? #{"true" "1" "yes" "on"}
+             (some-> (get env :bitool_ingest_summary_logs) str string/lower-case)))
+
 (def endpoint-schema-snapshot-columns
   [{:column_name "graph_id"                :data_type "INT"      :is_nullable "NO"}
    {:column_name "api_node_id"             :data_type "INT"      :is_nullable "NO"}
@@ -90,24 +95,39 @@
    {:column_name "reviewed_at_utc"         :data_type "STRING"   :is_nullable "NO"}
    {:column_name "promoted"                :data_type "BOOLEAN"  :is_nullable "NO"}
    {:column_name "promoted_at_utc"         :data_type "STRING"   :is_nullable "YES"}
-   {:column_name "inferred_fields_json"    :data_type "STRING"   :is_nullable "NO"}])
+   {:column_name "inferred_fields_json"    :data_type "STRING"   :is_nullable "NO"}
+   {:column_name "field_decisions"         :data_type "STRING"   :is_nullable "YES"}])
 
 (def ^:private artifact-store-table "ingest_batch_artifact_store")
+(def ^:private local-table-confirmation-cache-table "ingest_table_confirmation_cache")
+(def ^:private local-checkpoint-cache-table "ingest_checkpoint_row_cache")
+(def ^:private local-schema-snapshot-cache-table "ingest_schema_snapshot_cache")
 (defonce ^:private artifact-store-ready? (atom false))
+(defonce ^:private local-ingest-cache-ready? (atom false))
 (defonce ^:private manifest-columns-ready? (atom #{}))
 (defonce ^:private checkpoint-columns-ready? (atom #{}))
 (defonce ^:private bad-record-columns-ready? (atom #{}))
 (defonce ^:private schema-approval-columns-ready? (atom #{}))
+(defonce ^:private checkpoint-row-cache (atom {}))
+(defonce ^:private schema-snapshot-latest-cache (atom {}))
 (defonce ^:private adaptive-backpressure-state (atom {}))
 (defonce ^:private source-circuit-breaker-state (atom {}))
 
 (declare schema-enforcement-mode
+         schema-snapshot-tracking-required?
          replay-endpoint-config-hash
          artifact-endpoint-config
          safe-path-segment
          non-blank-str
          validated-qualified-table-name
+         cache-local-checkpoint-row!
+         delete-local-checkpoint-row!
+         cache-local-latest-schema-snapshot-row!
+         delete-local-latest-schema-snapshot-row!
+         null-backfill-needed?
+         db-opts
          sql-opts
+         connection-dbtype
          find-downstream-target
          abort-preparing-batches!
          mark-manifest-row!
@@ -116,6 +136,211 @@
          process-source-stream!)
 
 (defn- now-utc [] (java.time.Instant/now))
+
+(defn- checkpoint-cache-key
+  [conn-id table-name source-system endpoint-name]
+  [conn-id
+   (validated-qualified-table-name table-name)
+   (str source-system)
+   (str endpoint-name)])
+
+(defn- cache-checkpoint-row!
+  [conn-id table-name source-system endpoint-name row]
+  (swap! checkpoint-row-cache assoc
+         (checkpoint-cache-key conn-id table-name source-system endpoint-name)
+         row)
+  (cache-local-checkpoint-row! conn-id table-name source-system endpoint-name row)
+  row)
+
+(defn- invalidate-checkpoint-row-cache!
+  [conn-id table-name source-system endpoint-name]
+  (swap! checkpoint-row-cache dissoc
+         (checkpoint-cache-key conn-id table-name source-system endpoint-name))
+  (when (and source-system endpoint-name)
+    (delete-local-checkpoint-row! conn-id table-name source-system endpoint-name))
+  nil)
+
+(defn- schema-snapshot-cache-key
+  [conn-id schema-snapshot-table graph-id api-node-id endpoint-name]
+  [conn-id
+   (validated-qualified-table-name schema-snapshot-table)
+   graph-id
+   api-node-id
+   (str endpoint-name)])
+
+(defn- cache-latest-schema-snapshot-row!
+  [conn-id schema-snapshot-table graph-id api-node-id endpoint-name row]
+  (swap! schema-snapshot-latest-cache assoc
+         (schema-snapshot-cache-key conn-id schema-snapshot-table graph-id api-node-id endpoint-name)
+         row)
+  (cache-local-latest-schema-snapshot-row! conn-id schema-snapshot-table graph-id api-node-id endpoint-name row)
+  row)
+
+(defn- invalidate-latest-schema-snapshot-row-cache!
+  [conn-id schema-snapshot-table graph-id api-node-id endpoint-name]
+  (swap! schema-snapshot-latest-cache dissoc
+         (schema-snapshot-cache-key conn-id schema-snapshot-table graph-id api-node-id endpoint-name))
+  (delete-local-latest-schema-snapshot-row! conn-id schema-snapshot-table graph-id api-node-id endpoint-name)
+  nil)
+
+(defn- ensure-local-ingest-cache-tables!
+  []
+  (when-not @local-ingest-cache-ready?
+    (locking local-ingest-cache-ready?
+      (when-not @local-ingest-cache-ready?
+        (doseq [sql-str
+                [(str "CREATE TABLE IF NOT EXISTS " local-table-confirmation-cache-table " ("
+                      "conn_id INTEGER NOT NULL, "
+                      "table_name TEXT NOT NULL, "
+                      "confirmed_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                      "PRIMARY KEY (conn_id, table_name))")
+                 (str "CREATE TABLE IF NOT EXISTS " local-checkpoint-cache-table " ("
+                      "conn_id INTEGER NOT NULL, "
+                      "table_name TEXT NOT NULL, "
+                      "source_system TEXT NOT NULL, "
+                      "endpoint_name TEXT NOT NULL, "
+                      "row_json TEXT NOT NULL, "
+                      "updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                      "PRIMARY KEY (conn_id, table_name, source_system, endpoint_name))")
+                 (str "CREATE TABLE IF NOT EXISTS " local-schema-snapshot-cache-table " ("
+                      "conn_id INTEGER NOT NULL, "
+                      "table_name TEXT NOT NULL, "
+                      "graph_id INTEGER NOT NULL, "
+                      "api_node_id INTEGER NOT NULL, "
+                      "endpoint_name TEXT NOT NULL, "
+                      "row_json TEXT NOT NULL, "
+                      "updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                      "PRIMARY KEY (conn_id, table_name, graph_id, api_node_id, endpoint_name))")]]
+          (jdbc/execute! db/ds [sql-str]))
+        (reset! local-ingest-cache-ready? true))))
+  nil)
+
+(defn- local-table-confirmed?
+  [conn-id table-name]
+  (ensure-local-ingest-cache-tables!)
+  (some?
+   (jdbc/execute-one!
+    (db-opts db/ds)
+    [(str "SELECT 1 AS present FROM " local-table-confirmation-cache-table
+          " WHERE conn_id = ? AND table_name = ?")
+     conn-id
+     (validated-qualified-table-name table-name)])))
+
+(defn- cache-local-table-confirmed!
+  [conn-id table-name]
+  (ensure-local-ingest-cache-tables!)
+  (jdbc/execute!
+   (db-opts db/ds)
+   [(str "INSERT INTO " local-table-confirmation-cache-table
+         " (conn_id, table_name, confirmed_at_utc) VALUES (?, ?, now()) "
+         "ON CONFLICT (conn_id, table_name) DO UPDATE SET confirmed_at_utc = excluded.confirmed_at_utc")
+    conn-id
+    (validated-qualified-table-name table-name)])
+  nil)
+
+(defn- delete-local-table-confirmed!
+  [conn-id table-name]
+  (ensure-local-ingest-cache-tables!)
+  (jdbc/execute!
+   (db-opts db/ds)
+   [(str "DELETE FROM " local-table-confirmation-cache-table
+         " WHERE conn_id = ? AND table_name = ?")
+    conn-id
+    (validated-qualified-table-name table-name)])
+  nil)
+
+(defn- local-checkpoint-row
+  [conn-id table-name source-system endpoint-name]
+  (ensure-local-ingest-cache-tables!)
+  (some-> (jdbc/execute-one!
+           (db-opts db/ds)
+           [(str "SELECT row_json FROM " local-checkpoint-cache-table
+                 " WHERE conn_id = ? AND table_name = ? AND source_system = ? AND endpoint_name = ?")
+            conn-id
+            (validated-qualified-table-name table-name)
+            (str source-system)
+            (str endpoint-name)])
+          :row_json
+          (json/parse-string true)))
+
+(defn- cache-local-checkpoint-row!
+  [conn-id table-name source-system endpoint-name row]
+  (when row
+    (ensure-local-ingest-cache-tables!)
+    (jdbc/execute!
+     (db-opts db/ds)
+     [(str "INSERT INTO " local-checkpoint-cache-table
+           " (conn_id, table_name, source_system, endpoint_name, row_json, updated_at_utc) "
+           "VALUES (?, ?, ?, ?, ?, now()) "
+           "ON CONFLICT (conn_id, table_name, source_system, endpoint_name) DO UPDATE "
+           "SET row_json = excluded.row_json, updated_at_utc = excluded.updated_at_utc")
+      conn-id
+      (validated-qualified-table-name table-name)
+      (str source-system)
+      (str endpoint-name)
+      (json/generate-string row)]))
+  row)
+
+(defn- delete-local-checkpoint-row!
+  [conn-id table-name source-system endpoint-name]
+  (ensure-local-ingest-cache-tables!)
+  (jdbc/execute!
+   (db-opts db/ds)
+   [(str "DELETE FROM " local-checkpoint-cache-table
+         " WHERE conn_id = ? AND table_name = ? AND source_system = ? AND endpoint_name = ?")
+    conn-id
+    (validated-qualified-table-name table-name)
+    (str source-system)
+    (str endpoint-name)])
+  nil)
+
+(defn- local-latest-schema-snapshot-row
+  [conn-id table-name graph-id api-node-id endpoint-name]
+  (ensure-local-ingest-cache-tables!)
+  (some-> (jdbc/execute-one!
+           (db-opts db/ds)
+           [(str "SELECT row_json FROM " local-schema-snapshot-cache-table
+                 " WHERE conn_id = ? AND table_name = ? AND graph_id = ? AND api_node_id = ? AND endpoint_name = ?")
+            conn-id
+            (validated-qualified-table-name table-name)
+            graph-id
+            api-node-id
+            (str endpoint-name)])
+          :row_json
+          (json/parse-string true)))
+
+(defn- cache-local-latest-schema-snapshot-row!
+  [conn-id table-name graph-id api-node-id endpoint-name row]
+  (when row
+    (ensure-local-ingest-cache-tables!)
+    (jdbc/execute!
+     (db-opts db/ds)
+     [(str "INSERT INTO " local-schema-snapshot-cache-table
+           " (conn_id, table_name, graph_id, api_node_id, endpoint_name, row_json, updated_at_utc) "
+           "VALUES (?, ?, ?, ?, ?, ?, now()) "
+           "ON CONFLICT (conn_id, table_name, graph_id, api_node_id, endpoint_name) DO UPDATE "
+           "SET row_json = excluded.row_json, updated_at_utc = excluded.updated_at_utc")
+      conn-id
+      (validated-qualified-table-name table-name)
+      graph-id
+      api-node-id
+      (str endpoint-name)
+      (json/generate-string row)]))
+  row)
+
+(defn- delete-local-latest-schema-snapshot-row!
+  [conn-id table-name graph-id api-node-id endpoint-name]
+  (ensure-local-ingest-cache-tables!)
+  (jdbc/execute!
+   (db-opts db/ds)
+   [(str "DELETE FROM " local-schema-snapshot-cache-table
+         " WHERE conn_id = ? AND table_name = ? AND graph_id = ? AND api_node_id = ? AND endpoint_name = ?")
+    conn-id
+    (validated-qualified-table-name table-name)
+    graph-id
+    api-node-id
+    (str endpoint-name)])
+  nil)
 
 (defn- parse-int-env
   [k default-value]
@@ -142,6 +367,61 @@
       default-value)
     (catch Exception _
       default-value)))
+
+(defn- databricks-target?
+  "Returns true if the target connection is Databricks."
+  [conn-id]
+  (= "databricks" (connection-dbtype conn-id)))
+
+(defn- databricks-query-int
+  [conn-id value]
+  (let [value (long value)]
+    (if (databricks-target? conn-id)
+      (int value)
+      value)))
+
+(defn- databricks-col-type
+  "Converts Postgres column type syntax to Databricks-compatible syntax."
+  [col-type]
+  (-> col-type
+      (string/replace #"(?i)TIMESTAMPTZ" "TIMESTAMP")
+      (string/replace #"(?i)VARCHAR\(\d+\)" "STRING")
+      (string/replace #"(?i)\s+NOT NULL\s+DEFAULT\s+.*" "")
+      (string/replace #"(?i)\s+NULL\b" "")
+      (string/replace #"(?i)\bTEXT\b" "STRING")))
+
+(defn- add-column-ddl
+  "Generates ALTER TABLE ADD COLUMN DDL, dialect-aware.
+   Databricks does not support IF NOT EXISTS on ALTER TABLE ADD COLUMN."
+  [table col-name col-type conn-id]
+  (if (databricks-target? conn-id)
+    (str "ALTER TABLE " table " ADD COLUMN " col-name " " (databricks-col-type col-type))
+    (str "ALTER TABLE " table " ADD COLUMN IF NOT EXISTS " col-name " " col-type)))
+
+(defn- now-nanos []
+  (System/nanoTime))
+
+(defn- elapsed-ms
+  [started-nanos]
+  (long (/ (- (System/nanoTime) started-nanos) 1000000)))
+
+(defn- merge-timing-maps
+  [& timing-maps]
+  (apply merge-with
+         (fn [a b] (+ (long (or a 0)) (long (or b 0))))
+         (filter seq timing-maps)))
+
+(defn- exec-add-column!
+  "Executes an ALTER TABLE ADD COLUMN, silently ignoring 'column already exists' on Databricks."
+  [conn-id table col-name col-type]
+  (let [ddl (add-column-ddl table col-name col-type conn-id)]
+    (try
+      (jdbc/execute! (sql-opts conn-id) [ddl])
+      (catch java.sql.SQLException e
+        (if (and (databricks-target? conn-id)
+                 (re-find #"(?i)already exists|COLUMN_ALREADY_EXISTS" (.getMessage e)))
+          nil ;; column already exists, safe to ignore
+          (throw e))))))
 
 (defn- ensure-artifact-store-table!
   []
@@ -177,23 +457,18 @@
       (locking manifest-columns-ready?
         (when-not (contains? @manifest-columns-ready? key)
           (try
-            (doseq [sql-str
-                    [(str "ALTER TABLE " manifest-table
-                          " ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE")
-                     (str "ALTER TABLE " manifest-table
-                          " ADD COLUMN IF NOT EXISTS rollback_reason TEXT NULL")
-                     (str "ALTER TABLE " manifest-table
-                          " ADD COLUMN IF NOT EXISTS rolled_back_by TEXT NULL")
-                     (str "ALTER TABLE " manifest-table
-                          " ADD COLUMN IF NOT EXISTS rolled_back_at_utc TIMESTAMPTZ NULL")
-                     (str "ALTER TABLE " manifest-table
-                          " ADD COLUMN IF NOT EXISTS archived_at_utc TIMESTAMPTZ NULL")
-                     (str "ALTER TABLE " manifest-table
-                          " ADD COLUMN IF NOT EXISTS source_bad_record_ids_json TEXT NULL")
-                     (str "CREATE INDEX IF NOT EXISTS "
-                          (safe-path-segment (str "idx_" manifest-table "_status_active"))
-                          " ON " manifest-table " (endpoint_name, status, active, committed_at_utc DESC)")]]
-              (jdbc/execute! (sql-opts conn-id) [sql-str]))
+            (doseq [[col-name col-type] [["active" "BOOLEAN NOT NULL DEFAULT TRUE"]
+                                       ["rollback_reason" "TEXT NULL"]
+                                       ["rolled_back_by" "TEXT NULL"]
+                                       ["rolled_back_at_utc" "TIMESTAMPTZ NULL"]
+                                       ["archived_at_utc" "TIMESTAMPTZ NULL"]
+                                       ["source_bad_record_ids_json" "TEXT NULL"]]]
+              (exec-add-column! conn-id manifest-table col-name col-type))
+            (when-not (databricks-target? conn-id)
+              (jdbc/execute! (sql-opts conn-id)
+                [(str "CREATE INDEX IF NOT EXISTS "
+                      (safe-path-segment (string/replace (str "idx_" manifest-table "_status_active") "." "_"))
+                      " ON " manifest-table " (endpoint_name, status, active, committed_at_utc DESC)")]))
             (swap! manifest-columns-ready? conj key)
             (catch Exception e
               (throw (ex-info "Failed to migrate batch manifest columns"
@@ -211,12 +486,9 @@
       (locking checkpoint-columns-ready?
         (when-not (contains? @checkpoint-columns-ready? key)
           (try
-            (doseq [sql-str
-                    [(str "ALTER TABLE " checkpoint-table
-                          " ADD COLUMN IF NOT EXISTS last_successful_batch_id TEXT NULL")
-                     (str "ALTER TABLE " checkpoint-table
-                          " ADD COLUMN IF NOT EXISTS last_successful_batch_seq INT NULL")]]
-              (jdbc/execute! (sql-opts conn-id) [sql-str]))
+            (doseq [[col-name col-type] [["last_successful_batch_id" "TEXT NULL"]
+                                       ["last_successful_batch_seq" "INT NULL"]]]
+              (exec-add-column! conn-id checkpoint-table col-name col-type))
             (swap! checkpoint-columns-ready? conj key)
             (catch Exception e
               (throw (ex-info "Failed to migrate ingestion checkpoint columns"
@@ -234,34 +506,40 @@
       (locking bad-record-columns-ready?
         (when-not (contains? @bad-record-columns-ready? key)
           (try
-            (doseq [sql-str
-                    [(str "ALTER TABLE " bad-records-table
-                          " ADD COLUMN IF NOT EXISTS bad_record_id TEXT NULL")
-                     (str "ALTER TABLE " bad-records-table
-                          " ADD COLUMN IF NOT EXISTS row_json TEXT NULL")
-                     (str "ALTER TABLE " bad-records-table
-                          " ADD COLUMN IF NOT EXISTS replay_status VARCHAR(32) NULL")
-                     (str "ALTER TABLE " bad-records-table
-                          " ADD COLUMN IF NOT EXISTS replayed_run_id TEXT NULL")
-                     (str "ALTER TABLE " bad-records-table
-                          " ADD COLUMN IF NOT EXISTS replayed_at_utc TIMESTAMPTZ NULL")
-                     (str "ALTER TABLE " bad-records-table
-                          " ADD COLUMN IF NOT EXISTS replay_error_message TEXT NULL")
-                     (str "ALTER TABLE " bad-records-table
-                          " ADD COLUMN IF NOT EXISTS payload_archive_ref TEXT NULL")
-                     (str "ALTER TABLE " bad-records-table
-                          " ADD COLUMN IF NOT EXISTS payload_archived_at_utc TIMESTAMPTZ NULL")
-                     (str "UPDATE " bad-records-table
-                          " SET bad_record_id = COALESCE(bad_record_id, md5(COALESCE(payload_json, '') || COALESCE(created_at_utc, '') || COALESCE(error_message, '')))")
-                     (str "UPDATE " bad-records-table
-                          " SET replay_status = COALESCE(replay_status, 'pending')")
-                     (str "CREATE INDEX IF NOT EXISTS "
-                          (safe-path-segment (str "idx_" bad-records-table "_replay"))
-                          " ON " bad-records-table " (endpoint_name, replay_status, created_at_utc DESC)")
-                     (str "CREATE INDEX IF NOT EXISTS "
-                          (safe-path-segment (str "idx_" bad-records-table "_retention"))
-                          " ON " bad-records-table " (endpoint_name, created_at_utc ASC)")]]
-              (jdbc/execute! (sql-opts conn-id) [sql-str]))
+            (doseq [[col-name col-type] [["bad_record_id" "TEXT NULL"]
+                                       ["row_json" "TEXT NULL"]
+                                       ["replay_status" "VARCHAR(32) NULL"]
+                                       ["replayed_run_id" "TEXT NULL"]
+                                       ["replayed_at_utc" "TIMESTAMPTZ NULL"]
+                                       ["replay_error_message" "TEXT NULL"]
+                                       ["payload_archive_ref" "TEXT NULL"]
+                                       ["payload_archived_at_utc" "TIMESTAMPTZ NULL"]]]
+              (exec-add-column! conn-id bad-records-table col-name col-type))
+            (let [bad-record-id-update
+                  (when (null-backfill-needed? conn-id bad-records-table "bad_record_id")
+                    (if (databricks-target? conn-id)
+                      (str "UPDATE " bad-records-table
+                           " SET bad_record_id = COALESCE(bad_record_id, md5(CONCAT(COALESCE(payload_json, ''), COALESCE(CAST(created_at_utc AS STRING), ''), COALESCE(error_message, ''))))")
+                      (str "UPDATE " bad-records-table
+                           " SET bad_record_id = COALESCE(bad_record_id, md5(COALESCE(payload_json, '') || COALESCE(created_at_utc, '') || COALESCE(error_message, '')))")))
+                  replay-status-update
+                  (when (null-backfill-needed? conn-id bad-records-table "replay_status")
+                    (str "UPDATE " bad-records-table
+                         " SET replay_status = COALESCE(replay_status, 'pending')"))
+                  update-stmts (cond-> []
+                                 bad-record-id-update (conj bad-record-id-update)
+                                 replay-status-update (conj replay-status-update))]
+              (doseq [sql-str update-stmts]
+                (jdbc/execute! (sql-opts conn-id) [sql-str])))
+            (when-not (databricks-target? conn-id)
+              (doseq [sql-str
+                      [(str "CREATE INDEX IF NOT EXISTS "
+                            (safe-path-segment (string/replace (str "idx_" bad-records-table "_replay") "." "_"))
+                            " ON " bad-records-table " (endpoint_name, replay_status, created_at_utc DESC)")
+                       (str "CREATE INDEX IF NOT EXISTS "
+                            (safe-path-segment (string/replace (str "idx_" bad-records-table "_retention") "." "_"))
+                            " ON " bad-records-table " (endpoint_name, created_at_utc ASC)")]]
+                (jdbc/execute! (sql-opts conn-id) [sql-str])))
             (swap! bad-record-columns-ready? conj key)
             (catch Exception e
               (throw (ex-info "Failed to migrate bad record columns"
@@ -325,13 +603,54 @@
      :schema  (or (:audit_schema target) "audit")}
     table-name))
 
+(defn- auto-endpoint-table-name
+  [endpoint]
+  (let [seed (or (non-blank-str (:endpoint_name endpoint))
+                 (non-blank-str (:endpoint_url endpoint))
+                 (non-blank-str (:topic_name endpoint))
+                 (non-blank-str (:path endpoint))
+                 "bronze_auto")
+        sanitized (-> seed
+                      string/lower-case
+                      (string/replace #"[^a-z0-9_]+" "_")
+                      (string/replace #"^_+|_+$" ""))]
+    (cond
+      (string/blank? sanitized) "bronze_auto"
+      (re-matches #"^[a-z_].*" sanitized) sanitized
+      :else (str "t_" sanitized))))
+
 (defn- endpoint->table-name [target endpoint]
-  (or (:bronze_table_name endpoint)
-      (when (seq (:table_name target))
-        (db/fully-qualified-table-name target (:table_name target)))))
+  (or (non-blank-str (:bronze_table_name endpoint))
+      (when-let [target-table (non-blank-str (:table_name target))]
+        (db/fully-qualified-table-name target target-table))
+      (db/fully-qualified-table-name target (auto-endpoint-table-name endpoint))))
 
 (defn- target-connection-id [target]
-  (or (:connection_id target) (:c target)))
+  (let [raw (or (:connection_id target) (:c target) (:connection target))]
+    (cond
+      (integer? raw) raw
+      (string? raw) (let [trimmed (string/trim raw)]
+                      (cond
+                        (string/blank? trimmed) nil
+                        (re-matches #"\d+" trimmed) (Integer/parseInt trimmed)
+                        :else nil))
+      (number? raw) (int raw)
+      :else nil)))
+
+(defn- resolved-target-connection-id
+  [target]
+  (let [conn-id (target-connection-id target)]
+    (when (and conn-id (connection-dbtype conn-id))
+      conn-id)))
+
+(defn- require-target-connection-id!
+  [target message ex-data]
+  (if-let [conn-id (resolved-target-connection-id target)]
+    conn-id
+    (throw (ex-info message
+                    (merge ex-data
+                           (when-let [configured-connection-id (target-connection-id target)]
+                             {:configured_connection_id configured-connection-id}))))))
 
 (defn- target-partition-columns
   [conn-id target endpoint]
@@ -481,6 +800,24 @@
                         {:table_name table-name}))))
     table-name))
 
+(defn- null-backfill-needed?
+  [conn-id table-name column-name]
+  (let [table-name  (validated-qualified-table-name table-name)
+        column-name (validated-sql-identifier column-name)
+        row         (jdbc/execute-one!
+                     (sql-opts conn-id)
+                     [(str "SELECT 1 AS needs_backfill FROM " table-name
+                           " WHERE " column-name " IS NULL LIMIT 1")])]
+    (boolean row)))
+
+(defn- join-url [base path]
+  (let [base (str base)
+        path (str path)]
+    (if (or (string/ends-with? base "/")
+            (string/starts-with? path "/"))
+      (str base path)
+      (str base "/" path))))
+
 (defn- resolve-secret-ref
   ([secret-ref] (resolve-secret-ref secret-ref "env"))
   ([secret-ref secret-backend]
@@ -508,20 +845,23 @@
 
 (defn- resolve-auth-ref [auth-ref]
   (let [auth-ref   (or auth-ref {})
-        secret-val (when-let [secret-ref (:secret_ref auth-ref)]
+        auth-type  (some-> (:type auth-ref) str string/trim string/lower-case)
+        secret-ref (non-blank-str (:secret_ref auth-ref))
+        secret-val (when secret-ref
                      (resolve-secret-ref secret-ref (:secret_backend auth-ref)))]
     (cond
-      (= (:type auth-ref) "bearer")
+      (= auth-type "bearer")
       {:type :bearer :token (or (:token auth-ref) secret-val)}
 
-      (= (:type auth-ref) "api-key")
+      (= auth-type "api-key")
       {:type :api-key
        :key (or (:key auth-ref) secret-val)
        :location (keyword (or (:location auth-ref) "header"))
        :param-name (or (:param_name auth-ref) "api_key")
        :header-name (or (:header_name auth-ref) "X-API-Key")}
 
-      :else auth-ref)))
+      ;; No auth type specified — return nil so merge-auth skips auth
+      :else nil)))
 
 (def ^:dynamic *batch-sql-opts* nil)
 (def ^:dynamic *row-load-context* nil)
@@ -1020,13 +1360,15 @@
         (assoc endpoint
                :schema_enforcement_mode enforcement-mode
                :inferred_fields (merge-inferred-fields-additively current-fields inferred-fields)
-               :schema_drift drift))
+               :schema_drift drift
+               :_pre_drift_fields current-fields))
 
       :else
       (assoc endpoint
              :schema_enforcement_mode enforcement-mode
              :inferred_fields current-fields
-             :schema_drift drift))))
+             :schema_drift drift
+             :_pre_drift_fields current-fields))))
 
 (defn- maybe-infer-endpoint-fields [endpoint pages]
   (if (schema-inference-enabled? endpoint)
@@ -1069,10 +1411,42 @@
                                     :rows_ingested])
          failure))
 
-(declare changed-partition-dates)
+(declare changed-partition-dates
+         replace-row!
+         update-checkpoint-row!
+         update-manifest-row!
+         query-schema-snapshot-rows
+         schema-fields-hash)
+
+(defonce ^:private tables-confirmed-per-run (atom #{}))
+(defonce ^:private current-run-id-for-cache (atom nil))
 
 (defn- ensure-table! [conn-id table-name columns opts]
-  (db/create-table! conn-id nil table-name columns opts))
+  (when-not conn-id
+    (throw (ex-info "Target connection_id is missing or invalid"
+                    {:table_name table-name
+                     :status 400})))
+  (let [qualified-table-name (validated-qualified-table-name table-name)
+        cache-key [conn-id qualified-table-name]]
+    (when-not (contains? @tables-confirmed-per-run cache-key)
+      (if (local-table-confirmed? conn-id qualified-table-name)
+        (swap! tables-confirmed-per-run conj cache-key)
+        (do
+          (db/create-table! conn-id nil qualified-table-name columns opts)
+          (swap! tables-confirmed-per-run conj cache-key)
+          (cache-local-table-confirmed! conn-id qualified-table-name))))))
+
+(defn clear-confirmed-table-cache!
+  []
+  (reset! tables-confirmed-per-run #{})
+  nil)
+
+(defn reset-table-cache-for-run!
+  "Track the current run id without clearing warm table-confirmation cache.
+   Table cache now persists across runs and is invalidated only on structural failures."
+  [run-id]
+  (when (not= run-id @current-run-id-for-cache)
+    (reset! current-run-id-for-cache run-id)))
 
 (defn- key->col [row]
   (zipmap (keys row)
@@ -1094,6 +1468,33 @@
   [conn-id]
   (or *batch-sql-opts*
       (db/get-opts conn-id nil)))
+
+(defn- databricks-bind-value-local
+  [value]
+  (cond
+    (nil? value) nil
+    (instance? java.sql.Date value) (str (.toLocalDate ^java.sql.Date value))
+    (instance? java.sql.Timestamp value) (str (.toInstant ^java.sql.Timestamp value))
+    (instance? java.util.Date value) (str (.toInstant ^java.util.Date value))
+    (instance? java.time.Instant value) (str value)
+    (instance? java.time.OffsetDateTime value) (str value)
+    (instance? java.time.ZonedDateTime value) (str value)
+    (instance? java.time.LocalDate value) (str value)
+    (instance? java.time.LocalDateTime value) (str value)
+    (instance? java.util.UUID value) (str value)
+    (map? value) (json/generate-string value)
+    (vector? value) (json/generate-string value)
+    :else value))
+
+(defn- databricks-sql-literal-local
+  [value]
+  (let [value (databricks-bind-value-local value)]
+    (cond
+      (nil? value) "NULL"
+      (string? value) (str "'" (string/replace value "'" "''") "'")
+      (instance? java.lang.Boolean value) (if value "TRUE" "FALSE")
+      (number? value) (str value)
+      :else (str "'" (string/replace (str value) "'" "''") "'"))))
 
 (defn- db-opts
   [conn]
@@ -1135,11 +1536,27 @@
       (db/load-rows! conn-id nil table-name rows (key->col (first rows)))))))
 
 (defn- fetch-checkpoint [conn-id table-name source-system endpoint-name]
-  (let [table-name (validated-qualified-table-name table-name)]
-    (jdbc/execute-one!
-      (db/get-opts conn-id nil)
-      [(str "SELECT * FROM " table-name " WHERE source_system = ? AND endpoint_name = ?")
-       source-system endpoint-name])))
+  (let [table-name (validated-qualified-table-name table-name)
+        cache-key  (checkpoint-cache-key conn-id table-name source-system endpoint-name)]
+    (if (contains? @checkpoint-row-cache cache-key)
+      (get @checkpoint-row-cache cache-key)
+      (if-some [local-row (local-checkpoint-row conn-id table-name source-system endpoint-name)]
+        (cache-checkpoint-row! conn-id table-name source-system endpoint-name local-row)
+        (let [row (jdbc/execute-one!
+                   (db/get-opts conn-id nil)
+                   [(str "SELECT * FROM " table-name " WHERE source_system = ? AND endpoint_name = ?")
+                    source-system endpoint-name])]
+          (cache-checkpoint-row! conn-id table-name source-system endpoint-name row))))))
+
+(defn- replace-checkpoint-row!
+  [conn-id checkpoint-table row]
+  (let [source-system (:source_system row)
+        endpoint-name (:endpoint_name row)]
+    (replace-row! conn-id checkpoint-table [:source_system :endpoint_name] row)
+    (if (and source-system endpoint-name)
+      (cache-checkpoint-row! conn-id checkpoint-table source-system endpoint-name row)
+      (invalidate-checkpoint-row-cache! conn-id checkpoint-table source-system endpoint-name))
+    row))
 
 (defn- replace-row! [conn-id table-name key-cols row]
   (let [table-name  (validated-qualified-table-name table-name)
@@ -1149,14 +1566,46 @@
     (jdbc/execute! opts (into [(str "DELETE FROM " table-name " WHERE " where-sql)] where-vals))
     (load-rows! conn-id table-name [row])))
 
+(defn- update-row-by-key!
+  [conn-id table-name key-cols row]
+  (let [table-name   (validated-qualified-table-name table-name)
+        dbtype       (some-> (connection-dbtype conn-id) string/lower-case)
+        set-keys     (vec (remove (set key-cols) (keys row)))
+        key-vals     (mapv row key-cols)]
+    (when (seq set-keys)
+      (if (= "databricks" dbtype)
+        (let [set-sql   (string/join ", "
+                                     (map (fn [k]
+                                            (str (validated-sql-identifier k)
+                                                 " = "
+                                                 (databricks-sql-literal-local (row k))))
+                                          set-keys))
+              where-sql (string/join " AND "
+                                     (map (fn [k]
+                                            (str (validated-sql-identifier k)
+                                                 " = "
+                                                 (databricks-sql-literal-local (row k))))
+                                          key-cols))]
+          (jdbc/execute! (sql-opts conn-id)
+                         [(str "UPDATE " table-name " SET " set-sql " WHERE " where-sql)]))
+        (replace-row! conn-id table-name key-cols row)))))
+
 (defn- delete-rows-by-column!
   [conn-id table-name column-name value]
   (let [table-name  (validated-qualified-table-name table-name)
         column-name (validated-sql-identifier column-name)]
-    (jdbc/execute!
-     (sql-opts conn-id)
-     [(str "DELETE FROM " table-name " WHERE " column-name " = ?")
-      value])))
+    (try
+      (jdbc/execute!
+       (sql-opts conn-id)
+       [(str "DELETE FROM " table-name " WHERE " column-name " = ?")
+        value])
+      (catch java.sql.SQLException e
+        ;; Table may not exist yet (first run or dropped externally) — safe to skip
+        (if (re-find #"(?i)TABLE_OR_VIEW_NOT_FOUND|does not exist|42P01" (.getMessage e))
+          (do (swap! tables-confirmed-per-run disj [conn-id table-name])
+              (delete-local-table-confirmed! conn-id table-name)
+              nil)
+          (throw e))))))
 
 (defn- logical-record-count
   [endpoint page]
@@ -1171,21 +1620,91 @@
 (defn- persist-endpoint-schema-snapshot!
   [conn-id table-name {:keys [graph-id api-node-id graph-version-id graph-version
                               source-system endpoint sample-pages captured-at]}]
-  (let [inferred-fields (vec (or (:inferred_fields endpoint) []))]
-    (load-rows! conn-id table-name
-                [{:graph_id graph-id
-                  :api_node_id api-node-id
-                  :graph_version_id graph-version-id
-                  :graph_version graph-version
-                  :source_system source-system
-                  :endpoint_name (:endpoint_name endpoint)
-                  :schema_mode (or (:schema_mode endpoint) "manual")
-                  :schema_enforcement_mode (schema-enforcement-mode endpoint)
-                  :sample_record_count (sample-record-count endpoint sample-pages)
-                  :inferred_fields_json (json/generate-string inferred-fields)
-                  :schema_drift_json (when-let [drift (:schema_drift endpoint)]
-                                       (json/generate-string drift))
-                  :captured_at_utc (str captured-at)}])))
+  (let [inferred-fields (vec (or (:inferred_fields endpoint) []))
+        inferred-fields-json (json/generate-string inferred-fields)
+        drift (:schema_drift endpoint)
+        drift-json (when drift (json/generate-string drift))
+        row {:graph_id graph-id
+             :api_node_id api-node-id
+             :graph_version_id graph-version-id
+             :graph_version graph-version
+             :source_system source-system
+             :endpoint_name (:endpoint_name endpoint)
+             :schema_mode (or (:schema_mode endpoint) "manual")
+             :schema_enforcement_mode (schema-enforcement-mode endpoint)
+             :sample_record_count (sample-record-count endpoint sample-pages)
+             :inferred_fields_json inferred-fields-json
+             :schema_drift_json drift-json
+             :captured_at_utc (str captured-at)}
+        workspace-key (delay
+                        (when graph-id
+                          (:workspace_key (control-plane/graph-workspace-context graph-id))))]
+    (load-rows! conn-id table-name [row])
+    (cache-latest-schema-snapshot-row! conn-id table-name graph-id api-node-id (:endpoint_name endpoint) row)
+    ;; Persist schema drift event for alerting pipeline
+    (when drift
+      (try
+        (let [persist-drift! (requiring-resolve 'bitool.ops.schema-drift/persist-schema-drift-event!)
+              pre-fields-json (json/generate-string (vec (or (:_pre_drift_fields endpoint) [])))
+              hash-before (stable-json-hash (vec (or (:_pre_drift_fields endpoint) [])))
+              hash-after  (stable-json-hash inferred-fields)]
+          (persist-drift!
+           {:workspace-key (or @workspace-key 0)
+            :graph-id graph-id
+            :api-node-id api-node-id
+            :endpoint-name (:endpoint_name endpoint)
+            :source-system source-system
+            :run-id nil
+            :drift drift
+            :enforcement-mode (schema-enforcement-mode endpoint)
+            :schema-hash-before hash-before
+            :schema-hash-after hash-after}))
+        (catch Exception e
+          (log/debug e "Schema drift event persistence skipped"))))))
+
+(defn- latest-schema-snapshot-row
+  [conn-id schema-snapshot-table graph-id api-node-id endpoint-name]
+  (let [cache-key (schema-snapshot-cache-key conn-id schema-snapshot-table graph-id api-node-id endpoint-name)]
+    (if (contains? @schema-snapshot-latest-cache cache-key)
+      (get @schema-snapshot-latest-cache cache-key)
+      (if-some [local-row (local-latest-schema-snapshot-row conn-id schema-snapshot-table graph-id api-node-id endpoint-name)]
+        (cache-latest-schema-snapshot-row! conn-id schema-snapshot-table graph-id api-node-id endpoint-name local-row)
+        (try
+          (let [row (first (query-schema-snapshot-rows conn-id
+                                                       schema-snapshot-table
+                                                       {:graph-id graph-id
+                                                        :api-node-id api-node-id
+                                                        :endpoint-name endpoint-name
+                                                        :limit 1}))]
+            (cache-latest-schema-snapshot-row! conn-id schema-snapshot-table graph-id api-node-id endpoint-name row))
+          (catch Exception e
+            (log/debug e "Skipping latest schema snapshot lookup; defaulting to snapshot write"
+                       {:graph_id graph-id
+                        :api_node_id api-node-id
+                        :endpoint_name endpoint-name})
+            nil))))))
+
+(defn- schema-snapshot-write-needed?
+  [conn-id schema-snapshot-table {:keys [graph-id api-node-id source-system endpoint sample-pages]}]
+  (let [sample-count   (sample-record-count endpoint sample-pages)]
+    (if (or (zero? sample-count)
+            (not (schema-snapshot-tracking-required? endpoint)))
+      false
+      (let [endpoint-name (:endpoint_name endpoint)
+            latest-row    (latest-schema-snapshot-row conn-id schema-snapshot-table graph-id api-node-id endpoint-name)
+            latest-hash   (some-> latest-row :inferred_fields_json schema-fields-hash)
+            current-hash  (schema-fields-hash (vec (or (:inferred_fields endpoint) [])))
+            latest-mode   (some-> latest-row :schema_mode str)
+            current-mode  (or (:schema_mode endpoint) "manual")
+            latest-enf    (some-> latest-row :schema_enforcement_mode str)
+            current-enf   (schema-enforcement-mode endpoint)
+            latest-source (some-> latest-row :source_system str)]
+        (or (nil? latest-row)
+            (not= latest-hash current-hash)
+            (not= latest-mode current-mode)
+            (not= latest-enf current-enf)
+            (not= latest-source source-system)
+            (some? (:schema_drift endpoint)))))))
 
 (defn- schema-fields-hash
   [inferred-fields-json]
@@ -1200,6 +1719,18 @@
    (or (= "required" (some-> (:schema_review_state endpoint) str string/trim string/lower-case))
        (true? (:require_schema_approval endpoint))
        (parse-bool-env :ingest-require-schema-approval false))))
+
+(defn- schema-snapshot-tracking-required?
+  [endpoint]
+  (let [schema-mode      (some-> (or (:schema_mode endpoint) "manual") str string/lower-case)
+        enforcement-mode (some-> (schema-enforcement-mode endpoint) str string/lower-case)
+        evolution-mode   (some-> (or (:schema_evolution_mode endpoint) "advisory") str string/lower-case)]
+    (boolean
+     (or (schema-approval-required? endpoint)
+         (some? (:schema_drift endpoint))
+         (not= "infer" schema-mode)
+         (not= "permissive" enforcement-mode)
+         (not= "advisory" evolution-mode)))))
 
 (defn- collect-schema-sample!
   [pages-ch endpoint]
@@ -1494,7 +2025,7 @@
   [value]
   (when-let [value (non-blank-str value)]
     (try
-      (java.time.Instant/parse value)
+      (checkpoint/parse-instant value)
       (catch Exception _
         nil))))
 
@@ -1699,11 +2230,12 @@
   (->> (graph-api-node-ids graph)
        (keep (fn [api-node-id]
                (let [target  (find-downstream-target graph api-node-id)
-                     conn-id (target-connection-id target)]
+                     conn-id (resolved-target-connection-id target)]
                  (when-not conn-id
                    (log/debug "Skipping API node during manifest retention discovery without downstream target connection"
                               {:graph_id graph-id
-                               :api_node_id api-node-id}))
+                               :api_node_id api-node-id
+                               :configured_connection_id (target-connection-id target)}))
                  (when conn-id
                    api-node-id))))))
 
@@ -1954,8 +2486,8 @@
 
                            :else
                            [clauses params])
-        limit           (long (max 1 (min 500 (or limit 100))))
-        offset          (long (max 0 (or offset 0)))
+        limit           (databricks-query-int conn-id (max 1 (min 500 (or limit 100))))
+        offset          (databricks-query-int conn-id (max 0 (or offset 0)))
         order-direction (if (= :asc order) "ASC" "DESC")]
     (jdbc/execute!
      (sql-opts conn-id)
@@ -2046,18 +2578,24 @@
   (let [inferred-fields-json (:inferred_fields_json row)
         inferred-fields (if (string? inferred-fields-json)
                           (json/parse-string inferred-fields-json true)
-                          inferred-fields-json)]
-    {:graph_id (:graph_id row)
-     :api_node_id (:api_node_id row)
-     :endpoint_name (:endpoint_name row)
-     :schema_hash (:schema_hash row)
-     :review_state (or (:review_state row) "pending")
-     :review_notes (:review_notes row)
-     :reviewed_by (:reviewed_by row)
-     :reviewed_at_utc (:reviewed_at_utc row)
-     :promoted (truthy-db-bool? (:promoted row))
-     :promoted_at_utc (:promoted_at_utc row)
-     :inferred_fields inferred-fields}))
+                          inferred-fields-json)
+        field-decisions-raw (:field_decisions row)
+        field-decisions (when field-decisions-raw
+                          (if (string? field-decisions-raw)
+                            (try (json/parse-string field-decisions-raw true) (catch Exception _ nil))
+                            field-decisions-raw))]
+    (cond-> {:graph_id (:graph_id row)
+             :api_node_id (:api_node_id row)
+             :endpoint_name (:endpoint_name row)
+             :schema_hash (:schema_hash row)
+             :review_state (or (:review_state row) "pending")
+             :review_notes (:review_notes row)
+             :reviewed_by (:reviewed_by row)
+             :reviewed_at_utc (:reviewed_at_utc row)
+             :promoted (truthy-db-bool? (:promoted row))
+             :promoted_at_utc (:promoted_at_utc row)
+             :inferred_fields inferred-fields}
+      field-decisions (assoc :field_decisions field-decisions))))
 
 (defn- preparing-manifest-rows
   ([conn-id manifest-table endpoint-name]
@@ -2106,7 +2644,7 @@
         [clauses params] (if include-succeeded?
                            [clauses params]
                            [(conj clauses "COALESCE(replay_status, 'pending') <> 'succeeded'") params])
-        limit           (long (max 1 (min 5000 (or limit 1000))))]
+        limit           (databricks-query-int conn-id (max 1 (min 5000 (or limit 1000))))]
     (jdbc/execute!
      (sql-opts conn-id)
      (into [(str "SELECT * FROM " (validated-qualified-table-name bad-records-table)
@@ -2127,8 +2665,8 @@
                    LIMIT ? OFFSET ?")
               endpoint-name]
      source-system (conj source-system)
-     true (conj (long (max 1 (min 5000 (or limit 1000))))
-                (long (max 0 (or offset 0)))))))
+     true (conj (databricks-query-int conn-id (max 1 (min 5000 (or limit 1000))))
+                (databricks-query-int conn-id (max 0 (or offset 0)))))))
 
 (defn- mark-bad-record-payload-archived!
   [conn-id bad-records-table bad-record-id archive-ref archived-at]
@@ -2303,7 +2841,10 @@
   (let [g                 (db/getGraph graph-id)
         api-node          (g2/getData g api-node-id)
         target            (find-downstream-target g api-node-id)
-        conn-id           (target-connection-id target)
+        conn-id           (require-target-connection-id! target
+                                                         "No downstream target connection found for API node"
+                                                         {:graph_id graph-id
+                                                          :api_node_id api-node-id})
         endpoint          (when endpoint-name
                             (select-endpoint! api-node endpoint-name))
         bad-records-table (when conn-id
@@ -2314,10 +2855,6 @@
                                 (validated-qualified-table-name (audit-table target conn-id "endpoint_schema_snapshot")))
         schema-approval-table (when conn-id
                                 (validated-qualified-table-name (audit-table target conn-id "endpoint_schema_approval")))]
-    (when-not conn-id
-      (throw (ex-info "No downstream target connection found for API node"
-                      {:graph_id graph-id
-                       :api_node_id api-node-id})))
     (ensure-table! conn-id manifest-table batch-manifest-columns {})
     (ensure-batch-manifest-columns! conn-id manifest-table)
     (ensure-table! conn-id bad-records-table bronze/bad-record-columns {})
@@ -2336,6 +2873,37 @@
      :manifest-table manifest-table
      :schema-snapshot-table schema-snapshot-table
      :schema-approval-table schema-approval-table}))
+
+(defn schema-drift-target-context
+  [graph-id api-node-id endpoint-name]
+  (let [{:keys [conn-id target endpoint] :as ctx} (api-endpoint-runtime-context graph-id api-node-id endpoint-name)
+        workspace-context (control-plane/graph-workspace-context graph-id)
+        endpoint-name' (or endpoint-name (:endpoint_name endpoint))]
+    {:workspace_key (:workspace_key workspace-context)
+     :graph_id graph-id
+     :api_node_id api-node-id
+     :endpoint_name endpoint-name'
+     :conn_id conn-id
+     :warehouse (some-> (connection-dbtype conn-id) str string/lower-case)
+     :target_table (validated-qualified-table-name (endpoint->table-name target endpoint))
+     :schema_snapshot_table (:schema-snapshot-table ctx)
+     :schema_approval_table (:schema-approval-table ctx)}))
+
+(defn resolve-api-schema-approval
+  [graph-id api-node-id {:keys [endpoint-name schema-hash promoted-only]}]
+  (let [{:keys [conn-id schema-approval-table endpoint]} (api-endpoint-runtime-context graph-id api-node-id endpoint-name)
+        endpoint-name' (or endpoint-name (:endpoint_name endpoint))
+        approvals (query-schema-approval-rows conn-id schema-approval-table
+                                              {:graph-id graph-id
+                                               :api-node-id api-node-id
+                                               :endpoint-name endpoint-name'
+                                               :promoted-only promoted-only
+                                               :limit 500})
+        selected (if-let [schema-hash' (non-blank-str schema-hash)]
+                   (first (filter #(= schema-hash' (:schema_hash %)) approvals))
+                   (first approvals))]
+    (when selected
+      (schema-approval-summary selected))))
 
 (defn- source-kind-config-key
   [source-kind]
@@ -2379,7 +2947,11 @@
                                                  (str (source-kind-label source-kind) " node has no enabled source configs")
                                                  (source-kind-label source-kind))
         target            (find-downstream-target g node-id)
-        conn-id           (target-connection-id target)
+        conn-id           (require-target-connection-id! target
+                                                         (str "No downstream target connection found for " (source-kind-label source-kind) " node")
+                                                         {:graph_id graph-id
+                                                          :node_id node-id
+                                                          :source_kind source-kind})
         source-system     (or (:source_system source-node)
                               (name source-kind))
         checkpoint-table  (when conn-id
@@ -2390,11 +2962,6 @@
                             (validated-qualified-table-name (audit-table target conn-id "bad_records")))
         manifest-table    (when conn-id
                             (validated-qualified-table-name (audit-table target conn-id "run_batch_manifest")))]
-    (when-not conn-id
-      (throw (ex-info (str "No downstream target connection found for " (source-kind-label source-kind) " node")
-                      {:graph_id graph-id
-                       :node_id node-id
-                       :source_kind source-kind})))
     (ensure-table! conn-id checkpoint-table checkpoint/ingestion-checkpoint-columns {})
     (ensure-checkpoint-columns! conn-id checkpoint-table)
     (ensure-table! conn-id run-detail-table endpoint-run-detail-columns {})
@@ -2586,7 +3153,7 @@
                         snapshots))}))
 
 (defn review-api-schema!
-  [graph-id api-node-id {:keys [endpoint-name schema-hash review-state review-notes reviewed-by promote?]
+  [graph-id api-node-id {:keys [endpoint-name schema-hash review-state review-notes reviewed-by promote? field-decisions]
                          :or {reviewed-by "system"}}]
   (let [{:keys [conn-id schema-approval-table schema-snapshot-table endpoint]} (api-endpoint-runtime-context graph-id api-node-id endpoint-name)
         endpoint-name' (or endpoint-name (:endpoint_name endpoint))
@@ -2615,6 +3182,10 @@
           schema-hash (schema-fields-hash inferred-fields-json)
           promoted? (and (boolean promote?) (= "approved" review-state))
           review-time (str (now-utc))
+          field-decisions-json (when field-decisions
+                                (if (string? field-decisions)
+                                  field-decisions
+                                  (json/generate-string field-decisions)))
           row {:graph_id graph-id
                :api_node_id api-node-id
                :endpoint_name endpoint-name'
@@ -2625,7 +3196,8 @@
                :reviewed_at_utc review-time
                :promoted promoted?
                :promoted_at_utc (when promoted? review-time)
-               :inferred_fields_json inferred-fields-json}]
+               :inferred_fields_json inferred-fields-json
+               :field_decisions field-decisions-json}]
       (with-batch-commit
         conn-id
         (fn []
@@ -2686,7 +3258,10 @@
   (let [g               (db/getGraph graph-id)
         api-node        (g2/getData g api-node-id)
         target          (find-downstream-target g api-node-id)
-        conn-id         (target-connection-id target)
+        conn-id         (require-target-connection-id! target
+                                                       "No downstream target connection found for API node"
+                                                       {:graph_id graph-id
+                                                        :api_node_id api-node-id})
         endpoint        (select-endpoint! api-node endpoint-name)
         source-system   (or (:source_system api-node) "samara")
         checkpoint-table (validated-qualified-table-name (audit-table target conn-id "ingestion_checkpoint"))
@@ -2725,7 +3300,7 @@
                :last_status "reset"
                :rows_ingested 0
                :updated_at_utc (str (now-utc))}]
-      (replace-row! conn-id checkpoint-table [:source_system :endpoint_name] row)
+      (replace-checkpoint-row! conn-id checkpoint-table row)
       {:graph_id graph-id
        :api_node_id api-node-id
        :endpoint_name (:endpoint_name endpoint)
@@ -2739,7 +3314,10 @@
   (let [g                 (db/getGraph graph-id)
         api-node          (g2/getData g api-node-id)
         target            (find-downstream-target g api-node-id)
-        conn-id           (target-connection-id target)
+        conn-id           (require-target-connection-id! target
+                                                         "No downstream target connection found for API node"
+                                                         {:graph_id graph-id
+                                                          :api_node_id api-node-id})
         endpoint          (select-endpoint! api-node endpoint-name)
         source-system     (or (:source_system api-node) "samara")
         endpoint-name'    (:endpoint_name endpoint)
@@ -3337,11 +3915,11 @@
          :bad_records_remaining 0
          :manifest nil}
         (let [table-name-raw (endpoint->table-name target endpoint)
-              table-name     (validated-qualified-table-name table-name-raw)
               _              (when (string/blank? (str table-name-raw))
                                (throw (ex-info "Endpoint is missing bronze_table_name and target table_name"
                                                {:endpoint_name endpoint-name
                                                 :status 409})))
+              table-name     (validated-qualified-table-name table-name-raw)
               partition-columns (target-partition-columns conn-id target endpoint)
               _              (ensure-table! conn-id table-name (bronze/bronze-columns endpoint)
                                             {:partition-columns partition-columns})
@@ -3351,7 +3929,7 @@
                               {:run-id run-id
                                :source-system source-system
                                :now started-at
-                               :request-url (str (:base_url api-node) (:endpoint_url endpoint))})
+                               :request-url (join-url (:base_url api-node) (:endpoint_url endpoint))})
               manifest       (flush-bad-record-replay-batch!
                               conn-id
                               {:table-name table-name
@@ -3407,140 +3985,182 @@
    buffer state]
   (if (batch-empty? buffer)
     state
-    (let [batch-seq          (inc (:batch-seq state))
-          batch-id           (or (:batch-id-override state)
-                                 (format "%s-b%06d" run-id batch-seq))
-          committed-at       (now-utc)
-          batch-rows         (mapv #(assoc % :batch_id batch-id) (:rows buffer))
-          batch-bad-records  (mapv #(assoc % :batch_id batch-id) (:bad-records buffer))
-          max-watermark      (rows-max-watermark batch-rows)
-          next-cursor        (page-state-next-cursor (:last-state buffer))
-          artifact           (persist-batch-artifact!
-                              run-id
-                              source-system
-                              endpoint-name
-                              batch-id
-                              {:batch_id batch-id
-                               :run_id run-id
-                               :endpoint_name endpoint-name
-                               :source_system source-system
-                               :endpoint_config endpoint-config
-                               :endpoint_config_hash (replay-endpoint-config-hash endpoint-config)
-                               :pages (:page-artifacts buffer)})
-          preparing-row      (preparing-manifest-row
-                              {:batch-id batch-id
-                               :run-id run-id
-                               :source-system source-system
-                               :endpoint-name endpoint-name
-                               :table-name table-name
-                               :batch-seq batch-seq
-                               :row-count (count batch-rows)
-                               :bad-record-count (count batch-bad-records)
-                               :byte-count (:byte-count buffer)
-                               :page-count (:page-count buffer)
-                               :partition-dates (changed-partition-dates batch-rows)
-                               :max-watermark max-watermark
-                               :next-cursor next-cursor
-                               :artifact-path (:artifact_path artifact)
-                               :artifact-checksum (:artifact_checksum artifact)
-                               :started-at started-at})
-          pending-row        (pending-checkpoint-manifest-row
-                              {:batch-id batch-id
-                               :run-id run-id
-                               :source-system source-system
-                               :endpoint-name endpoint-name
-                               :table-name table-name
-                               :batch-seq batch-seq
-                               :row-count (count batch-rows)
-                               :bad-record-count (count batch-bad-records)
-                               :byte-count (:byte-count buffer)
-                               :page-count (:page-count buffer)
-                               :partition-dates (changed-partition-dates batch-rows)
-                               :max-watermark max-watermark
-                               :next-cursor next-cursor
-                               :artifact-path (:artifact_path artifact)
-                               :artifact-checksum (:artifact_checksum artifact)
-                               :started-at started-at
-                               :committed-at committed-at})
-          manifest-row       (committed-manifest-row
-                              {:batch-id batch-id
-                               :run-id run-id
-                               :source-system source-system
-                               :endpoint-name endpoint-name
-                               :table-name table-name
-                               :batch-seq batch-seq
-                               :row-count (count batch-rows)
-                               :bad-record-count (count batch-bad-records)
-                               :byte-count (:byte-count buffer)
-                               :page-count (:page-count buffer)
-                               :partition-dates (changed-partition-dates batch-rows)
-                               :max-watermark max-watermark
-                               :next-cursor next-cursor
-                               :artifact-path (:artifact_path artifact)
-                               :artifact-checksum (:artifact_checksum artifact)
-                               :started-at started-at
-                               :committed-at committed-at})
-          total-rows         (+ (:rows-written state) (count batch-rows))
-          checkpoint-row'    (checkpoint/success-row
-                              {:source_system source-system
-                               :endpoint_name endpoint-name
-                               :run_id run-id
-                               :batch_id batch-id
-                               :batch_seq batch-seq
-                               :rows_ingested total-rows
-                               :max_watermark (merge-watermark (:max-watermark state) max-watermark)
-                               :next_cursor next-cursor
-                               :status "success"
-                               :now committed-at})]
-      ((if (atomic-batch-commit? conn-id)
-         (fn []
-           (with-batch-commit
-             conn-id
-             (fn []
-               (replace-row! conn-id manifest-table [:batch_id] preparing-row)
-               (delete-rows-by-column! conn-id table-name :batch_id batch-id)
-               (when (seq batch-rows)
-                 (load-rows! conn-id table-name batch-rows))
-               (delete-rows-by-column! conn-id bad-records-table :batch_id batch-id)
-               (when (seq batch-bad-records)
-                 (load-rows! conn-id bad-records-table batch-bad-records))
-               (replace-row! conn-id checkpoint-table [:source_system :endpoint_name] checkpoint-row')
-               (replace-row! conn-id manifest-table [:batch_id] manifest-row))))
-         (fn []
-           (replace-row! conn-id manifest-table [:batch_id] preparing-row)
-           (delete-rows-by-column! conn-id table-name :batch_id batch-id)
-           (when (seq batch-rows)
-             (load-rows! conn-id table-name batch-rows))
-           (delete-rows-by-column! conn-id bad-records-table :batch_id batch-id)
-           (when (seq batch-bad-records)
-             (load-rows! conn-id bad-records-table batch-bad-records))
-           (replace-row! conn-id manifest-table [:batch_id] pending-row)
-           (replace-row! conn-id checkpoint-table [:source_system :endpoint_name] checkpoint-row')
-           (replace-row! conn-id manifest-table [:batch_id] manifest-row)))
-       )
-      (when post-commit-fn
-        (try
-          (post-commit-fn {:batch-id batch-id
-                           :batch-seq batch-seq
-                           :manifest manifest-row
-                           :checkpoint-row checkpoint-row'
-                           :buffer buffer})
-          (catch Exception e
-            (log/warn e "Post-commit hook failed after Bronze batch commit"
-                      {:batch_id batch-id
-                       :endpoint_name endpoint-name
-                       :source_system source-system}))))
-      (-> state
-          (assoc :batch-seq batch-seq
-                 :batch-id-override nil
-                 :checkpoint-row checkpoint-row'
-                 :max-watermark (merge-watermark (:max-watermark state) max-watermark)
-                 :next-cursor next-cursor
-                 :rows-written total-rows
-                 :bad-records-written (+ (:bad-records-written state) (count batch-bad-records))
-                 :last-http-status (:last-http-status buffer))
-          (update :changed-partition-dates into (changed-partition-dates batch-rows))
-          (update :manifests conj manifest-row)))))
+    (let [flush-start              (now-nanos)
+          batch-seq                (inc (:batch-seq state))
+          batch-id                 (or (:batch-id-override state)
+                                       (format "%s-b%06d" run-id batch-seq))
+          committed-at             (now-utc)
+          checkpoint-wm            (:checkpoint-watermark state)
+          all-rows                 (mapv #(assoc % :batch_id batch-id) (:rows buffer))
+          batch-max-wm             (rows-max-watermark all-rows)
+          batch-rows               (if (and (seq checkpoint-wm)
+                                           (seq batch-max-wm)
+                                           (<= (compare (str batch-max-wm) (str checkpoint-wm)) 0))
+                                     []
+                                     all-rows)
+          batch-bad-records        (mapv #(assoc % :batch_id batch-id) (:bad-records buffer))
+          max-watermark            (rows-max-watermark batch-rows)
+          next-cursor              (page-state-next-cursor (:last-state buffer))
+          stale-noop?              (and (empty? batch-rows)
+                                        (empty? batch-bad-records))
+          requires-cleanup-delete? (some? (:batch-id-override state))]
+      (if stale-noop?
+        (-> state
+            (assoc :next-cursor next-cursor
+                   :last-http-status (:last-http-status buffer)
+                   :max-watermark (merge-watermark (:max-watermark state) max-watermark)
+                   :timings (merge-timing-maps
+                             (:timings state)
+                             {:batch_flush_count 1
+                              :batch_flush_ms (elapsed-ms flush-start)
+                              :stale_batch_skip_count 1})))
+        (let [artifact-start  (now-nanos)
+              artifact        (persist-batch-artifact!
+                               run-id
+                               source-system
+                               endpoint-name
+                               batch-id
+                               {:batch_id batch-id
+                                :run_id run-id
+                                :endpoint_name endpoint-name
+                                :source_system source-system
+                                :endpoint_config endpoint-config
+                                :endpoint_config_hash (replay-endpoint-config-hash endpoint-config)
+                                :pages (:page-artifacts buffer)})
+              artifact-ms     (elapsed-ms artifact-start)
+              preparing-row   (preparing-manifest-row
+                               {:batch-id batch-id
+                                :run-id run-id
+                                :source-system source-system
+                                :endpoint-name endpoint-name
+                                :table-name table-name
+                                :batch-seq batch-seq
+                                :row-count (count batch-rows)
+                                :bad-record-count (count batch-bad-records)
+                                :byte-count (:byte-count buffer)
+                                :page-count (:page-count buffer)
+                                :partition-dates (changed-partition-dates batch-rows)
+                                :max-watermark max-watermark
+                                :next-cursor next-cursor
+                                :artifact-path (:artifact_path artifact)
+                                :artifact-checksum (:artifact_checksum artifact)
+                                :started-at started-at})
+              pending-row     (pending-checkpoint-manifest-row
+                               {:batch-id batch-id
+                                :run-id run-id
+                                :source-system source-system
+                                :endpoint-name endpoint-name
+                                :table-name table-name
+                                :batch-seq batch-seq
+                                :row-count (count batch-rows)
+                                :bad-record-count (count batch-bad-records)
+                                :byte-count (:byte-count buffer)
+                                :page-count (:page-count buffer)
+                                :partition-dates (changed-partition-dates batch-rows)
+                                :max-watermark max-watermark
+                                :next-cursor next-cursor
+                                :artifact-path (:artifact_path artifact)
+                                :artifact-checksum (:artifact_checksum artifact)
+                                :started-at started-at
+                                :committed-at committed-at})
+              manifest-row    (committed-manifest-row
+                               {:batch-id batch-id
+                                :run-id run-id
+                                :source-system source-system
+                                :endpoint-name endpoint-name
+                                :table-name table-name
+                                :batch-seq batch-seq
+                                :row-count (count batch-rows)
+                                :bad-record-count (count batch-bad-records)
+                                :byte-count (:byte-count buffer)
+                                :page-count (:page-count buffer)
+                                :partition-dates (changed-partition-dates batch-rows)
+                                :max-watermark max-watermark
+                                :next-cursor next-cursor
+                                :artifact-path (:artifact_path artifact)
+                                :artifact-checksum (:artifact_checksum artifact)
+                                :started-at started-at
+                                :committed-at committed-at})
+              total-rows      (+ (:rows-written state) (count batch-rows))
+              checkpoint-row' (checkpoint/success-row
+                               {:source_system source-system
+                                :endpoint_name endpoint-name
+                                :run_id run-id
+                                :batch_id batch-id
+                                :batch_seq batch-seq
+                                :rows_ingested total-rows
+                                :max_watermark (merge-watermark (:max-watermark state) max-watermark)
+                                :next_cursor next-cursor
+                                :status "success"
+                                :now committed-at})
+              commit-start    (now-nanos)
+              commit-fn       (if (atomic-batch-commit? conn-id)
+                                (fn []
+                                  (with-batch-commit
+                                    conn-id
+                                    (fn []
+                                      (replace-row! conn-id manifest-table [:batch_id] preparing-row)
+                                      (when requires-cleanup-delete?
+                                        (delete-rows-by-column! conn-id table-name :batch_id batch-id))
+                                      (when (seq batch-rows)
+                                        (load-rows! conn-id table-name batch-rows))
+                                      (when requires-cleanup-delete?
+                                        (delete-rows-by-column! conn-id bad-records-table :batch_id batch-id))
+                                      (when (seq batch-bad-records)
+                                        (load-rows! conn-id bad-records-table batch-bad-records))
+                                      (replace-checkpoint-row! conn-id checkpoint-table checkpoint-row')
+                                      (replace-row! conn-id manifest-table [:batch_id] manifest-row))))
+                                (fn []
+                                  ;; For non-transactional targets, write the recovery marker once
+                                  ;; as pending_checkpoint before data load. This preserves crash
+                                  ;; recovery semantics while saving one manifest round trip.
+                                  (replace-row! conn-id manifest-table [:batch_id] pending-row)
+                                  (when requires-cleanup-delete?
+                                    (delete-rows-by-column! conn-id table-name :batch_id batch-id))
+                                  (when (seq batch-rows)
+                                    (load-rows! conn-id table-name batch-rows))
+                                  (when requires-cleanup-delete?
+                                    (delete-rows-by-column! conn-id bad-records-table :batch_id batch-id))
+                                  (when (seq batch-bad-records)
+                                    (load-rows! conn-id bad-records-table batch-bad-records))
+                                  (if (:checkpoint-row state)
+                                    (do
+                                      (update-checkpoint-row! conn-id checkpoint-table checkpoint-row')
+                                      (cache-checkpoint-row! conn-id checkpoint-table source-system endpoint-name checkpoint-row'))
+                                    (replace-checkpoint-row! conn-id checkpoint-table checkpoint-row'))
+                                  (update-manifest-row! conn-id manifest-table manifest-row)))]
+          (commit-fn)
+          (let [commit-ms (elapsed-ms commit-start)
+                flush-ms  (elapsed-ms flush-start)]
+            (when post-commit-fn
+              (try
+                (post-commit-fn {:batch-id batch-id
+                                 :batch-seq batch-seq
+                                 :manifest manifest-row
+                                 :checkpoint-row checkpoint-row'
+                                 :buffer buffer})
+                (catch Exception e
+                  (log/warn e "Post-commit hook failed after Bronze batch commit"
+                            {:batch_id batch-id
+                             :endpoint_name endpoint-name
+                             :source_system source-system}))))
+            (-> state
+                (assoc :batch-seq batch-seq
+                       :batch-id-override nil
+                       :checkpoint-row checkpoint-row'
+                       :max-watermark (merge-watermark (:max-watermark state) max-watermark)
+                       :next-cursor next-cursor
+                       :rows-written total-rows
+                       :bad-records-written (+ (:bad-records-written state) (count batch-bad-records))
+                       :last-http-status (:last-http-status buffer)
+                       :timings (merge-timing-maps
+                                 (:timings state)
+                                 {:batch_flush_count 1
+                                  :batch_flush_ms flush-ms
+                                  :artifact_persist_ms artifact-ms
+                                  :batch_commit_ms commit-ms}))
+                (update :changed-partition-dates into (changed-partition-dates batch-rows))
+                (update :manifests conj manifest-row))))))))
 
 (defn- flush-context
   [{:keys [table-name bad-records-table manifest-table checkpoint-table
@@ -3630,16 +4250,16 @@
           (mark-bad-record-replay-statuses! conn-id bad-records-table failed-source-bad-record-ids "failed" replay-run-id failed-message)
           (mark-manifest-row! conn-id manifest-table manifest-row)))
       (do
-        ;; Non-transactional targets require explicit manifest state transitions for safe recovery.
-        (mark-manifest-row! conn-id manifest-table preparing-row)
+        ;; Non-transactional targets write pending_checkpoint up front so a crash before the
+        ;; checkpoint update can still be reconciled, without paying an extra preparing write.
+        (mark-manifest-row! conn-id manifest-table pending-row)
         (delete-rows-by-column! conn-id table-name :batch_id batch-id)
         (when (seq batch-rows)
           (load-rows! conn-id table-name batch-rows))
         (delete-rows-by-column! conn-id bad-records-table :batch_id batch-id)
         (when (seq batch-bad)
           (load-rows! conn-id bad-records-table batch-bad))
-        (mark-manifest-row! conn-id manifest-table pending-row)
-        (mark-manifest-row! conn-id manifest-table manifest-row)
+        (update-manifest-row! conn-id manifest-table manifest-row)
         ;; Run replay status updates only after manifest commit on non-transactional targets.
         (mark-bad-record-replay-statuses! conn-id bad-records-table succeeded-source-bad-record-ids "succeeded" replay-run-id nil)
         (mark-bad-record-replay-statuses! conn-id bad-records-table failed-source-bad-record-ids "failed" replay-run-id failed-message)))
@@ -3648,6 +4268,26 @@
 (defn- mark-manifest-row!
   [conn-id manifest-table row]
   (replace-row! conn-id manifest-table [:batch_id] row))
+
+(defn- update-checkpoint-row!
+  [conn-id checkpoint-table row]
+  (try
+    (update-row-by-key! conn-id checkpoint-table [:source_system :endpoint_name] row)
+    row
+    (catch Exception e
+      (log/debug e "Falling back to replace-checkpoint-row! for checkpoint update"
+                 {:conn-id conn-id :table checkpoint-table})
+      (replace-checkpoint-row! conn-id checkpoint-table row))))
+
+(defn- update-manifest-row!
+  [conn-id manifest-table row]
+  (try
+    (update-row-by-key! conn-id manifest-table [:batch_id] row)
+    row
+    (catch Exception e
+      (log/debug e "Falling back to mark-manifest-row! for manifest update"
+                 {:conn-id conn-id :table manifest-table})
+      (mark-manifest-row! conn-id manifest-table row))))
 
 (defn- reconcile-incomplete-manifest!
   [conn-id manifest-table checkpoint-table bad-records-table manifest]
@@ -3711,6 +4351,34 @@
                            :retry-count (or (get-in page [:response :retry_count])
                                             (get-in page [:response :retry-count]))}}))))
 
+(defn- log-api-run-summary!
+  [{:keys [graph-id api-node-id source-system status run-timings results]}]
+  (when (ingest-summary-logging-enabled?)
+    (let [rows-written (reduce + 0 (map #(long (or (:rows_written %) 0)) results))
+          bad-records  (reduce + 0 (map #(long (or (:bad_records %) 0)) results))
+          batches      (reduce + 0 (map #(long (or (:batch_count %) 0)) results))
+          batch-commit (reduce + 0 (map #(long (or (get-in % [:timings :batch_commit_ms]) 0)) results))
+          checkpoint   (reduce + 0 (map #(long (or (get-in % [:timings :checkpoint_lookup_ms]) 0)) results))
+          snapshot     (reduce + 0 (map #(long (or (get-in % [:timings :schema_snapshot_ms]) 0)) results))
+          endpoint-ms  (reduce + 0 (map #(long (or (get-in % [:timings :endpoint_total_ms]) 0)) results))
+          stale-skips  (reduce + 0 (map #(long (or (get-in % [:timings :stale_batch_skip_count]) 0)) results))
+          endpoint-names (mapv :endpoint_name results)]
+      (log/debug "API ingest run summary"
+                 {:graph_id graph-id
+                  :api_node_id api-node-id
+                  :source_system source-system
+                  :status status
+                  :run_total_ms (long (or (:run_total_ms run-timings) 0))
+                  :endpoints_total_ms (long (or (:endpoints_total_ms run-timings) endpoint-ms))
+                  :rows_written rows-written
+                  :bad_records bad-records
+                  :batch_count batches
+                  :batch_commit_ms batch-commit
+                  :checkpoint_lookup_ms checkpoint
+                  :schema_snapshot_ms snapshot
+                  :stale_batch_skip_count stale-skips
+                  :endpoint_names endpoint-names}))))
+
 (defn- apply-replay-pages
   [run-id source-system request-url started-at endpoint buffer state pages]
   (reduce (fn [[buf acc] page]
@@ -3755,7 +4423,8 @@
                   :retry-count 0
                   :last-http-status nil
                   :changed-partition-dates []
-                  :manifests []}]
+                  :manifests []
+                  :timings {}}]
       (if-let [manifest (first remaining)]
         (let [artifact-data           (read-batch-artifact! (:artifact_path manifest)
                                                             (:artifact_checksum manifest))
@@ -3885,6 +4554,7 @@
 (defn- changed-partition-dates [rows]
   (->> rows
        (map :partition_date)
+       (map #(when (some? %) (str %)))
        (remove string/blank?)
        distinct
        vec))
@@ -3948,6 +4618,241 @@
 (defn- maybe-trigger-job! [conn-id job-id params]
   (when (seq (str job-id))
     (dbx-jobs/trigger-job! conn-id job-id params)))
+
+(defn- target-option
+  [target k]
+  (or (get-in target [:options k])
+      (get-in target [:options (name k)])
+      (get target k)))
+
+(defn- databricks-bronze-job-config
+  [target]
+  {:job-id (or (non-blank-str (:bronze_job_id target))
+               (non-blank-str (target-option target :bronze_job_id)))
+   :job-params (merge (or (:bronze_job_params target) {})
+                      (or (target-option target :bronze_job_params) {}))
+   :callback-url (or (non-blank-str (target-option target :bitool_callback_url))
+                     (non-blank-str (some-> (get env :bitool-bronze-callback-url) str))
+                     (non-blank-str (some-> (get env :bitool-public-base-url) str)))
+   :callback-token (or (non-blank-str (target-option target :bitool_callback_token))
+                       (non-blank-str (some-> (get env :bitool-bronze-callback-token) str)))})
+
+(defn- databricks-run->status
+  [response-body]
+  (let [state        (or (:state response-body) {})
+        lifecycle    (some-> (or (:life_cycle_state state)
+                                 (:life_cycle_state response-body))
+                             str
+                             string/upper-case)
+        result-state (some-> (or (:result_state state)
+                                 (:result_state response-body))
+                             str
+                             string/upper-case)]
+    (cond
+      (and (= "TERMINATED" lifecycle) (= "SUCCESS" result-state)) "success"
+      (and (= "TERMINATED" lifecycle)
+           (contains? #{"FAILED" "TIMEDOUT" "CANCELED" "CANCELLED"} result-state)) "failed"
+      (contains? #{"INTERNAL_ERROR" "SKIPPED"} lifecycle) "failed"
+      (= "TERMINATED" lifecycle) "failed"
+      :else "running")))
+
+(defn- aggregate-control-plane-run-results
+  [graph-id api-node-id endpoint-name started-at]
+  (let [results (dbx-control/latest-run-results graph-id api-node-id {:endpoint-name endpoint-name
+                                                                      :started-after started-at
+                                                                      :limit 25})
+        statuses (set (map #(some-> (:status %) str string/lower-case) results))
+        overall (cond
+                  (empty? results) nil
+                  (= #{"success"} statuses) "success"
+                  (contains? statuses "failed") (if (contains? statuses "success") "partial_success" "failed")
+                  :else (first statuses))]
+    (when (seq results)
+      {:graph_id graph-id
+       :api_node_id api-node-id
+       :source_system (:source_system (first results))
+       :status overall
+       :results (vec (reverse results))
+       :rows_written (reduce + 0 (map #(long (or (:rows_written %) 0)) results))
+       :batch_count (count results)})))
+
+(defn- databricks-task-run-id
+  [poll-response]
+  (or (some-> (get-in poll-response [:body :tasks]) first :run_id str)
+      (some-> (get-in poll-response [:body "tasks"]) first :run_id str)
+      (some-> (get-in poll-response [:body "tasks"]) first (get "run_id") str)
+      (some-> (:run_id poll-response) str)))
+
+(defn- parse-databricks-notebook-result
+  [raw]
+  (cond
+    (map? raw) raw
+    (string? raw) (try
+                    (json/parse-string raw true)
+                    (catch Exception _
+                      nil))
+    :else nil))
+
+(defn- databricks-run-metrics
+  [run-body]
+  {:databricks_run_duration_ms (long (or (:run_duration run-body)
+                                         (get run-body "run_duration")
+                                         0))
+   :databricks_setup_duration_ms (long (or (:setup_duration run-body)
+                                           (get run-body "setup_duration")
+                                           0))
+   :databricks_execution_duration_ms (long (or (:execution_duration run-body)
+                                               (get run-body "execution_duration")
+                                               0))
+   :databricks_cleanup_duration_ms (long (or (:cleanup_duration run-body)
+                                             (get run-body "cleanup_duration")
+                                             0))})
+
+(defn- notebook-output->result
+  [graph-id api-node-id source-system external-run-id run-body output-body]
+  (when-let [result-payload (or (some-> output-body :notebook_output :result parse-databricks-notebook-result)
+                                (some-> output-body (get "notebook_output") (get "result") parse-databricks-notebook-result))]
+    (let [total-failed (long (or (:total_failed result-payload) 0))
+          total-rows   (long (or (:total_rows result-payload) 0))]
+    {:graph_id graph-id
+     :api_node_id api-node-id
+     :source_system (or (:source_system result-payload) source-system)
+     :status (cond
+               (zero? total-failed) "success"
+               (zero? total-rows) "failed"
+               :else "partial_success")
+     :results (vec (or (:results result-payload) []))
+     :rows_written (reduce + 0 (map #(long (or (:rows_written %) 0))
+                                    (or (:results result-payload) [])))
+     :batch_count (count (or (:results result-payload) []))
+     :external_run_id external-run-id
+     :job_output result-payload
+     :job_metrics (databricks-run-metrics run-body)})))
+
+(defn- direct-databricks-job-params
+  [graph-id api-node-id target endpoint-name]
+  (let [bootstrap (dbx-control/bootstrap graph-id api-node-id {:endpoint-name endpoint-name})
+        endpoints (vec (or (:endpoints bootstrap) []))]
+    {:source_system (:source_system bootstrap)
+     :api_base_url (:api_base_url bootstrap)
+     :catalog (:catalog bootstrap)
+     :bronze_schema (:schema bootstrap)
+     :endpoints (string/join "," (map :endpoint_name endpoints))
+     :endpoint_configs_json (json/generate-string endpoints)}))
+
+(defn- run-api-node-via-databricks-job!
+  [graph-id api-node-id {:keys [endpoint-name] :as _opts}]
+  (let [graph       (db/getGraph graph-id)
+        api-node    (g2/getData graph api-node-id)
+        target      (find-downstream-target graph api-node-id)
+        conn-id     (require-target-connection-id! target
+                                                   "No downstream target connection found for API node"
+                                                   {:graph_id graph-id
+                                                    :api_node_id api-node-id})
+        dbtype      (some-> (connection-dbtype conn-id) str string/lower-case)
+        {:keys [job-id job-params callback-url callback-token]} (databricks-bronze-job-config target)]
+    (when-not (= "databricks" dbtype)
+      (throw (ex-info "Databricks Bronze job requested for non-Databricks target"
+                      {:graph_id graph-id
+                       :api_node_id api-node-id
+                       :connection_id conn-id
+                       :dbtype dbtype})))
+    (when-not job-id
+      (throw (ex-info "Databricks Bronze target has no bronze_job_id configured"
+                      {:graph_id graph-id
+                       :api_node_id api-node-id
+                       :connection_id conn-id
+                       :status 409})))
+    (let [triggered-at (now-utc)
+          direct-params (direct-databricks-job-params graph-id api-node-id target endpoint-name)
+          response     (dbx-jobs/trigger-job! conn-id
+                                              job-id
+                                              (merge job-params
+                                                     direct-params
+                                                     {:graph_id (str graph-id)
+                                                      :api_node_id (str api-node-id)}
+                                                     (when endpoint-name
+                                                       {:endpoint_name endpoint-name})
+                                                     (when callback-url
+                                                       {:bitool_callback_url callback-url})
+                                                     (when callback-token
+                                                       {:bitool_callback_token callback-token})))
+          run-id       (some-> (:run_id response) str)
+          max-polls    (max 1 (parse-int-env :bitool-databricks-max-polls 180))]
+      (loop [poll-count 0]
+        (when (>= poll-count max-polls)
+          (throw (ex-info "Databricks Bronze job poll timeout exceeded"
+                          {:failure_class "transient_platform_error"
+                           :graph_id graph-id
+                           :api_node_id api-node-id
+                           :poll_count poll-count
+                           :max_polls max-polls
+                           :external_run_id run-id})))
+        (Thread/sleep (min 15000 (+ 2000 (* poll-count 500))))
+        (let [poll-response (dbx-jobs/get-run! conn-id run-id)
+              status        (databricks-run->status (:body poll-response))]
+          (cond
+            (= "success" status)
+            (let [result (or (loop [attempt 0]
+                               (let [result (aggregate-control-plane-run-results graph-id api-node-id endpoint-name triggered-at)]
+                                 (cond
+                                   result result
+                                   (>= attempt 4) nil
+                                   :else (do
+                                           (Thread/sleep 1000)
+                                           (recur (inc attempt))))))
+                             (some->> (databricks-task-run-id poll-response)
+                                      (dbx-jobs/get-run-output! conn-id)
+                                      :body
+                                      (notebook-output->result graph-id
+                                                               api-node-id
+                                                               (or (:source_system api-node) "api")
+                                                               run-id
+                                                               (:body poll-response)))
+                             {:graph_id graph-id
+                              :api_node_id api-node-id
+                              :source_system (or (:source_system api-node) "api")
+                              :status "success"
+                              :external_run_id run-id
+                              :job_trigger response
+                              :job_metrics (databricks-run-metrics (:body poll-response))})]
+              (if (= "failed" (:status result))
+                (throw (ex-info "Databricks Bronze job failed"
+                                {:failure_class "endpoint_run_failed"
+                                 :graph_id graph-id
+                                 :api_node_id api-node-id
+                                 :external_run_id run-id
+                                 :job_trigger response
+                                 :poll_response poll-response
+                                 :output_body (:job_output result)
+                                 :error_message (or (some-> result :results first :error)
+                                                    "Databricks Bronze job returned failed endpoint results")}))
+                result))
+
+            (= "failed" status)
+            (let [task-run-id  (databricks-task-run-id poll-response)
+                  output-body  (when task-run-id
+                                 (try
+                                   (some-> (dbx-jobs/get-run-output! conn-id task-run-id) :body)
+                                   (catch Exception _
+                                     nil)))
+                  error-text   (or (some-> output-body :error)
+                                   (some-> output-body (get "error"))
+                                   (get-in poll-response [:body :state :state_message])
+                                   (get-in poll-response [:body "state" "state_message"]))]
+              (throw (ex-info "Databricks Bronze job failed"
+                              {:failure_class "endpoint_run_failed"
+                               :graph_id graph-id
+                               :api_node_id api-node-id
+                               :external_run_id run-id
+                               :job_trigger response
+                               :poll_response poll-response
+                               :task_run_id task-run-id
+                               :output_body output-body
+                               :error_message error-text})))
+
+            :else
+            (recur (inc poll-count))))))))
 
 (defn- trigger-downstream-jobs! [conn-id target endpoint params]
   (let [dbtype        (connection-dbtype conn-id)
@@ -4091,7 +4996,8 @@
 
 (defn- process-endpoint-stream!
   [conn-id {:keys [table-name bad-records-table manifest-table checkpoint-table
-                   source-system endpoint-name run-id started-at request-url]}
+                   source-system endpoint-name run-id started-at request-url
+                   checkpoint-watermark]}
    endpoint pages-ch initial-pages initial-terminal]
   (process-source-stream!
    conn-id
@@ -4103,7 +5009,8 @@
     :endpoint-name endpoint-name
     :run-id run-id
     :started-at started-at
-    :endpoint-config endpoint}
+    :endpoint-config endpoint
+    :checkpoint-watermark checkpoint-watermark}
    pages-ch
    initial-pages
    initial-terminal
@@ -4115,7 +5022,8 @@
 
 (defn- process-source-stream!
   [conn-id flush-ctx pages-ch initial-pages initial-terminal page->rows]
-  (let [flush-ctx (flush-context flush-ctx)]
+  (let [checkpoint-wm (:checkpoint-watermark flush-ctx)
+        flush-ctx (flush-context flush-ctx)]
     (loop [pending-pages (seq initial-pages)
            terminal-msg  initial-terminal
            buffer        (new-batch-buffer)
@@ -4123,6 +5031,7 @@
                           :checkpoint-row nil
                           :max-watermark nil
                           :next-cursor nil
+                          :checkpoint-watermark checkpoint-wm
                           :rows-extracted 0
                           :rows-written 0
                           :bad-records-total 0
@@ -4131,7 +5040,8 @@
                           :retry-count 0
                           :last-http-status nil
                           :changed-partition-dates []
-                          :manifests []}]
+                          :manifests []
+                          :timings {}}]
       (cond
         pending-pages
         (let [page      (first pending-pages)
@@ -4178,41 +5088,65 @@
 
 (defn preview-endpoint-schema!
   [api-node endpoint]
-  (let [endpoint       (g2/validate-api-endpoint-config (g2/normalize-api-endpoint-config endpoint))
-        auth           (resolve-auth-ref (:auth_ref api-node))
+  (let [endpoint       (g2/normalize-api-endpoint-config endpoint)
+        auth           (try (resolve-auth-ref (:auth_ref api-node))
+                            (catch Exception _ nil))
         pagination     (pagination-config endpoint)
         pagination-location (keyword (or (:pagination_location endpoint) "query"))
         query-builder  (:query-builder pagination)
         body-builder   (:body-builder pagination)
         response       (-> (api/do-request {:method (keyword (string/lower-case (or (:http_method endpoint) "GET")))
-                                            :url (str (:base_url api-node) (:endpoint_url endpoint))
+                                            :url (join-url (:base_url api-node) (:endpoint_url endpoint))
                                             :base-headers (or (:request_headers endpoint) {})
                                             :query-params query-builder
                                             :body-params body-builder
                                             :auth auth
                                             :retry-policy (or (:retry_policy endpoint) {})})
                            ensure-previewable-response!)
-        inferred       (schema-infer/infer-endpoint-fields endpoint (:body response))]
+        configured-path (get-in endpoint [:json_explode_rules 0 :path])
+        detected-path   (when-not (seq (string/trim (str configured-path)))
+                          (schema-infer/detect-dominant-records-path (:body response)))
+        endpoint'       (if (seq (string/trim (str detected-path)))
+                          (assoc endpoint :json_explode_rules [{:path detected-path}])
+                          endpoint)
+        inferred       (schema-infer/infer-endpoint-fields endpoint' (:body response))]
     {:endpoint_name (:endpoint_name endpoint)
      :http_status (:status response)
      :sampled_records (count (schema-infer/logical-records-from-body (:body response)
-                                                                     (get-in endpoint [:json_explode_rules 0 :path])))
+                                                                     (get-in endpoint' [:json_explode_rules 0 :path])))
+     :detected_records_path detected-path
+     :applied_json_explode_rules (vec (or (:json_explode_rules endpoint') []))
      :inferred_fields inferred}))
 
 (defn run-api-node!
   ([graph-id api-node-id] (run-api-node! graph-id api-node-id {}))
   ([graph-id api-node-id {:keys [endpoint-name] :as replay-opts}]
-  (let [g            (db/getGraph graph-id)
-         api-node     (g2/getData g api-node-id)
-         target       (find-downstream-target g api-node-id)
-         conn-id      (target-connection-id target)
+  (reset-table-cache-for-run! (str graph-id "-" api-node-id "-" (System/currentTimeMillis)))
+  (let [run-start       (now-nanos)
+         run-timings*   (volatile! {})
+         run-time-step! (fn [k f]
+                          (let [started (now-nanos)
+                                result  (f)]
+                            (vswap! run-timings* assoc k (elapsed-ms started))
+                            result))
+         g             (run-time-step! :graph_load_ms #(db/getGraph graph-id))
+         api-node      (run-time-step! :api_node_load_ms #(g2/getData g api-node-id))
+         target        (run-time-step! :target_resolution_ms #(find-downstream-target g api-node-id))
+         conn-id       (run-time-step! :target_connection_resolution_ms
+                                       #(require-target-connection-id! target
+                                                                       "No downstream target connection found for API node"
+                                                                       {:graph_id graph-id
+                                                                        :api_node_id api-node-id}))
          source-system (or (:source_system api-node) "samara")
-         auth         (resolve-auth-ref (:auth_ref api-node))
-         endpoints    (->> (:endpoint_configs api-node)
-                           (filter :enabled)
-                           (filter #(if endpoint-name
-                                      (= endpoint-name (:endpoint_name %))
-                                      true)))
+         auth          (run-time-step! :auth_resolution_ms #(resolve-auth-ref (:auth_ref api-node)))
+         endpoints     (run-time-step! :endpoint_selection_ms
+                                       (fn []
+                                         (->> (:endpoint_configs api-node)
+                                              (filter :enabled)
+                                              (filter (fn [cfg]
+                                                        (if endpoint-name
+                                                          (= endpoint-name (:endpoint_name cfg))
+                                                          true))))))
          checkpoint-table (validated-qualified-table-name (audit-table target conn-id "ingestion_checkpoint"))
          run-detail-table (validated-qualified-table-name (audit-table target conn-id "endpoint_run_detail"))
          bad-records-table (validated-qualified-table-name (audit-table target conn-id "bad_records"))
@@ -4220,7 +5154,7 @@
          schema-snapshot-table (validated-qualified-table-name (audit-table target conn-id "endpoint_schema_snapshot"))
          schema-approval-table (validated-qualified-table-name (audit-table target conn-id "endpoint_schema_approval"))
          continue-on-endpoint-failure? (and (nil? endpoint-name) (> (count endpoints) 1))]
-     (ensure-replay-compatible! g replay-opts)
+     (run-time-step! :replay_compatibility_ms #(ensure-replay-compatible! g replay-opts))
      (when-not conn-id
        (throw (ex-info "No downstream target connection found for API node"
                        {:graph_id graph-id :api_node_id api-node-id})))
@@ -4231,22 +5165,40 @@
                        {:graph_id graph-id
                         :api_node_id api-node-id
                         :endpoint_name endpoint-name})))
-     (ensure-table! conn-id checkpoint-table checkpoint/ingestion-checkpoint-columns {})
-     (ensure-checkpoint-columns! conn-id checkpoint-table)
-     (ensure-table! conn-id run-detail-table endpoint-run-detail-columns {})
-     (ensure-table! conn-id bad-records-table bronze/bad-record-columns {})
-     (ensure-bad-record-columns! conn-id bad-records-table)
-     (ensure-table! conn-id manifest-table batch-manifest-columns {})
-     (ensure-batch-manifest-columns! conn-id manifest-table)
-     (ensure-table! conn-id schema-snapshot-table endpoint-schema-snapshot-columns {})
-     (ensure-table! conn-id schema-approval-table endpoint-schema-approval-columns {})
-     (ensure-schema-approval-columns! conn-id schema-approval-table)
+     (run-time-step! :checkpoint_table_ensure_ms
+                     #(ensure-table! conn-id checkpoint-table checkpoint/ingestion-checkpoint-columns {}))
+     (run-time-step! :checkpoint_migration_ms
+                     #(ensure-checkpoint-columns! conn-id checkpoint-table))
+     (run-time-step! :run_detail_table_ensure_ms
+                     #(ensure-table! conn-id run-detail-table endpoint-run-detail-columns {}))
+     (run-time-step! :bad_records_table_ensure_ms
+                     #(ensure-table! conn-id bad-records-table bronze/bad-record-columns {}))
+     (run-time-step! :bad_record_migration_ms
+                     #(ensure-bad-record-columns! conn-id bad-records-table))
+     (run-time-step! :manifest_table_ensure_ms
+                     #(ensure-table! conn-id manifest-table batch-manifest-columns {}))
+     (run-time-step! :manifest_migration_ms
+                     #(ensure-batch-manifest-columns! conn-id manifest-table))
+     (run-time-step! :schema_snapshot_table_ensure_ms
+                     #(ensure-table! conn-id schema-snapshot-table endpoint-schema-snapshot-columns {}))
+     (run-time-step! :schema_approval_table_ensure_ms
+                     #(ensure-table! conn-id schema-approval-table endpoint-schema-approval-columns {}))
+     (run-time-step! :schema_approval_migration_ms
+                     #(ensure-schema-approval-columns! conn-id schema-approval-table))
      (let [results
            (mapv
             (fn [endpoint]
          (let [run-id              (str (java.util.UUID/randomUUID))
                started-at          (now-utc)
-               checkpoint-row      (fetch-checkpoint conn-id checkpoint-table source-system (:endpoint_name endpoint))
+               endpoint-start      (now-nanos)
+               timings*            (volatile! {})
+               time-step!          (fn [k f]
+                                     (let [started (now-nanos)
+                                           result  (f)]
+                                       (vswap! timings* assoc k (elapsed-ms started))
+                                       result))
+               checkpoint-row      (time-step! :checkpoint_lookup_ms
+                                               #(fetch-checkpoint conn-id checkpoint-table source-system (:endpoint_name endpoint)))
                pagination          (pagination-config endpoint)
                watermark-params    (checkpoint/watermark-query-params checkpoint-row endpoint started-at)
                cursor-params       (checkpoint-cursor-query-params checkpoint-row endpoint)
@@ -4264,9 +5216,10 @@
                initial-state       (merge (:initial-state pagination)
                                           (checkpoint-cursor-initial-state checkpoint-row endpoint))
                table-name-raw      (endpoint->table-name target endpoint)
-               request-url         (str (:base_url api-node) (:endpoint_url endpoint))
+               request-url         (join-url (:base_url api-node) (:endpoint_url endpoint))
                replay-run-id       (replay-source-run-id replay-opts)
-               adaptive-per-page-ms (load-adaptive-backpressure-ms source-system endpoint)
+               adaptive-per-page-ms (time-step! :adaptive_rate_limit_lookup_ms
+                                                #(load-adaptive-backpressure-ms source-system endpoint))
                pages*              (atom nil)
                errors-ch*          (atom nil)
                cancel*             (atom nil)
@@ -4276,92 +5229,112 @@
              (when-not replay-run-id
                (reset! circuit-admission* (begin-source-circuit-request! source-system endpoint)))
              (let [fetch-result         (when-not replay-run-id
-                                         (api/fetch-paged-async
-                                          (merge pagination
-                                                 {:base-url (:base_url api-node)
-                                                  :endpoint (:endpoint_url endpoint)
-                                                  :method (keyword (string/lower-case (or (:http_method endpoint) "GET")))
-                                                  :headers (or (:request_headers endpoint) {})
-                                                  :auth auth
-                                                  :retry-policy (or (:retry_policy endpoint) {})
-                                                  :pagination-location pagination-location
-                                                  :initial-state initial-state
-                                                  :rate-limit {:per-page-ms adaptive-per-page-ms}
-                                                  :query-builder query-builder
-                                                  :body-builder body-builder})))
+                                         (time-step! :fetch_bootstrap_ms
+                                                     #(api/fetch-paged-async
+                                                       (merge pagination
+                                                              {:base-url (:base_url api-node)
+                                                               :endpoint (:endpoint_url endpoint)
+                                                               :method (keyword (string/lower-case (or (:http_method endpoint) "GET")))
+                                                               :headers (or (:request_headers endpoint) {})
+                                                               :auth auth
+                                                               :retry-policy (or (:retry_policy endpoint) {})
+                                                               :pagination-location pagination-location
+                                                               :initial-state initial-state
+                                                               :rate-limit {:per-page-ms adaptive-per-page-ms}
+                                                               :query-builder query-builder
+                                                               :body-builder body-builder}))))
                    _                   (reset! pages* (:pages fetch-result))
                    _                   (reset! errors-ch* (:errors fetch-result))
                    _                   (reset! cancel* (:cancel fetch-result))
                    sample              (if replay-run-id
                                          {:sample-pages [] :terminal-msg nil}
-                                         (collect-schema-sample! @pages* endpoint))
+                                         (time-step! :schema_sample_ms
+                                                     #(collect-schema-sample! @pages* endpoint)))
                    replay-plan         (when replay-run-id
-                                         (resolve-replay-plan! conn-id manifest-table replay-run-id endpoint replay-opts))
-                   endpoint'           (-> (if replay-run-id
-                                             (:endpoint replay-plan)
-                                             (maybe-infer-endpoint-fields endpoint (:sample-pages sample)))
-                                           ensure-unique-field-column-names!)
-                   table-name          (validated-qualified-table-name table-name-raw)
+                                         (time-step! :replay_plan_ms
+                                                     #(resolve-replay-plan! conn-id manifest-table replay-run-id endpoint replay-opts)))
+                   endpoint'           (time-step! :field_resolution_ms
+                                                   #(-> (if replay-run-id
+                                                          (:endpoint replay-plan)
+                                                          (maybe-infer-endpoint-fields endpoint (:sample-pages sample)))
+                                                        ensure-unique-field-column-names!))
                    _                   (when (string/blank? (str table-name-raw))
                                          (throw (ex-info "Endpoint is missing bronze_table_name and target table_name"
                                                          {:endpoint_name (:endpoint_name endpoint)})))
+                   table-name          (validated-qualified-table-name table-name-raw)
                    _                   (when (and (not replay-run-id)
-                                                 (schema-inference-enabled? endpoint'))
-                                         (persist-endpoint-schema-snapshot!
-                                          conn-id
-                                          schema-snapshot-table
-                                          {:graph-id graph-id
-                                           :api-node-id api-node-id
-                                           :graph-version-id nil
-                                           :graph-version (get-in g [:a :v])
-                                           :source-system source-system
-                                           :endpoint endpoint'
-                                           :sample-pages (:sample-pages sample)
-                                           :captured-at started-at}))
-                   _                   (ensure-schema-approved! conn-id
-                                                                schema-approval-table
-                                                                graph-id
-                                                                api-node-id
-                                                                endpoint')
-                   partition-columns   (target-partition-columns conn-id target endpoint')
-                   _                   (ensure-table! conn-id table-name (bronze/bronze-columns endpoint')
-                                                     {:partition-columns partition-columns})
-                   _                   (abort-preparing-batches! conn-id {:manifest-table manifest-table
-                                                                          :checkpoint-table checkpoint-table
-                                                                          :bad-records-table bad-records-table
-                                                                          :source-system source-system
-                                                                          :endpoint-name (:endpoint_name endpoint)})
+                                                  (schema-inference-enabled? endpoint'))
+                                         (when (schema-snapshot-write-needed?
+                                                conn-id
+                                                schema-snapshot-table
+                                                {:graph-id graph-id
+                                                 :api-node-id api-node-id
+                                                 :source-system source-system
+                                                 :endpoint endpoint'
+                                                 :sample-pages (:sample-pages sample)})
+                                           (time-step! :schema_snapshot_ms
+                                                       #(persist-endpoint-schema-snapshot!
+                                                         conn-id
+                                                         schema-snapshot-table
+                                                         {:graph-id graph-id
+                                                          :api-node-id api-node-id
+                                                          :graph-version-id nil
+                                                          :graph-version (get-in g [:a :v])
+                                                          :source-system source-system
+                                                          :endpoint endpoint'
+                                                          :sample-pages (:sample-pages sample)
+                                                          :captured-at started-at}))))
+                   _                   (time-step! :schema_approval_ms
+                                                   #(ensure-schema-approved! conn-id
+                                                                             schema-approval-table
+                                                                             graph-id
+                                                                             api-node-id
+                                                                             endpoint'))
+                   partition-columns   (time-step! :partition_columns_ms
+                                                   #(target-partition-columns conn-id target endpoint'))
+                   _                   (time-step! :bronze_table_ensure_ms
+                                                   #(ensure-table! conn-id table-name (bronze/bronze-columns endpoint')
+                                                                   {:partition-columns partition-columns}))
+                   _                   (time-step! :manifest_recovery_ms
+                                                   #(abort-preparing-batches! conn-id {:manifest-table manifest-table
+                                                                                       :checkpoint-table checkpoint-table
+                                                                                       :bad-records-table bad-records-table
+                                                                                       :source-system source-system
+                                                                                       :endpoint-name (:endpoint_name endpoint)}))
                    stream-state        (if replay-run-id
-                                         (process-endpoint-replay!
-                                          conn-id
-                                          {:table-name table-name
-                                           :bad-records-table bad-records-table
-                                           :manifest-table manifest-table
-                                           :checkpoint-table checkpoint-table
-                                           :source-system source-system
-                                           :endpoint-name (:endpoint_name endpoint)
-                                           :run-id run-id
-                                           :started-at started-at
-                                           :request-url request-url}
-                                          endpoint'
-                                          replay-plan
-                                          replay-run-id)
-                                         (process-endpoint-stream!
-                                          conn-id
-                                          {:table-name table-name
-                                           :bad-records-table bad-records-table
-                                           :manifest-table manifest-table
-                                           :checkpoint-table checkpoint-table
-                                           :source-system source-system
-                                           :endpoint-name (:endpoint_name endpoint)
-                                           :run-id run-id
-                                           :started-at started-at
-                                           :request-url request-url}
-                                          endpoint'
-                                          @pages*
-                                          (:sample-pages sample)
-                                          (:terminal-msg sample)))
-                   errors              (if replay-run-id [] (collect-errors! @errors-ch*))
+                                         (time-step! :stream_process_ms
+                                                     #(process-endpoint-replay!
+                                                       conn-id
+                                                       {:table-name table-name
+                                                        :bad-records-table bad-records-table
+                                                        :manifest-table manifest-table
+                                                        :checkpoint-table checkpoint-table
+                                                        :source-system source-system
+                                                        :endpoint-name (:endpoint_name endpoint)
+                                                        :run-id run-id
+                                                        :started-at started-at
+                                                        :request-url request-url}
+                                                       endpoint'
+                                                       replay-plan
+                                                       replay-run-id))
+                                         (time-step! :stream_process_ms
+                                                     #(process-endpoint-stream!
+                                                       conn-id
+                                                       {:table-name table-name
+                                                        :bad-records-table bad-records-table
+                                                        :manifest-table manifest-table
+                                                        :checkpoint-table checkpoint-table
+                                                        :source-system source-system
+                                                        :endpoint-name (:endpoint_name endpoint)
+                                                        :run-id run-id
+                                                        :started-at started-at
+                                                        :request-url request-url
+                                                        :checkpoint-watermark (non-blank-str (:last_successful_watermark checkpoint-row))}
+                                                       endpoint'
+                                                       @pages*
+                                                       (:sample-pages sample)
+                                                       (:terminal-msg sample))))
+                   errors              (if replay-run-id [] (time-step! :error_collection_ms #(collect-errors! @errors-ch*)))
                    finished-at         (now-utc)
                    status              (run-status errors (:pages-fetched stream-state))
                    _                   (when-not replay-run-id
@@ -4383,7 +5356,7 @@
                    next-cursor         (or (:next-cursor stream-state)
                                            (some-> stream-state :final-state page-state-next-cursor))
                    retry-count         (:retry-count stream-state)
-                   watermark-param     (or (:watermark_param endpoint) (:watermark_column endpoint))
+                   watermark-param     (checkpoint/watermark-query-param endpoint)
                    attempted-watermark (when (seq (str watermark-param))
                                          (get watermark-params (keyword watermark-param)))
                    checkpoint-row'     (when (and (not= status "failed")
@@ -4402,16 +5375,15 @@
                                            :next_cursor next-cursor
                                            :now finished-at}))
                    _                   (when (= status "failed")
-                                         (replace-row! conn-id checkpoint-table
-                                                       [:source_system :endpoint_name]
-                                                       (checkpoint-row-for-failure
-                                                        checkpoint-row
-                                                        (checkpoint/failure-row
-                                                         {:source_system source-system
-                                                          :endpoint_name (:endpoint_name endpoint)
-                                                          :attempted_watermark attempted-watermark
-                                                          :attempted_cursor next-cursor
-                                                          :now finished-at}))))
+                                         (replace-checkpoint-row! conn-id checkpoint-table
+                                                                  (checkpoint-row-for-failure
+                                                                   checkpoint-row
+                                                                   (checkpoint/failure-row
+                                                                    {:source_system source-system
+                                                                     :endpoint_name (:endpoint_name endpoint)
+                                                                     :attempted_watermark attempted-watermark
+                                                                     :attempted_cursor next-cursor
+                                                                     :now finished-at}))))
                    run-row             (endpoint-run-row
                                         {:run-id run-id
                                          :source-system source-system
@@ -4432,16 +5404,13 @@
                       conn-id
                       (fn []
                         (load-rows! conn-id run-detail-table [run-row])
-                        (replace-row! conn-id checkpoint-table
-                                      [:source_system :endpoint_name]
-                                      checkpoint-row'))))
+                        (replace-checkpoint-row! conn-id checkpoint-table checkpoint-row'))))
                   (fn []
                     (load-rows! conn-id run-detail-table [run-row])
                     (when checkpoint-row'
-                      (replace-row! conn-id checkpoint-table
-                                    [:source_system :endpoint_name]
-                                    checkpoint-row')))))
-               (try
+                      (replace-checkpoint-row! conn-id checkpoint-table checkpoint-row')))))
+               (time-step! :finalization_ms
+                           #(try
                  (let [workspace-context (try
                                            (control-plane/graph-workspace-context graph-id)
                                            (catch Exception e
@@ -4471,7 +5440,7 @@
                               :api_node_id api-node-id
                               :endpoint_name (:endpoint_name endpoint)
                               :run_id run-id
-                              :status status})))
+                              :status status}))))
                (let [_ (ensure-final-run-manifest-invariants!
                         conn-id
                         (:endpoint_name endpoint)
@@ -4487,7 +5456,11 @@
                                                                 :run_id run-id
                                                                 :changed_partition_dates committed-partition-dates})
                                      (catch Exception e
-                                       {:trigger_error (.getMessage e)})))]
+                                       {:trigger_error (.getMessage e)})))
+                     timings (merge-timing-maps
+                              @timings*
+                              (:timings stream-state)
+                              {:endpoint_total_ms (elapsed-ms endpoint-start)})]
                  {:endpoint_name (:endpoint_name endpoint)
                   :run_id run-id
                   :status status
@@ -4504,7 +5477,8 @@
                   :partition_columns partition-columns
                   :replay_source_run_id replay-run-id
                   :job_triggers job-results
-                  :errors (count errors)}))
+                  :errors (count errors)
+                  :timings timings}))
              (catch Throwable t
                (when (and (not replay-run-id)
                           @circuit-admission*
@@ -4536,18 +5510,17 @@
                                                                                 :message error-message}])})]
                    (try
                      (load-rows! conn-id run-detail-table [run-row])
-                     (replace-row! conn-id checkpoint-table
-                                   [:source_system :endpoint_name]
-                                   (checkpoint-row-for-failure
-                                    checkpoint-row
-                                    (checkpoint/failure-row
-                                     {:source_system source-system
-                                      :endpoint_name (:endpoint_name endpoint)
-                                      :attempted_watermark nil
-                                      :attempted_cursor nil
-                                      :run_id run-id
-                                      :error_message error-message
-                                      :now finished-at})))
+                     (replace-checkpoint-row! conn-id checkpoint-table
+                                              (checkpoint-row-for-failure
+                                               checkpoint-row
+                                               (checkpoint/failure-row
+                                                {:source_system source-system
+                                                 :endpoint_name (:endpoint_name endpoint)
+                                                 :attempted_watermark nil
+                                                 :attempted_cursor nil
+                                                 :run_id run-id
+                                                 :error_message error-message
+                                                 :now finished-at})))
                      (catch Exception persist-error
                        (log/error persist-error
                                   "Failed to persist endpoint-level failure details"
@@ -4567,18 +5540,48 @@
                     :replay_source_run_id replay-run-id
                     :job_triggers nil
                     :errors 1
-                   :failure_class failure-class
+                    :timings (merge-timing-maps
+                              @timings*
+                              {:endpoint_total_ms (elapsed-ms endpoint-start)})
+                    :failure_class failure-class
                     :error error-message})
                  (throw t)))
              (finally
                (cleanup-fetch-stream! @cancel* @errors-ch*)))))
-            endpoints)
-           status (aggregate-endpoint-status results)]
+           endpoints)
+           status (aggregate-endpoint-status results)
+           run-timings (merge @run-timings*
+                              {:run_total_ms (elapsed-ms run-start)
+                               :endpoints_total_ms (reduce + 0 (map #(long (or (get-in % [:timings :endpoint_total_ms]) 0))
+                                                                    results))})]
+       (log-api-run-summary!
+        {:graph-id graph-id
+         :api-node-id api-node-id
+         :source-system source-system
+         :status status
+         :run-timings run-timings
+         :results results})
        {:graph_id graph-id
         :api_node_id api-node-id
-        :source_system source-system
+       :source_system source-system
         :status status
+        :run_timings run-timings
         :results results}))))
+
+(defn execute-api-request!
+  ([graph-id api-node-id] (execute-api-request! graph-id api-node-id {}))
+  ([graph-id api-node-id {:keys [endpoint-name] :as opts}]
+   (let [graph         (db/getGraph graph-id)
+         target        (find-downstream-target graph api-node-id)
+         conn-id       (when target (resolved-target-connection-id target))
+         dbtype        (some-> conn-id connection-dbtype str string/lower-case)
+         bronze-job-id (some-> target databricks-bronze-job-config :job-id)
+         replay-run-id (replay-source-run-id opts)]
+     (if (and (= "databricks" dbtype)
+              (seq bronze-job-id)
+              (nil? replay-run-id))
+       (run-api-node-via-databricks-job! graph-id api-node-id {:endpoint-name endpoint-name})
+       (run-api-node! graph-id api-node-id opts)))))
 
 (defn- source-run-request-url
   [scheme config]
@@ -4591,7 +5594,11 @@
   [graph-id node-id source-node config-key fetch-stream-fn {:keys [endpoint-name source-kind]}]
   (let [g                 (db/getGraph graph-id)
         target            (find-downstream-target g node-id)
-        conn-id           (target-connection-id target)
+        conn-id           (require-target-connection-id! target
+                                                         "No downstream target connection found for source node"
+                                                         {:graph_id graph-id
+                                                          :node_id node-id
+                                                          :source_kind source-kind})
         source-system     (or (:source_system source-node) (name source-kind))
         configs           (select-source-configs! source-node
                                                   config-key
@@ -4603,11 +5610,6 @@
         bad-records-table (validated-qualified-table-name (audit-table target conn-id "bad_records"))
         manifest-table    (validated-qualified-table-name (audit-table target conn-id "run_batch_manifest"))
         continue-on-config-failure? (and (nil? endpoint-name) (> (count configs) 1))]
-    (when-not conn-id
-      (throw (ex-info "No downstream target connection found for source node"
-                      {:graph_id graph-id
-                       :node_id node-id
-                       :source_kind source-kind})))
     (ensure-table! conn-id checkpoint-table checkpoint/ingestion-checkpoint-columns {})
     (ensure-checkpoint-columns! conn-id checkpoint-table)
     (ensure-table! conn-id run-detail-table endpoint-run-detail-columns {})
@@ -4624,7 +5626,6 @@
                    request-url    (source-run-request-url source-kind config)
                    checkpoint-row (fetch-checkpoint conn-id checkpoint-table source-system endpoint-name)
                    table-name-raw (endpoint->table-name target config)
-                   table-name     (validated-qualified-table-name table-name-raw)
                    cancel*        (atom nil)
                    errors-ch*     (atom nil)]
                (try
@@ -4632,7 +5633,8 @@
                    (throw (ex-info "Source config is missing bronze_table_name and target table_name"
                                    {:endpoint_name endpoint-name
                                     :status 409})))
-                 (let [partition-columns (target-partition-columns conn-id target config)
+                 (let [table-name         (validated-qualified-table-name table-name-raw)
+                       partition-columns (target-partition-columns conn-id target config)
                        _                 (ensure-table! conn-id table-name (bronze/bronze-columns config)
                                                         {:partition-columns partition-columns})
                        _                 (abort-preparing-batches! conn-id {:manifest-table manifest-table
@@ -4698,16 +5700,15 @@
                                              :next_cursor next-cursor
                                              :now finished-at}))
                        _                 (when (= status "failed")
-                                           (replace-row! conn-id checkpoint-table
-                                                         [:source_system :endpoint_name]
-                                                         (checkpoint-row-for-failure
-                                                          checkpoint-row
-                                                          (checkpoint/failure-row
-                                                           {:source_system source-system
-                                                            :endpoint_name endpoint-name
-                                                            :attempted_watermark nil
-                                                            :attempted_cursor next-cursor
-                                                            :now finished-at}))))
+                                           (replace-checkpoint-row! conn-id checkpoint-table
+                                                                    (checkpoint-row-for-failure
+                                                                     checkpoint-row
+                                                                     (checkpoint/failure-row
+                                                                      {:source_system source-system
+                                                                       :endpoint_name endpoint-name
+                                                                       :attempted_watermark nil
+                                                                       :attempted_cursor next-cursor
+                                                                       :now finished-at}))))
                        run-row           (endpoint-run-row
                                           {:run-id run-id
                                            :source-system source-system
@@ -4729,15 +5730,11 @@
                           conn-id
                           (fn []
                             (load-rows! conn-id run-detail-table [run-row])
-                            (replace-row! conn-id checkpoint-table
-                                          [:source_system :endpoint_name]
-                                          checkpoint-row'))))
+                            (replace-checkpoint-row! conn-id checkpoint-table checkpoint-row'))))
                       (fn []
                         (load-rows! conn-id run-detail-table [run-row])
                         (when checkpoint-row'
-                          (replace-row! conn-id checkpoint-table
-                                        [:source_system :endpoint_name]
-                                        checkpoint-row')))))
+                          (replace-checkpoint-row! conn-id checkpoint-table checkpoint-row')))))
                    (let [_ (ensure-final-run-manifest-invariants!
                             conn-id
                             endpoint-name
@@ -4883,13 +5880,13 @@
   (let [g                 (db/getGraph graph-id)
         api-node          (g2/getData g api-node-id)
         target            (find-downstream-target g api-node-id)
-        conn-id           (target-connection-id target)
+        conn-id           (require-target-connection-id! target
+                                                         "No downstream target connection found for API node"
+                                                         {:graph_id graph-id
+                                                          :api_node_id api-node-id})
         endpoint          (select-endpoint! api-node endpoint-name)
         bad-records-table (validated-qualified-table-name (audit-table target conn-id "bad_records"))
         manifest-table    (validated-qualified-table-name (audit-table target conn-id "run_batch_manifest"))]
-    (when-not conn-id
-      (throw (ex-info "No downstream target connection found for API node"
-                      {:graph_id graph-id :api_node_id api-node-id})))
     (ensure-table! conn-id manifest-table batch-manifest-columns {})
     (ensure-batch-manifest-columns! conn-id manifest-table)
     (let [manifest (manifest-row-by-batch-id conn-id manifest-table batch-id)]

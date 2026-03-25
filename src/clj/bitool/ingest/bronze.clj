@@ -58,16 +58,32 @@
       "DATETIME" "TIMESTAMP"
       type-name)))
 
+(defn- promotable-field?
+  "A field should be promoted to a Bronze column if it is a primary key,
+   a watermark field, or a commonly filtered operational field.
+   This keeps Bronze lean — Silver handles full modeling."
+  [field primary-key-set]
+  (let [col (:column_name field)]
+    (or (:is_watermark field)
+        (contains? primary-key-set col)
+        ;; Also promote if the raw field name (after prefix strip) is a key or watermark
+        (let [parts (string/split (or col "") #"_")
+              raw-name (last parts)]
+          (or (contains? primary-key-set raw-name)
+              (contains? primary-key-set (str col)))))))
+
 (defn promoted-columns
   [endpoint-config]
-  (mapv (fn [field]
-          {:column_name (:column_name field)
-           :data_type (canonical-promoted-type
-                        (or (not-empty (:override_type field))
-                            (:type field)
-                            "STRING"))
-           :is_nullable (if (:nullable field) "YES" "NO")})
-        (schema-infer/effective-field-descriptors endpoint-config)))
+  (let [pk-set (set (or (:primary_key_fields endpoint-config) []))]
+    (mapv (fn [field]
+            {:column_name (:column_name field)
+             :data_type (canonical-promoted-type
+                          (or (not-empty (:override_type field))
+                              (:type field)
+                              "STRING"))
+             :is_nullable (if (:nullable field) "YES" "NO")})
+          (filter #(promotable-field? % pk-set)
+                  (schema-infer/effective-field-descriptors endpoint-config)))))
 
 (defn bronze-columns
   [endpoint-config]
@@ -91,18 +107,49 @@
       (get m (name k))
       (get m (keyword (name k)))))
 
+(defn- navigate-nested
+  "Navigate a nested map using underscore-separated path.
+   e.g. 'vehicle_id' tries vehicle.id in the map."
+  [m field-name]
+  (let [parts (string/split field-name #"_")]
+    (when (> (count parts) 1)
+      ;; Try each split point: vehicle_id -> (get-in m [:vehicle :id])
+      (loop [i 1]
+        (when (< i (count parts))
+          (let [prefix (string/join "_" (take i parts))
+                suffix (string/join "_" (drop i parts))
+                parent (or (get m prefix) (get m (keyword prefix)))]
+            (if (map? parent)
+              (or (keyword-or-string parent suffix)
+                  (navigate-nested parent suffix)
+                  (recur (inc i)))
+              (recur (inc i)))))))))
+
 (defn- row-value [row field]
   (let [field-name (name field)
-        direct     (or (keyword-or-string row field-name)
-                       (keyword-or-string row (path->name field-name)))]
-    (or direct
-        (some (fn [[k v]]
-                (let [k-name (if (keyword? k) (name k) (str k))]
-                  (when (or (= k-name field-name)
-                            (= k-name (path->name field-name))
-                            (string/ends-with? k-name (str "_" field-name)))
-                    v)))
-              row))))
+        inner      (or (:_record row) row)
+        try-map    (fn [m]
+                     (or (keyword-or-string m field-name)
+                         (keyword-or-string m (path->name field-name))
+                         ;; Navigate nested: "vehicle_id" -> m.vehicle.id
+                         (navigate-nested m field-name)
+                         ;; Progressive prefix stripping: "data_items_updatedAtTime" -> "updatedAtTime"
+                         (let [parts (string/split field-name #"_")]
+                           (loop [i 1]
+                             (when (< i (count parts))
+                               (let [candidate (string/join "_" (drop i parts))
+                                     found (or (keyword-or-string m candidate)
+                                               (navigate-nested m candidate))]
+                                 (if found found (recur (inc i)))))))
+                         (some (fn [[k v]]
+                                 (let [k-name (if (keyword? k) (name k) (str k))]
+                                   (when (or (= k-name field-name)
+                                             (= k-name (path->name field-name))
+                                             (string/ends-with? k-name (str "_" field-name)))
+                                     v)))
+                               m)))]
+    (or (try-map row)
+        (when (not= inner row) (try-map inner)))))
 
 (defn- selected-mapping [descriptors records-path]
   (cond-> (zipmap (map :path descriptors) (map #(keyword (:column_name %)) descriptors))
@@ -111,22 +158,25 @@
 (defn- rows-from-body [body endpoint-config]
   (let [records-path (or (get-in endpoint-config [:json_explode_rules 0 :path]) "")
         descriptors  (schema-infer/effective-field-descriptors endpoint-config)]
-    (if (seq descriptors)
-      (let [mapping (selected-mapping descriptors records-path)
-          opts    (if (seq (string/trim (str records-path)))
-                    {:row-mode :explode-by :explode-key records-path}
-                    {:row-mode :per-context})]
-        (tf/rows-from-json body mapping opts))
+    (if (seq records-path)
+      ;; Explode first into individual records, wrap in {:_record ...}
       (mapv (fn [record] {:_record record})
-            (schema-infer/logical-records-from-body body records-path)))))
+            (schema-infer/logical-records-from-body body records-path))
+      ;; No explode path
+      (if (seq descriptors)
+        (let [mapping (selected-mapping descriptors records-path)
+              opts    {:row-mode :per-context}]
+          (tf/rows-from-json body mapping opts))
+        [{:_record body}]))))
 
 (defn- source-record-id [row primary-key-fields]
   (when (seq primary-key-fields)
     (let [parts (map (fn [field]
-                       (or (row-value row field)
-                           ""))
-                     primary-key-fields)]
-      (string/join "|" parts))))
+                       (some-> (row-value row field) str))
+                     primary-key-fields)
+          normalized (map #(string/trim (or % "")) parts)]
+      (when (some seq normalized)
+        (string/join "|" normalized)))))
 
 (defn- event-time [row watermark-column]
   (when (seq (str watermark-column))
@@ -173,14 +223,16 @@
 
 (defn- promoted-row
   [row endpoint-config]
-  (->> (schema-infer/effective-field-descriptors endpoint-config)
-       (map (fn [descriptor]
-              (let [column-name (:column_name descriptor)
-                    value (row-value row column-name)]
-                [(keyword column-name)
-                 (coerce-promoted-value descriptor value)])))
-       (remove (comp nil? second))
-       (into {})))
+  (let [pk-set (set (or (:primary_key_fields endpoint-config) []))]
+    (->> (schema-infer/effective-field-descriptors endpoint-config)
+         (filter #(promotable-field? % pk-set))
+         (map (fn [descriptor]
+                (let [column-name (:column_name descriptor)
+                      value (row-value row column-name)]
+                  [(keyword column-name)
+                   (coerce-promoted-value descriptor value)])))
+         (remove (comp nil? second))
+         (into {}))))
 
 (defn- bad-record-row
   [run-id source-system endpoint-config now source-row raw-record error-message]
@@ -206,7 +258,7 @@
   (let [payload-json      (json/generate-string raw-record)
         source-id         (source-record-id source-row (:primary_key_fields endpoint-config))
         event-time-utc    (event-time source-row (:watermark_column endpoint-config))
-        partition-date     (str (java.time.LocalDate/ofInstant now (java.time.ZoneOffset/UTC)))
+        partition-date     (java.sql.Date/valueOf (java.time.LocalDate/ofInstant now (java.time.ZoneOffset/UTC)))
         load-date          partition-date
         base-row          {:ingestion_id     run-id
                            :run_id           run-id

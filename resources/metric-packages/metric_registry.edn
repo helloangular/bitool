@@ -1,0 +1,43 @@
+;; Metric Registry — maps business metrics to required semantic entities
+;; Used by the coverage reconciliation engine to determine what Silver
+;; entities a Gold model needs, and whether Bronze sources can satisfy them.
+
+{:gross_revenue    {:requires-entities ["payment"]
+                    :default-grain "day"
+                    :description "Total successful payment volume"}
+
+ :net_revenue      {:requires-entities ["payment" "refund"]
+                    :default-grain "day"
+                    :description "Gross revenue minus refunds"}
+
+ :mrr_monthly      {:requires-entities ["subscription" "customer"]
+                    :default-grain "month"
+                    :description "Monthly recurring revenue from active subscriptions"}
+
+ :churn_monthly    {:requires-entities ["subscription" "customer"]
+                    :default-grain "month"
+                    :description "Subscription cancellation rate"}
+
+ :fleet_utilization {:requires-entities ["vehicle" "trip"]
+                     :default-grain "day"
+                     :description "Active vehicle count and distance per day"}
+
+ :driver_performance {:requires-entities ["driver" "trip"]
+                      :default-grain "day"
+                      :description "Trips completed and distance per driver per day"}
+
+ :driver_safety     {:requires-entities ["driver" "safety_event"]
+                     :default-grain "day"
+                     :description "Safety events and score per driver per day"}
+
+ :fuel_consumption  {:requires-entities ["vehicle" "fuel_energy"]
+                     :default-grain "day"
+                     :description "Fuel and energy consumption per vehicle per day"}
+
+ :conversion_funnel {:requires-entities ["opportunity" "customer"]
+                     :default-grain "day"
+                     :description "Sales funnel stage progression"}
+
+ :support_sla       {:requires-entities ["ticket"]
+                     :default-grain "day"
+                     :description "Ticket resolution time and SLA compliance"}}

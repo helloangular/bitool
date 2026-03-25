@@ -11,12 +11,9 @@
 </head>
 <body class="ops-body">
 
-<!-- PROTOTYPE BANNER -->
-<div id="mockBanner" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#b45309;color:#fff;text-align:center;padding:6px 12px;font:600 13px/1.4 Inter,system-ui,sans-serif;letter-spacing:0.3px;">
-  PROTOTYPE &mdash; All data on this page is static mock data. No backend is connected. Actions (Retry, Drain, etc.) are UI-only and do not affect system state.
-  <button onclick="document.getElementById('mockBanner').style.display='none'" style="margin-left:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px;">Dismiss</button>
+<div id="staleOverlay" style="display:none;position:fixed;top:40px;left:0;right:0;z-index:9998;background:rgba(239,68,68,0.9);color:#fff;text-align:center;padding:8px 16px;font:600 13px/1.4 Inter,system-ui,sans-serif;">
+  Data may be stale — last successful refresh was <span id="staleTime">unknown</span>. Retrying...
 </div>
-<style>.ops-sidebar{margin-top:34px}.ops-main{margin-top:34px}</style>
 
 <!-- ════════════════════════════════════════════════════════
      SIDEBAR
@@ -56,6 +53,10 @@
     </div>
 
     <div class="ops-nav-section">Governance</div>
+    <div class="ops-nav-item" data-screen="schema-drift">
+      <span class="nav-icon">&#128269;</span> Schema Drift
+      <span class="nav-badge" id="driftNavBadge" style="display:none">0</span>
+    </div>
     <div class="ops-nav-item" data-screen="schema-medallion">
       <span class="nav-icon">&#9733;</span> Schema &amp; Medallion
     </div>
@@ -68,6 +69,10 @@
 
   <div class="ops-sidebar-footer">
     <div style="margin-bottom:4px">Environment: <strong>production</strong></div>
+    <div style="margin-bottom:4px">
+      <span id="connStatus" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:6px;vertical-align:middle"></span>
+      <span id="connStatusText">Connecting...</span>
+    </div>
     <div>Last refresh: <span id="lastRefresh">—</span></div>
   </div>
 </aside>
@@ -109,43 +114,38 @@
       <div class="ops-metrics">
         <div class="ops-metric-card green">
           <div class="metric-label">Active Sources</div>
-          <div class="metric-value">14</div>
-          <div class="metric-sub"><span class="up">&#9650; 2</span> from yesterday</div>
+          <div class="metric-value" id="kpi-active-sources">—</div>
+          <div class="metric-sub" id="kpi-active-sources-sub">&nbsp;</div>
         </div>
         <div class="ops-metric-card blue">
           <div class="metric-label">Running Jobs</div>
-          <div class="metric-value">6</div>
-          <div class="metric-sub">3 queued, 1 retrying</div>
+          <div class="metric-value" id="kpi-running-jobs">—</div>
+          <div class="metric-sub" id="kpi-running-jobs-sub">&nbsp;</div>
         </div>
         <div class="ops-metric-card yellow">
           <div class="metric-label">Bad Records (24h)</div>
-          <div class="metric-value">127</div>
-          <div class="metric-sub"><span class="down">&#9650; 34</span> from prev period</div>
+          <div class="metric-value" id="kpi-bad-records">—</div>
+          <div class="metric-sub" id="kpi-bad-records-sub">&nbsp;</div>
         </div>
         <div class="ops-metric-card red">
           <div class="metric-label">Failed Jobs (24h)</div>
-          <div class="metric-value">3</div>
-          <div class="metric-sub">2 retried, 1 in DLQ</div>
+          <div class="metric-value" id="kpi-failed-jobs">—</div>
+          <div class="metric-sub" id="kpi-failed-jobs-sub">&nbsp;</div>
         </div>
         <div class="ops-metric-card cyan">
           <div class="metric-label">Batches Committed</div>
-          <div class="metric-value">482</div>
-          <div class="metric-sub">99.6% success rate</div>
+          <div class="metric-value" id="kpi-batches-committed">—</div>
+          <div class="metric-sub" id="kpi-batches-committed-sub">&nbsp;</div>
         </div>
         <div class="ops-metric-card purple">
           <div class="metric-label">Avg Freshness</div>
-          <div class="metric-value">4.2m</div>
-          <div class="metric-sub">Target: &lt; 10m</div>
+          <div class="metric-value" id="kpi-avg-freshness">—</div>
+          <div class="metric-sub" id="kpi-avg-freshness-sub">&nbsp;</div>
         </div>
       </div>
 
       <!-- Alerts -->
-      <div class="ops-alert warn">
-        &#9888; Kafka source <strong>events-stream</strong> lag is 45,000 messages — approaching retention threshold.
-      </div>
-      <div class="ops-alert error">
-        &#10060; Worker <strong>w-3</strong> missed heartbeat 8 minutes ago. Orphan recovery triggered.
-      </div>
+      <div id="pipeline-alerts"></div>
 
       <!-- Source Status Table -->
       <div class="ops-panel">
@@ -167,57 +167,7 @@
                 <th>Trend</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="primary">orders-api</td>
-                <td>API</td>
-                <td><span class="badge running">Running</span></td>
-                <td class="mono">2 min ago</td>
-                <td>1,240 rows/min</td>
-                <td>2.1m</td>
-                <td>3</td>
-                <td><div class="sparkline"><div class="sparkline-bar" style="left:0;height:60%"></div><div class="sparkline-bar" style="left:8px;height:80%"></div><div class="sparkline-bar" style="left:16px;height:45%"></div><div class="sparkline-bar" style="left:24px;height:90%"></div><div class="sparkline-bar" style="left:32px;height:70%"></div><div class="sparkline-bar" style="left:40px;height:85%"></div><div class="sparkline-bar" style="left:48px;height:55%"></div><div class="sparkline-bar" style="left:56px;height:95%"></div></div></td>
-              </tr>
-              <tr>
-                <td class="primary">events-stream</td>
-                <td>Kafka</td>
-                <td><span class="badge warning">Lag Risk</span></td>
-                <td class="mono">30 sec ago</td>
-                <td>8,450 rows/min</td>
-                <td>0.5m</td>
-                <td>18</td>
-                <td><div class="sparkline"><div class="sparkline-bar" style="left:0;height:90%;background:var(--yellow)"></div><div class="sparkline-bar" style="left:8px;height:95%;background:var(--yellow)"></div><div class="sparkline-bar" style="left:16px;height:85%;background:var(--yellow)"></div><div class="sparkline-bar" style="left:24px;height:100%;background:var(--red)"></div><div class="sparkline-bar" style="left:32px;height:92%;background:var(--yellow)"></div><div class="sparkline-bar" style="left:40px;height:88%;background:var(--yellow)"></div></div></td>
-              </tr>
-              <tr>
-                <td class="primary">daily-settlements</td>
-                <td>File</td>
-                <td><span class="badge completed">Healthy</span></td>
-                <td class="mono">1 hr ago</td>
-                <td>320 rows/min</td>
-                <td>58m</td>
-                <td>0</td>
-                <td><div class="sparkline"><div class="sparkline-bar" style="left:0;height:40%"></div><div class="sparkline-bar" style="left:8px;height:35%"></div><div class="sparkline-bar" style="left:16px;height:45%"></div><div class="sparkline-bar" style="left:24px;height:38%"></div></div></td>
-              </tr>
-              <tr>
-                <td class="primary">mainframe-txns</td>
-                <td>Mainframe</td>
-                <td><span class="badge failed">Failed</span></td>
-                <td class="mono">35 min ago</td>
-                <td>0 rows/min</td>
-                <td>35m</td>
-                <td>106</td>
-                <td><div class="sparkline"><div class="sparkline-bar" style="left:0;height:50%;background:var(--red)"></div><div class="sparkline-bar" style="left:8px;height:20%;background:var(--red)"></div><div class="sparkline-bar" style="left:16px;height:0"></div></div></td>
-              </tr>
-              <tr>
-                <td class="primary">github-prs</td>
-                <td>API</td>
-                <td><span class="badge running">Running</span></td>
-                <td class="mono">5 min ago</td>
-                <td>85 rows/min</td>
-                <td>5.0m</td>
-                <td>0</td>
-                <td><div class="sparkline"><div class="sparkline-bar" style="left:0;height:30%"></div><div class="sparkline-bar" style="left:8px;height:35%"></div><div class="sparkline-bar" style="left:16px;height:28%"></div><div class="sparkline-bar" style="left:24px;height:33%"></div></div></td>
-              </tr>
+            <tbody id="sourceStatusBody">
             </tbody>
           </table>
         </div>
@@ -231,12 +181,7 @@
         <div class="table-wrap">
           <table class="ops-table">
             <thead><tr><th>Time</th><th>Event</th><th>Source</th><th>Details</th></tr></thead>
-            <tbody>
-              <tr><td class="mono">14:32:05</td><td><span class="badge failed">Failure</span></td><td>mainframe-txns</td><td>EBCDIC parse error: unexpected record length 0 at offset 44,810</td></tr>
-              <tr><td class="mono">14:31:12</td><td><span class="badge completed">Batch</span></td><td>orders-api</td><td>Batch b-4821 committed: 1,240 rows, 0 bad</td></tr>
-              <tr><td class="mono">14:30:45</td><td><span class="badge warning">Alert</span></td><td>events-stream</td><td>Kafka lag exceeded 40,000 threshold</td></tr>
-              <tr><td class="mono">14:28:00</td><td><span class="badge retrying">Retry</span></td><td>orders-api</td><td>Rate limit hit, backing off 30s (attempt 2/5)</td></tr>
-              <tr><td class="mono">14:25:33</td><td><span class="badge completed">Batch</span></td><td>events-stream</td><td>Batch b-4820 committed: 8,450 rows, 2 bad</td></tr>
+            <tbody id="recentActivityBody">
             </tbody>
           </table>
         </div>
@@ -251,27 +196,27 @@
       <div class="ops-metrics">
         <div class="ops-metric-card cyan">
           <div class="metric-label">Queued</div>
-          <div class="metric-value">23</div>
+          <div class="metric-value" id="queue-queued">—</div>
         </div>
         <div class="ops-metric-card purple">
           <div class="metric-label">Leased</div>
-          <div class="metric-value">4</div>
+          <div class="metric-value" id="queue-leased">—</div>
         </div>
         <div class="ops-metric-card green">
           <div class="metric-label">Running</div>
-          <div class="metric-value">6</div>
+          <div class="metric-value" id="queue-running">—</div>
         </div>
         <div class="ops-metric-card yellow">
           <div class="metric-label">Retrying</div>
-          <div class="metric-value">2</div>
+          <div class="metric-value" id="queue-retrying">—</div>
         </div>
         <div class="ops-metric-card red">
           <div class="metric-label">Failed</div>
-          <div class="metric-value">3</div>
+          <div class="metric-value" id="queue-failed">—</div>
         </div>
         <div class="ops-metric-card orange">
           <div class="metric-label">DLQ</div>
-          <div class="metric-value">1</div>
+          <div class="metric-value" id="queue-dlq">—</div>
         </div>
       </div>
 
@@ -311,84 +256,7 @@
                 <th>Actions</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">req-00482</td>
-                <td>orders-api</td>
-                <td><span class="badge running">Running</span></td>
-                <td class="mono">w-1</td>
-                <td class="mono">14:30:02</td>
-                <td>1</td>
-                <td>—</td>
-                <td class="row-actions"><button class="ops-btn sm danger">Cancel</button></td>
-              </tr>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">req-00481</td>
-                <td>events-stream</td>
-                <td><span class="badge running">Running</span></td>
-                <td class="mono">w-2</td>
-                <td class="mono">14:29:55</td>
-                <td>1</td>
-                <td>—</td>
-                <td class="row-actions"><button class="ops-btn sm danger">Cancel</button></td>
-              </tr>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">req-00479</td>
-                <td>mainframe-txns</td>
-                <td><span class="badge retrying">Retrying</span></td>
-                <td class="mono">w-3</td>
-                <td class="mono">14:25:10</td>
-                <td>3</td>
-                <td style="color:var(--red);font-size:11px">EBCDIC parse: bad length</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm warning">Retry</button>
-                  <button class="ops-btn sm danger">Cancel</button>
-                </td>
-              </tr>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">req-00477</td>
-                <td>orders-api</td>
-                <td><span class="badge failed">Failed</span></td>
-                <td class="mono">w-1</td>
-                <td class="mono">14:18:30</td>
-                <td>5</td>
-                <td style="color:var(--red);font-size:11px">HTTP 503 after 5 retries</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm warning">Requeue</button>
-                  <button class="ops-btn sm">Inspect</button>
-                </td>
-              </tr>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">req-00470</td>
-                <td>daily-settlements</td>
-                <td><span class="badge dlq">DLQ</span></td>
-                <td class="mono">—</td>
-                <td class="mono">13:45:00</td>
-                <td>5</td>
-                <td style="color:var(--red);font-size:11px">Schema mismatch: col count</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm warning">Requeue</button>
-                  <button class="ops-btn sm">Inspect</button>
-                </td>
-              </tr>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">req-00483</td>
-                <td>github-prs</td>
-                <td><span class="badge queued">Queued</span></td>
-                <td class="mono">—</td>
-                <td class="mono">14:32:00</td>
-                <td>0</td>
-                <td>—</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm danger">Cancel</button>
-                </td>
-              </tr>
+            <tbody id="queueBody">
             </tbody>
           </table>
         </div>
@@ -417,45 +285,7 @@
                 <th>Actions</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="mono primary">w-1</td>
-                <td><span class="badge running">Active</span></td>
-                <td class="mono">req-00482</td>
-                <td class="mono">2s ago</td>
-                <td>4h 12m</td>
-                <td>142</td>
-                <td class="row-actions"><button class="ops-btn sm danger">Drain</button></td>
-              </tr>
-              <tr>
-                <td class="mono primary">w-2</td>
-                <td><span class="badge running">Active</span></td>
-                <td class="mono">req-00481</td>
-                <td class="mono">1s ago</td>
-                <td>4h 12m</td>
-                <td>138</td>
-                <td class="row-actions"><button class="ops-btn sm danger">Drain</button></td>
-              </tr>
-              <tr>
-                <td class="mono primary">w-3</td>
-                <td><span class="badge failed">Stale</span></td>
-                <td class="mono">req-00479</td>
-                <td class="mono" style="color:var(--red)">8m ago</td>
-                <td>4h 12m</td>
-                <td>95</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm warning">Force Release</button>
-                </td>
-              </tr>
-              <tr>
-                <td class="mono primary">w-4</td>
-                <td><span class="badge queued">Idle</span></td>
-                <td class="mono">—</td>
-                <td class="mono">1s ago</td>
-                <td>4h 12m</td>
-                <td>130</td>
-                <td class="row-actions"><button class="ops-btn sm danger">Drain</button></td>
-              </tr>
+            <tbody id="workerBody">
             </tbody>
           </table>
         </div>
@@ -470,20 +300,20 @@
       <div class="ops-metrics">
         <div class="ops-metric-card green">
           <div class="metric-label">Healthy Sources</div>
-          <div class="metric-value">11</div>
+          <div class="metric-value" id="sh-healthy">—</div>
         </div>
         <div class="ops-metric-card yellow">
           <div class="metric-label">Degraded</div>
-          <div class="metric-value">2</div>
+          <div class="metric-value" id="sh-degraded">—</div>
         </div>
         <div class="ops-metric-card red">
           <div class="metric-label">Down</div>
-          <div class="metric-value">1</div>
+          <div class="metric-value" id="sh-down">—</div>
         </div>
         <div class="ops-metric-card blue">
           <div class="metric-label">Total Throughput</div>
-          <div class="metric-value">10.1K</div>
-          <div class="metric-sub">rows/min across all</div>
+          <div class="metric-value" id="sh-throughput">—</div>
+          <div class="metric-sub" id="sh-throughput-sub">&nbsp;</div>
         </div>
       </div>
 
@@ -501,31 +331,7 @@
                 <th>Lag Risk</th><th>Committed</th><th>Throughput</th><th>Status</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="primary">events-stream</td>
-                <td class="mono">prod.events.v2</td>
-                <td>12</td>
-                <td class="mono">4,521,300</td>
-                <td class="mono">4,566,300</td>
-                <td style="color:var(--yellow);font-weight:600">45,000</td>
-                <td><span class="badge warning">High</span></td>
-                <td class="mono">4,519,800</td>
-                <td>8,450/min</td>
-                <td><span class="badge warning">Lag Risk</span></td>
-              </tr>
-              <tr>
-                <td class="primary">user-activity</td>
-                <td class="mono">prod.user.activity</td>
-                <td>6</td>
-                <td class="mono">1,230,100</td>
-                <td class="mono">1,230,250</td>
-                <td>150</td>
-                <td><span class="badge healthy">Low</span></td>
-                <td class="mono">1,230,050</td>
-                <td>420/min</td>
-                <td><span class="badge healthy">Healthy</span></td>
-              </tr>
+            <tbody id="kafkaSourceBody">
             </tbody>
           </table>
         </div>
@@ -544,28 +350,7 @@
                 <th>Skipped</th><th>Parse Failures</th><th>Last File</th><th>Status</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="primary">daily-settlements</td>
-                <td>Local File</td>
-                <td>48</td><td>47</td><td>0</td><td>0</td>
-                <td class="mono">settlements_20260317.csv</td>
-                <td><span class="badge healthy">Healthy</span></td>
-              </tr>
-              <tr>
-                <td class="primary">mainframe-txns</td>
-                <td>Mainframe</td>
-                <td>12</td><td>10</td><td>0</td><td style="color:var(--red);font-weight:600">2</td>
-                <td class="mono">TXN.DAILY.D0317.EBCDIC</td>
-                <td><span class="badge failed">Failed</span></td>
-              </tr>
-              <tr>
-                <td class="primary">vendor-invoices</td>
-                <td>SFTP</td>
-                <td>156</td><td>156</td><td>3</td><td>0</td>
-                <td class="mono">inv_batch_0317_04.xml</td>
-                <td><span class="badge healthy">Healthy</span></td>
-              </tr>
+            <tbody id="fileSourceBody">
             </tbody>
           </table>
         </div>
@@ -580,45 +365,12 @@
           <table class="ops-table">
             <thead>
               <tr>
-                <th>Source</th><th>Endpoint</th><th>Rate Limit</th>
-                <th>Used</th><th>Backoff State</th><th>Circuit</th>
-                <th>Pages Fetched</th><th>Throughput</th><th>Status</th>
+                <th>Endpoint</th><th>Source</th><th>Target Table</th>
+                <th>Last Run</th><th>Duration</th><th>Rows</th>
+                <th>Freshness</th><th>Status</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="primary">orders-api</td>
-                <td class="mono">/v2/orders</td>
-                <td>5,000/hr</td>
-                <td>3,240 (64%)</td>
-                <td><span class="badge healthy">None</span></td>
-                <td><span class="badge healthy">Closed</span></td>
-                <td>482</td>
-                <td>1,240/min</td>
-                <td><span class="badge running">Running</span></td>
-              </tr>
-              <tr>
-                <td class="primary">github-prs</td>
-                <td class="mono">/graphql</td>
-                <td>5,000/hr</td>
-                <td>820 (16%)</td>
-                <td><span class="badge healthy">None</span></td>
-                <td><span class="badge healthy">Closed</span></td>
-                <td>164</td>
-                <td>85/min</td>
-                <td><span class="badge running">Running</span></td>
-              </tr>
-              <tr>
-                <td class="primary">payments-api</td>
-                <td class="mono">/api/payments</td>
-                <td>1,000/hr</td>
-                <td>980 (98%)</td>
-                <td><span class="badge retrying">30s cooldown</span></td>
-                <td><span class="badge warning">Half-Open</span></td>
-                <td>96</td>
-                <td>0/min</td>
-                <td><span class="badge retrying">Throttled</span></td>
-              </tr>
+            <tbody id="apiSourceBody">
             </tbody>
           </table>
         </div>
@@ -634,28 +386,7 @@
             <thead>
               <tr><th>Source</th><th>Indicator</th><th>Risk Level</th><th>Detail</th><th>Last Checked</th></tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="primary">events-stream</td>
-                <td>Kafka lag near retention</td>
-                <td><span class="badge warning">Medium</span></td>
-                <td>45K messages lag, retention = 72h, oldest unconsumed = 68h</td>
-                <td class="mono">14:31</td>
-              </tr>
-              <tr>
-                <td class="primary">orders-api</td>
-                <td>Replayed offset detected</td>
-                <td><span class="badge pending">Low</span></td>
-                <td>Cursor reset triggered replay of 240 rows — dedup in Bronze</td>
-                <td class="mono">14:20</td>
-              </tr>
-              <tr>
-                <td class="primary">mainframe-txns</td>
-                <td>Stale checkpoint</td>
-                <td><span class="badge failed">High</span></td>
-                <td>Checkpoint not advanced in 35 minutes — data loss if file rotates</td>
-                <td class="mono">14:32</td>
-              </tr>
+            <tbody id="dataLossBody">
             </tbody>
           </table>
         </div>
@@ -670,23 +401,23 @@
       <div class="ops-metrics">
         <div class="ops-metric-card green">
           <div class="metric-label">Committed</div>
-          <div class="metric-value">478</div>
+          <div class="metric-value" id="batch-committed">—</div>
         </div>
         <div class="ops-metric-card yellow">
           <div class="metric-label">Preparing</div>
-          <div class="metric-value">3</div>
+          <div class="metric-value" id="batch-preparing">—</div>
         </div>
         <div class="ops-metric-card orange">
           <div class="metric-label">Pending Checkpoint</div>
-          <div class="metric-value">1</div>
+          <div class="metric-value" id="batch-pending">—</div>
         </div>
         <div class="ops-metric-card red">
           <div class="metric-label">Rolled Back</div>
-          <div class="metric-value">2</div>
+          <div class="metric-value" id="batch-rolled-back">—</div>
         </div>
         <div class="ops-metric-card purple">
           <div class="metric-label">Archived</div>
-          <div class="metric-value">12,450</div>
+          <div class="metric-value" id="batch-archived">—</div>
         </div>
       </div>
 
@@ -712,57 +443,7 @@
                 <th>Rows</th><th>Bad</th><th>Size</th><th>Created</th><th>Actions</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="mono primary">mf-29481</td>
-                <td>orders-api</td><td class="mono">b-4821</td>
-                <td><span class="badge committed">Committed</span></td>
-                <td>1,240</td><td>0</td><td>2.4 MB</td><td class="mono">14:31:02</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm">Inspect</button>
-                  <button class="ops-btn sm warning">Replay</button>
-                </td>
-              </tr>
-              <tr>
-                <td class="mono primary">mf-29480</td>
-                <td>events-stream</td><td class="mono">b-4820</td>
-                <td><span class="badge committed">Committed</span></td>
-                <td>8,450</td><td>2</td><td>18.1 MB</td><td class="mono">14:30:45</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm">Inspect</button>
-                  <button class="ops-btn sm warning">Replay</button>
-                </td>
-              </tr>
-              <tr>
-                <td class="mono primary">mf-29479</td>
-                <td>orders-api</td><td class="mono">b-4819</td>
-                <td><span class="badge preparing">Preparing</span></td>
-                <td>—</td><td>—</td><td>—</td><td class="mono">14:32:10</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm">Inspect</button>
-                </td>
-              </tr>
-              <tr>
-                <td class="mono primary">mf-29475</td>
-                <td>mainframe-txns</td><td class="mono">b-4815</td>
-                <td><span class="badge rolled_back">Rolled Back</span></td>
-                <td>0</td><td>106</td><td>0 B</td><td class="mono">14:25:15</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm">Inspect</button>
-                  <button class="ops-btn sm warning">Replay</button>
-                  <button class="ops-btn sm">Archive</button>
-                </td>
-              </tr>
-              <tr>
-                <td class="mono primary">mf-29474</td>
-                <td>daily-settlements</td><td class="mono">b-4814</td>
-                <td><span class="badge pending_checkpoint">Pending CKP</span></td>
-                <td>320</td><td>0</td><td>0.8 MB</td><td class="mono">14:20:00</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm">Inspect</button>
-                  <button class="ops-btn sm danger">Rollback</button>
-                </td>
-              </tr>
+            <tbody id="manifestBody">
             </tbody>
           </table>
         </div>
@@ -771,26 +452,10 @@
       <!-- Manifest Detail (shown on Inspect click) -->
       <div class="ops-detail" id="manifestDetail" style="display:none">
         <div class="ops-detail-header">
-          <div class="ops-detail-title">Manifest mf-29481 — orders-api</div>
+          <div class="ops-detail-title">Manifest Detail</div>
           <button class="ops-btn sm" onclick="document.getElementById('manifestDetail').style.display='none'">Close</button>
         </div>
-        <div class="ops-kv-grid">
-          <div class="ops-kv-item"><div class="kv-label">Manifest ID</div><div class="kv-value">mf-29481</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Batch ID</div><div class="kv-value">b-4821</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Source</div><div class="kv-value">orders-api</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Status</div><div class="kv-value"><span class="badge committed">Committed</span></div></div>
-          <div class="ops-kv-item"><div class="kv-label">Row Count</div><div class="kv-value">1,240</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Bad Records</div><div class="kv-value">0</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Artifact Path</div><div class="kv-value">/bronze/orders-api/2026/03/17/b-4821/</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Checkpoint After</div><div class="kv-value">cursor=2026-03-17T14:31:00Z</div></div>
-        </div>
-        <div style="margin-top:16px">
-          <div class="ops-kv-item"><div class="kv-label">Artifact Listing</div></div>
-          <div class="ops-json">/bronze/orders-api/2026/03/17/b-4821/
-├── manifest.json          (1.2 KB)
-├── data_00001.parquet     (2.4 MB)
-└── _bad_records/          (empty)</div>
-        </div>
+        <div id="manifestDetailContent"></div>
       </div>
     </div>
 
@@ -816,47 +481,7 @@
                 <th>Current Value</th><th>Last Updated</th><th>Actions</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="primary">orders-api</td><td>API Cursor</td>
-                <td class="mono">updated_after</td>
-                <td class="mono">2026-03-17T14:31:00Z</td>
-                <td class="mono">2 min ago</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm warning">Reset</button>
-                  <button class="ops-btn sm">History</button>
-                </td>
-              </tr>
-              <tr>
-                <td class="primary">events-stream</td><td>Kafka Offset</td>
-                <td class="mono">partition offsets</td>
-                <td class="mono">{0:421K, 1:418K, 2:420K, ...}</td>
-                <td class="mono">30 sec ago</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm warning">Reset</button>
-                  <button class="ops-btn sm">History</button>
-                </td>
-              </tr>
-              <tr>
-                <td class="primary">daily-settlements</td><td>File Cursor</td>
-                <td class="mono">last_processed_file</td>
-                <td class="mono">settlements_20260317.csv</td>
-                <td class="mono">1 hr ago</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm warning">Reset</button>
-                  <button class="ops-btn sm">History</button>
-                </td>
-              </tr>
-              <tr>
-                <td class="primary">mainframe-txns</td><td>File Offset</td>
-                <td class="mono">byte_offset</td>
-                <td class="mono" style="color:var(--red)">44,810 (stale 35m)</td>
-                <td class="mono" style="color:var(--red)">35 min ago</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm warning">Reset</button>
-                  <button class="ops-btn sm">History</button>
-                </td>
-              </tr>
+            <tbody id="checkpointBody">
             </tbody>
           </table>
         </div>
@@ -871,14 +496,14 @@
           <div class="ops-grid-3" style="gap:16px;margin-bottom:16px">
             <div>
               <label class="ops-form-label">Source</label>
-              <select class="ops-select" style="width:100%">
+              <select class="ops-select" id="replaySource" style="width:100%">
                 <option>orders-api</option><option>events-stream</option>
                 <option>daily-settlements</option><option>mainframe-txns</option>
               </select>
             </div>
             <div>
               <label class="ops-form-label">Replay From</label>
-              <select class="ops-select" style="width:100%">
+              <select class="ops-select" id="replayMode" style="width:100%">
                 <option>Specific Batch</option>
                 <option>Specific Run</option>
                 <option>Time Range</option>
@@ -886,45 +511,30 @@
             </div>
             <div>
               <label class="ops-form-label">Batch / Run ID</label>
-              <input class="ops-form-input" placeholder="e.g. b-4815">
+              <input class="ops-form-input" id="replayTarget" placeholder="e.g. b-4815">
             </div>
           </div>
           <div style="display:flex;gap:10px">
-            <button class="ops-btn primary">Start Replay</button>
-            <button class="ops-btn">Dry Run (Preview)</button>
+            <button class="ops-btn primary" id="replayBtn">Start Replay</button>
+            <button class="ops-btn" id="replayDryRunBtn">Dry Run (Preview)</button>
           </div>
         </div>
       </div>
 
+      <!-- Active Replays -->
+      <div id="activeReplays" style="display:none" class="ops-panel"><div class="ops-panel-header"><div class="ops-panel-title"><span class="panel-icon">&#8634;</span> Active Replays</div></div><div class="table-wrap"><table class="ops-table"><thead><tr><th>Source</th><th>From Batch</th><th>Status</th><th>Progress</th><th>Started</th></tr></thead><tbody id="activeReplayBody"></tbody></table></div></div>
+
       <!-- Checkpoint History -->
       <div class="ops-panel">
         <div class="ops-panel-header">
-          <div class="ops-panel-title"><span class="panel-icon">&#128337;</span> Checkpoint History — orders-api</div>
+          <div class="ops-panel-title" id="checkpointHistoryTitle"><span class="panel-icon">&#128337;</span> Checkpoint History</div>
         </div>
         <div class="table-wrap">
           <table class="ops-table">
             <thead>
               <tr><th>Timestamp</th><th>Action</th><th>Old Value</th><th>New Value</th><th>By</th><th>Batch</th></tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="mono">14:31:02</td><td>Advanced</td>
-                <td class="mono">2026-03-17T14:28:00Z</td>
-                <td class="mono">2026-03-17T14:31:00Z</td>
-                <td>system</td><td class="mono">b-4821</td>
-              </tr>
-              <tr>
-                <td class="mono">14:28:02</td><td>Advanced</td>
-                <td class="mono">2026-03-17T14:25:00Z</td>
-                <td class="mono">2026-03-17T14:28:00Z</td>
-                <td>system</td><td class="mono">b-4818</td>
-              </tr>
-              <tr>
-                <td class="mono">13:00:00</td><td style="color:var(--yellow)">Manual Reset</td>
-                <td class="mono">2026-03-17T12:55:00Z</td>
-                <td class="mono">2026-03-17T10:00:00Z</td>
-                <td>admin@bitool</td><td class="mono">—</td>
-              </tr>
+            <tbody id="checkpointHistoryBody">
             </tbody>
           </table>
         </div>
@@ -939,19 +549,19 @@
       <div class="ops-metrics">
         <div class="ops-metric-card red">
           <div class="metric-label">Total Bad (24h)</div>
-          <div class="metric-value">127</div>
+          <div class="metric-value" id="br-total">—</div>
         </div>
         <div class="ops-metric-card yellow">
           <div class="metric-label">Pending Review</div>
-          <div class="metric-value">108</div>
+          <div class="metric-value" id="br-pending">—</div>
         </div>
         <div class="ops-metric-card green">
           <div class="metric-label">Replayed</div>
-          <div class="metric-value">12</div>
+          <div class="metric-value" id="br-replayed">—</div>
         </div>
         <div class="ops-metric-card purple">
           <div class="metric-label">Ignored</div>
-          <div class="metric-value">7</div>
+          <div class="metric-value" id="br-ignored">—</div>
         </div>
       </div>
 
@@ -987,93 +597,101 @@
           <table class="ops-table">
             <thead>
               <tr>
-                <th><input type="checkbox"></th>
+                <th><input type="checkbox" id="selectAllBadRecords"></th>
                 <th>Record ID</th><th>Source</th><th>Batch</th>
                 <th>Failure Class</th><th>Reason</th><th>Time</th><th>Actions</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">br-90012</td><td>mainframe-txns</td><td class="mono">b-4815</td>
-                <td><span class="badge failed">encoding_error</span></td>
-                <td style="font-size:11px">EBCDIC decode failed: unexpected byte 0xFF at col 12</td>
-                <td class="mono">14:25</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm" onclick="showBadRecordDetail()">View</button>
-                  <button class="ops-btn sm warning">Replay</button>
-                  <button class="ops-btn sm">Ignore</button>
-                </td>
-              </tr>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">br-90008</td><td>events-stream</td><td class="mono">b-4820</td>
-                <td><span class="badge retrying">type_coercion</span></td>
-                <td style="font-size:11px">Cannot cast "N/A" to integer for column `order_amount`</td>
-                <td class="mono">14:30</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm">View</button>
-                  <button class="ops-btn sm warning">Replay</button>
-                  <button class="ops-btn sm">Ignore</button>
-                </td>
-              </tr>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">br-90005</td><td>events-stream</td><td class="mono">b-4820</td>
-                <td><span class="badge retrying">null_violation</span></td>
-                <td style="font-size:11px">Required column `user_id` is null</td>
-                <td class="mono">14:30</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm">View</button>
-                  <button class="ops-btn sm warning">Replay</button>
-                  <button class="ops-btn sm">Ignore</button>
-                </td>
-              </tr>
-              <tr>
-                <td><input type="checkbox"></td>
-                <td class="mono primary">br-90001</td><td>orders-api</td><td class="mono">b-4818</td>
-                <td><span class="badge pending">schema_mismatch</span></td>
-                <td style="font-size:11px">Expected 12 columns, got 14 — new fields detected</td>
-                <td class="mono">14:28</td>
-                <td class="row-actions">
-                  <button class="ops-btn sm">View</button>
-                  <button class="ops-btn sm warning">Replay</button>
-                  <button class="ops-btn sm">Ignore</button>
-                </td>
-              </tr>
+            <tbody id="badRecordBody">
             </tbody>
           </table>
         </div>
         <div style="padding:10px 18px;display:flex;gap:8px;border-top:1px solid var(--border)">
-          <button class="ops-btn sm warning">Replay Selected</button>
-          <button class="ops-btn sm">Mark Ignored</button>
-          <button class="ops-btn sm">Export Selected</button>
+          <button class="ops-btn sm warning" id="bulkReplayBadRecordsBtn">Replay Selected</button>
+          <button class="ops-btn sm" id="bulkIgnoreBadRecordsBtn">Mark Ignored</button>
+          <button class="ops-btn sm" id="exportBadRecordsBtn">Export Selected</button>
         </div>
       </div>
 
       <!-- Bad Record Detail -->
       <div class="ops-detail" id="badRecordDetail" style="display:none">
         <div class="ops-detail-header">
-          <div class="ops-detail-title">Bad Record br-90012</div>
+          <div class="ops-detail-title">Bad Record Detail</div>
           <button class="ops-btn sm" onclick="document.getElementById('badRecordDetail').style.display='none'">Close</button>
         </div>
-        <div class="ops-kv-grid" style="margin-bottom:16px">
-          <div class="ops-kv-item"><div class="kv-label">Record ID</div><div class="kv-value">br-90012</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Source</div><div class="kv-value">mainframe-txns</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Batch</div><div class="kv-value">b-4815</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Failure Class</div><div class="kv-value">encoding_error</div></div>
-          <div class="ops-kv-item"><div class="kv-label">File</div><div class="kv-value">TXN.DAILY.D0317.EBCDIC</div></div>
-          <div class="ops-kv-item"><div class="kv-label">Byte Offset</div><div class="kv-value">44,810</div></div>
+        <div id="badRecordDetailContent"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         SCREEN: SCHEMA DRIFT DETECTION
+         ══════════════════════════════════════════════════ -->
+    <div class="ops-screen" id="screen-schema-drift">
+
+      <!-- Notification Banner -->
+      <div class="ops-alert info" id="driftNotificationBanner" style="display:none">
+        <span id="driftNotificationText"></span>
+        <button class="ops-btn sm" onclick="window._opsDismissSchemaNotifications()">Mark All Read</button>
+      </div>
+
+      <!-- KPI Row -->
+      <div class="ops-grid-3" style="margin-bottom:20px">
+        <div class="ops-kpi-card">
+          <div class="kpi-label">Unacknowledged Events</div>
+          <div class="kpi-value" id="driftUnackedCount">0</div>
         </div>
-        <div class="ops-kv-item" style="margin-bottom:12px">
-          <div class="kv-label">Error Message</div>
-          <div class="kv-value" style="color:var(--red)">EBCDIC decode failed: unexpected byte 0xFF at column 12 (expected COMP-3 packed decimal, got non-numeric nibble)</div>
+        <div class="ops-kpi-card">
+          <div class="kpi-label">Breaking</div>
+          <div class="kpi-value" id="driftBreakingCount" style="color:var(--red)">0</div>
         </div>
-        <div class="ops-kv-item">
-          <div class="kv-label">Raw Payload (hex)</div>
-          <div class="ops-json">Offset   00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F  ASCII
-00AE8A   F0 F1 F2 F3 C1 C2 C3 D4 00 01 45 2C FF 00 00 0C  0123ABCM....&#xFF;...
-00AE9A   F5 F6 F7 F8 40 40 40 40 00 00 12 3C 00 00 45 6D  5678    ........</div>
+        <div class="ops-kpi-card">
+          <div class="kpi-label">Unread Notifications</div>
+          <div class="kpi-value" id="driftUnreadCount">0</div>
+        </div>
+      </div>
+
+      <div class="ops-grid-2">
+        <!-- Drift Events -->
+        <div class="ops-panel">
+          <div class="ops-panel-header">
+            <div class="ops-panel-title"><span class="panel-icon">&#128269;</span> Drift Events</div>
+            <select class="ops-select" id="driftSeverityFilter" style="width:auto;min-width:100px">
+              <option value="">All Severity</option>
+              <option value="breaking">Breaking</option>
+              <option value="warning">Warning</option>
+              <option value="info">Info</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table class="ops-table">
+              <thead><tr><th>Endpoint</th><th>Severity</th><th>New</th><th>Missing</th><th>Type</th><th>Detected</th><th>Actions</th></tr></thead>
+              <tbody id="driftEventBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Drift Detail / Review Panel -->
+        <div class="ops-panel">
+          <div class="ops-panel-header">
+            <div class="ops-panel-title"><span class="panel-icon">&#128220;</span> Drift Detail</div>
+          </div>
+          <div class="ops-panel-body padded" id="driftDetailContent">
+            <div style="color:var(--text-secondary);padding:16px">Select a drift event to view details</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="ops-panel" id="driftTimelinePanel" style="display:none;margin-top:20px">
+        <div class="ops-panel-header">
+          <div class="ops-panel-title"><span class="panel-icon">&#8634;</span> Schema Timeline</div>
+          <button class="ops-btn sm" onclick="window._opsCloseTimeline()">Close</button>
+        </div>
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead><tr><th>Type</th><th>Time</th><th>Details</th><th>Actor</th></tr></thead>
+            <tbody id="driftTimelineBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -1091,25 +709,7 @@
             <option>orders-api</option><option>events-stream</option>
           </select>
         </div>
-        <div class="freshness-chain">
-          <div class="freshness-node">
-            <div class="fn-label" style="color:var(--orange)">Bronze</div>
-            <div class="fn-time">2.1m</div>
-            <div class="fn-status"><span class="badge healthy">Fresh</span></div>
-          </div>
-          <div class="freshness-arrow">&#10140;</div>
-          <div class="freshness-node">
-            <div class="fn-label" style="color:var(--accent)">Silver</div>
-            <div class="fn-time">8.4m</div>
-            <div class="fn-status"><span class="badge healthy">Fresh</span></div>
-          </div>
-          <div class="freshness-arrow">&#10140;</div>
-          <div class="freshness-node">
-            <div class="fn-label" style="color:var(--yellow)">Gold</div>
-            <div class="fn-time">24m</div>
-            <div class="fn-status"><span class="badge warning">Stale</span></div>
-          </div>
-        </div>
+        <div class="freshness-chain" id="freshnessChain"></div>
       </div>
 
       <div class="ops-grid-2">
@@ -1121,27 +721,7 @@
           <div class="table-wrap">
             <table class="ops-table">
               <thead><tr><th>Proposal</th><th>Layer</th><th>Status</th><th>Author</th><th>Date</th></tr></thead>
-              <tbody>
-                <tr>
-                  <td class="primary">SP-0042</td><td>Silver</td>
-                  <td><span class="badge review">In Review</span></td>
-                  <td>admin</td><td class="mono">Mar 17</td>
-                </tr>
-                <tr>
-                  <td class="primary">SP-0041</td><td>Gold</td>
-                  <td><span class="badge approved">Approved</span></td>
-                  <td>admin</td><td class="mono">Mar 16</td>
-                </tr>
-                <tr>
-                  <td class="primary">SP-0040</td><td>Silver</td>
-                  <td><span class="badge approved">Published</span></td>
-                  <td>admin</td><td class="mono">Mar 15</td>
-                </tr>
-                <tr>
-                  <td class="primary">SP-0039</td><td>Bronze</td>
-                  <td><span class="badge draft">Draft</span></td>
-                  <td>admin</td><td class="mono">Mar 14</td>
-                </tr>
+              <tbody id="schemaProposalBody">
               </tbody>
             </table>
           </div>
@@ -1150,23 +730,12 @@
         <!-- Schema Diff Preview -->
         <div class="ops-panel">
           <div class="ops-panel-header">
-            <div class="ops-panel-title"><span class="panel-icon">&#128269;</span> Schema Diff — SP-0042</div>
+            <div class="ops-panel-title"><span class="panel-icon">&#128269;</span> Schema Diff</div>
             <button class="ops-btn sm success">Approve</button>
             <button class="ops-btn sm danger">Reject</button>
           </div>
           <div class="ops-panel-body padded">
-            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">
-              <strong>Silver layer</strong> — orders-api — proposed by admin
-            </div>
-            <div class="ops-json" style="font-size:12px;line-height:1.8">
-<span class="diff-add">customer_tier   VARCHAR(20)   — new business_key column</span>
-<span class="diff-add">order_region    VARCHAR(50)   — new dimension column</span>
-<span class="diff-remove">shipping_code  VARCHAR(10)   — removed (merged into order_region)</span>
-  order_id        INTEGER       — unchanged
-  customer_id     INTEGER       — unchanged
-  order_amount    DECIMAL(12,2) — unchanged
-  order_date      TIMESTAMP     — unchanged
-  status          VARCHAR(20)   — unchanged</div>
+            <div id="schemaDiffContent"></div>
           </div>
         </div>
       </div>
@@ -1181,27 +750,7 @@
             <thead>
               <tr><th>Source</th><th>Layer</th><th>Last Release</th><th>Schema Version</th><th>Status</th><th>Downstream Trigger</th></tr>
             </thead>
-            <tbody>
-              <tr>
-                <td class="primary">orders-api</td><td style="color:var(--orange)">Bronze</td>
-                <td class="mono">14:31:02</td><td class="mono">v12</td>
-                <td><span class="badge healthy">OK</span></td><td>Silver auto-triggered</td>
-              </tr>
-              <tr>
-                <td class="primary">orders-api</td><td style="color:var(--accent)">Silver</td>
-                <td class="mono">14:22:30</td><td class="mono">v8 (SP-0040)</td>
-                <td><span class="badge healthy">OK</span></td><td>Gold pending approval</td>
-              </tr>
-              <tr>
-                <td class="primary">orders-api</td><td style="color:var(--yellow)">Gold</td>
-                <td class="mono">Mar 16, 23:00</td><td class="mono">v3</td>
-                <td><span class="badge warning">Stale</span></td><td>—</td>
-              </tr>
-              <tr>
-                <td class="primary">events-stream</td><td style="color:var(--orange)">Bronze</td>
-                <td class="mono">14:30:45</td><td class="mono">v6</td>
-                <td><span class="badge healthy">OK</span></td><td>Silver auto-triggered</td>
-              </tr>
+            <tbody id="medallionReleaseBody">
             </tbody>
           </table>
         </div>
@@ -1223,40 +772,40 @@
             <div class="ops-form-row">
               <div class="ops-form-group">
                 <label class="ops-form-label">Max Workers</label>
-                <input class="ops-form-input" type="number" value="4">
+                <input class="ops-form-input" id="cfg-max-workers" type="number" value="4">
                 <div class="ops-form-help">Maximum concurrent worker threads</div>
               </div>
               <div class="ops-form-group">
                 <label class="ops-form-label">Worker Poll Interval</label>
-                <input class="ops-form-input" type="text" value="2000ms">
+                <input class="ops-form-input" id="cfg-poll-interval" type="text" value="2000ms">
                 <div class="ops-form-help">How often workers check for new work</div>
               </div>
             </div>
             <div class="ops-form-row">
               <div class="ops-form-group">
                 <label class="ops-form-label">Lease Duration</label>
-                <input class="ops-form-input" type="text" value="300s">
+                <input class="ops-form-input" id="cfg-lease-duration" type="text" value="300s">
                 <div class="ops-form-help">Max time a worker can hold a request</div>
               </div>
               <div class="ops-form-group">
                 <label class="ops-form-label">Heartbeat Interval</label>
-                <input class="ops-form-input" type="text" value="30s">
+                <input class="ops-form-input" id="cfg-heartbeat-interval" type="text" value="30s">
                 <div class="ops-form-help">Worker heartbeat frequency</div>
               </div>
             </div>
             <div class="ops-form-row">
               <div class="ops-form-group">
                 <label class="ops-form-label">Max Retries</label>
-                <input class="ops-form-input" type="number" value="5">
+                <input class="ops-form-input" id="cfg-max-retries" type="number" value="5">
                 <div class="ops-form-help">Retries before moving to DLQ</div>
               </div>
               <div class="ops-form-group">
                 <label class="ops-form-label">Orphan Timeout</label>
-                <input class="ops-form-input" type="text" value="600s">
+                <input class="ops-form-input" id="cfg-orphan-timeout" type="text" value="600s">
                 <div class="ops-form-help">Time before stale lease triggers recovery</div>
               </div>
             </div>
-            <button class="ops-btn primary" style="margin-top:8px">Save Worker Settings</button>
+            <button class="ops-btn primary" id="saveWorkerSettingsBtn" style="margin-top:8px">Save Worker Settings</button>
           </div>
         </div>
 
@@ -1268,32 +817,12 @@
           <div class="table-wrap">
             <table class="ops-table">
               <thead><tr><th>Source</th><th>Max Concurrent</th><th>Current</th><th>Credential Pool</th></tr></thead>
-              <tbody>
-                <tr>
-                  <td class="primary">orders-api</td>
-                  <td><input class="ops-form-input" style="width:60px;padding:4px 8px" type="number" value="2"></td>
-                  <td>1</td><td class="mono">cred-orders-prod</td>
-                </tr>
-                <tr>
-                  <td class="primary">events-stream</td>
-                  <td><input class="ops-form-input" style="width:60px;padding:4px 8px" type="number" value="4"></td>
-                  <td>2</td><td class="mono">—</td>
-                </tr>
-                <tr>
-                  <td class="primary">daily-settlements</td>
-                  <td><input class="ops-form-input" style="width:60px;padding:4px 8px" type="number" value="1"></td>
-                  <td>0</td><td class="mono">cred-sftp-prod</td>
-                </tr>
-                <tr>
-                  <td class="primary">mainframe-txns</td>
-                  <td><input class="ops-form-input" style="width:60px;padding:4px 8px" type="number" value="1"></td>
-                  <td>0</td><td class="mono">cred-mf-prod</td>
-                </tr>
+              <tbody id="sourceConcurrencyBody">
               </tbody>
             </table>
           </div>
           <div style="padding:12px 18px;border-top:1px solid var(--border)">
-            <button class="ops-btn primary">Save Concurrency</button>
+            <button class="ops-btn primary" id="saveConcurrencyBtn">Save Concurrency</button>
           </div>
         </div>
       </div>
@@ -1308,36 +837,36 @@
             <div class="ops-form-row">
               <div class="ops-form-group">
                 <label class="ops-form-label">Kafka Lag Warning</label>
-                <input class="ops-form-input" type="number" value="40000">
+                <input class="ops-form-input" id="cfg-kafka-lag-warn" type="number" value="40000">
                 <div class="ops-form-help">Messages behind before alerting</div>
               </div>
               <div class="ops-form-group">
                 <label class="ops-form-label">Kafka Lag Critical</label>
-                <input class="ops-form-input" type="number" value="100000">
+                <input class="ops-form-input" id="cfg-kafka-lag-critical" type="number" value="100000">
               </div>
             </div>
             <div class="ops-form-row">
               <div class="ops-form-group">
                 <label class="ops-form-label">Freshness Warning</label>
-                <input class="ops-form-input" type="text" value="10m">
+                <input class="ops-form-input" id="cfg-freshness-warn" type="text" value="10m">
               </div>
               <div class="ops-form-group">
                 <label class="ops-form-label">Freshness Critical</label>
-                <input class="ops-form-input" type="text" value="30m">
+                <input class="ops-form-input" id="cfg-freshness-critical" type="text" value="30m">
               </div>
             </div>
             <div class="ops-form-row">
               <div class="ops-form-group">
                 <label class="ops-form-label">Bad Record % Warning</label>
-                <input class="ops-form-input" type="number" value="5">
+                <input class="ops-form-input" id="cfg-bad-record-pct" type="number" value="5">
                 <div class="ops-form-help">Percent of batch that's bad</div>
               </div>
               <div class="ops-form-group">
                 <label class="ops-form-label">Worker Heartbeat Timeout</label>
-                <input class="ops-form-input" type="text" value="120s">
+                <input class="ops-form-input" id="cfg-heartbeat-timeout" type="text" value="120s">
               </div>
             </div>
-            <button class="ops-btn primary" style="margin-top:8px">Save Thresholds</button>
+            <button class="ops-btn primary" id="saveThresholdsBtn" style="margin-top:8px">Save Thresholds</button>
           </div>
         </div>
 
@@ -1350,29 +879,29 @@
             <div class="ops-form-row">
               <div class="ops-form-group">
                 <label class="ops-form-label">Manifest Retention</label>
-                <input class="ops-form-input" type="text" value="90 days">
+                <input class="ops-form-input" id="cfg-manifest-retention" type="text" value="90 days">
                 <div class="ops-form-help">How long committed manifests stay before archiving</div>
               </div>
               <div class="ops-form-group">
                 <label class="ops-form-label">Bad Record Retention</label>
-                <input class="ops-form-input" type="text" value="30 days">
+                <input class="ops-form-input" id="cfg-bad-record-retention" type="text" value="30 days">
               </div>
             </div>
             <div class="ops-form-row">
               <div class="ops-form-group">
                 <label class="ops-form-label">Checkpoint History</label>
-                <input class="ops-form-input" type="text" value="180 days">
+                <input class="ops-form-input" id="cfg-checkpoint-history" type="text" value="180 days">
               </div>
               <div class="ops-form-group">
                 <label class="ops-form-label">DLQ Retention</label>
-                <input class="ops-form-input" type="text" value="60 days">
+                <input class="ops-form-input" id="cfg-dlq-retention" type="text" value="60 days">
               </div>
             </div>
             <div class="ops-form-group">
               <label class="ops-form-label">Archive Destination</label>
-              <input class="ops-form-input" type="text" value="s3://bitool-archive/manifests/">
+              <input class="ops-form-input" id="cfg-archive-dest" type="text" value="s3://bitool-archive/manifests/">
             </div>
-            <button class="ops-btn primary" style="margin-top:8px">Save Policies</button>
+            <button class="ops-btn primary" id="savePoliciesBtn" style="margin-top:8px">Save Policies</button>
           </div>
         </div>
       </div>

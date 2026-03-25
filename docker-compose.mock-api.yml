@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  mock-samsara-api:
+    build:
+      context: ./mock-api
+      dockerfile: Dockerfile
+    container_name: mock-samsara-api
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      MOCK_TOKEN: "mock-samsara-token"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

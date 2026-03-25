@@ -3,6 +3,8 @@
     [bitool.middleware :as middleware]
     [bitool.layout :refer [error-page]]
     [bitool.routes.home :refer [home-routes]]
+    [bitool.ops.routes :refer [ops-routes]]
+    [bitool.pipeline.routes :refer [pipeline-routes]]
     [bitool.endpoint :as endpoint]
     [reitit.ring :as ring]
     [ring.middleware.content-type :refer [wrap-content-type]]
@@ -24,7 +26,7 @@
   :start
   (ring/ring-handler
     (ring/router
-      [(home-routes)])
+      [(home-routes) (ops-routes) (pipeline-routes)])
     (ring/routes
       (ring/create-resource-handler
         {:path "/"})
