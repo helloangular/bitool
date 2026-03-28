@@ -1,6 +1,7 @@
 (ns bitool.modeling-automation-test
   (:require [bitool.control-plane :as control-plane]
             [bitool.compiler.core :as compiler]
+            [bitool.compiler.dialect.databricks :as databricks]
             [bitool.db :as db]
             [bitool.graph2 :as g2]
             [bitool.modeling.automation :as modeling]
@@ -886,6 +887,157 @@
     (is (not (re-find #"DELETE FROM" (:compiled_sql result))))
     (is (not (re-find #"\"" (:compiled_sql result))))))
 
+(deftest compiler-emits-databricks-update-sql-for-databricks-target
+  (let [result (compiler/compile-model {:target-warehouse :databricks
+                                        :proposal-json {:target_table "main.silver.trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.`trip_id`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}
+                                                                  {:target_column "distanceMiles"
+                                                                   :expression "bronze.`distanceMiles`"
+                                                                   :type "DOUBLE"
+                                                                   :source_columns ["distanceMiles"]}]
+                                                        :materialization {:mode "update"
+                                                                          :keys ["trip_id"]}}
+                                        :source-table "main.bronze.trip_raw"})]
+    (is (re-find #"^MERGE INTO `main`\.`silver`\.`trip` t USING" (:compiled_sql result)))
+    (is (re-find #"WHEN MATCHED THEN UPDATE SET t\.`trip_id` = s\.`trip_id`, t\.`distanceMiles` = s\.`distanceMiles`" (:compiled_sql result)))
+    (is (not (re-find #"WHEN NOT MATCHED THEN INSERT" (:compiled_sql result))))))
+
+(deftest compiler-emits-databricks-update-sql-with-custom-assignments
+  (let [result (compiler/compile-model {:target-warehouse :databricks
+                                        :proposal-json {:target_table "main.silver.trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.`trip_id`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}
+                                                                  {:target_column "distanceMiles"
+                                                                   :expression "bronze.`distanceMiles`"
+                                                                   :type "DOUBLE"
+                                                                   :source_columns ["distanceMiles"]}]
+                                                        :materialization {:mode "update"
+                                                                          :keys ["trip_id"]
+                                                                          :update_assignments [{:target_column "distanceMiles"
+                                                                                                :expression "s.`distanceMiles` + 1"}]}}
+                                        :source-table "main.bronze.trip_raw"})]
+    (is (re-find #"WHEN MATCHED THEN UPDATE SET t\.`distanceMiles` = s\.`distanceMiles` \+ 1" (:compiled_sql result)))
+    (is (not (re-find #"t\.`trip_id` = s\.`trip_id`," (:compiled_sql result))))))
+
+(deftest compiler-emits-databricks-delete-sql-for-databricks-target
+  (let [result (compiler/compile-model {:target-warehouse :databricks
+                                        :proposal-json {:target_table "main.silver.trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.`trip_id`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}]
+                                                        :materialization {:mode "delete"
+                                                                          :keys ["trip_id"]}}
+                                        :source-table "main.bronze.trip_raw"})]
+    (is (re-find #"^DELETE FROM `main`\.`silver`\.`trip` t WHERE EXISTS" (:compiled_sql result)))
+    (is (re-find #"t\.`trip_id` = s\.`trip_id`" (:compiled_sql result)))))
+
+(deftest compiler-emits-databricks-merge-with-schema-evolution-and-not-matched-by-source-delete
+  (let [result (compiler/compile-model {:target-warehouse :databricks
+                                        :proposal-json {:target_table "main.silver.trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.`trip_id`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}
+                                                                  {:target_column "distanceMiles"
+                                                                   :expression "bronze.`distanceMiles`"
+                                                                   :type "DOUBLE"
+                                                                   :source_columns ["distanceMiles"]}]
+                                                        :materialization {:mode "merge"
+                                                                          :keys ["trip_id"]
+                                                                          :schema_evolution true
+                                                                          :matched_condition "s.`distanceMiles` >= 0"
+                                                                          :insert_on_not_matched false
+                                                                          :when_not_matched_by_source {:action "delete"
+                                                                                                       :condition "t.`trip_id` IS NOT NULL"}}}
+                                        :source-table "main.bronze.trip_raw"})]
+    (is (re-find #"^MERGE WITH SCHEMA EVOLUTION INTO `main`\.`silver`\.`trip` t" (:compiled_sql result)))
+    (is (re-find #"WHEN MATCHED AND s\.`distanceMiles` >= 0 THEN UPDATE SET" (:compiled_sql result)))
+    (is (not (re-find #"WHEN NOT MATCHED THEN INSERT" (:compiled_sql result))))
+    (is (re-find #"WHEN NOT MATCHED BY SOURCE AND t\.`trip_id` IS NOT NULL THEN DELETE" (:compiled_sql result)))))
+
+(deftest compiler-emits-databricks-append-sql
+  (let [result (compiler/compile-model {:target-warehouse :databricks
+                                        :proposal-json {:target_table "main.silver.trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.`trip_id`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}]
+                                                        :materialization {:mode "append"}}
+                                        :source-table "main.bronze.trip_raw"})]
+    (is (re-find #"^INSERT INTO `main`\.`silver`\.`trip` \(`trip_id`\) SELECT" (:compiled_sql result)))))
+
+(deftest compiler-emits-databricks-table-replace-sql
+  (let [result (compiler/compile-model {:target-warehouse :databricks
+                                        :proposal-json {:target_table "main.silver.trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.`trip_id`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}]
+                                                        :materialization {:mode "table_replace"}}
+                                        :source-table "main.bronze.trip_raw"})]
+    (is (re-find #"^CREATE OR REPLACE TABLE `main`\.`silver`\.`trip` AS SELECT" (:compiled_sql result)))))
+
+(deftest databricks-compiler-rejects-empty-merge-keys
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"requires at least one merge key"
+                        (databricks/compile-materialization-sql
+                         {:select [{:target_column "trip_id"
+                                    :expression "s.`trip_id`"}]
+                          :materialization {:mode "merge"
+                                            :target "main.silver.trip"
+                                            :keys []}}
+                         "SELECT 1 AS `trip_id`"))))
+
+(deftest databricks-compiler-rejects-unsafe-condition-fragments
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"Unsafe Databricks matched condition"
+                        (databricks/compile-materialization-sql
+                         {:select [{:target_column "trip_id"
+                                    :expression "s.`trip_id`"}]
+                          :materialization {:mode "merge"
+                                            :target "main.silver.trip"
+                                            :keys ["trip_id"]
+                                            :matched_condition "s.`trip_id` = 1 OR 1 = 1"}}
+                         "SELECT 1 AS `trip_id`"))))
+
+(deftest databricks-compiler-rejects-unsafe-assignment-expressions
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"Unsafe Databricks matched assignment expression"
+                        (databricks/compile-materialization-sql
+                         {:select [{:target_column "trip_id"
+                                    :expression "s.`trip_id`"}]
+                          :materialization {:mode "update"
+                                            :target "main.silver.trip"
+                                            :keys ["trip_id"]
+                                            :update_assignments [{:target_column "trip_id"
+                                                                  :expression "dangerous_udf(s.`trip_id`)"}]}}
+                         "SELECT 1 AS `trip_id`"))))
+
+(deftest compiler-emits-bigquery-sql-for-bigquery-target
+  (let [result (compiler/compile-model {:target-warehouse :bigquery
+                                        :proposal-json {:target_table "demo_project.silver.trip"
+                                                        :columns [{:target_column "trip_id"
+                                                                   :expression "bronze.`trip_id`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["trip_id"]}
+                                                                  {:target_column "distanceMiles"
+                                                                   :expression "bronze.`distanceMiles`"
+                                                                   :type "DOUBLE"
+                                                                   :source_columns ["distanceMiles"]}]
+                                                        :materialization {:mode "merge"
+                                                                          :keys ["trip_id"]}}
+                                        :source-table "demo_project.bronze.trip_raw"})]
+    (is (= "bigquery" (:target_warehouse result)))
+    (is (re-find #"FROM `demo_project`\.`bronze`\.`trip_raw` bronze" (:select_sql result)))
+    (is (re-find #"MERGE INTO `demo_project`\.`silver`\.`trip`" (:compiled_sql result)))
+    (is (re-find #"bronze\.`distanceMiles` AS `distanceMiles`" (:select_sql result)))))
+
 (deftest compiler-emits-postgresql-sql-for-postgresql-target
   (let [result (compiler/compile-model {:target-warehouse :postgresql
                                         :proposal-json {:target_table "bitool.public.silver_trip"
@@ -1096,6 +1248,49 @@
           (is (= "silver_warehouse_sql" (:validation-kind @captured-validation)))
           (is (= :snowflake-opts (first @captured-sql)))
           (is (re-find #"^EXPLAIN USING TEXT " (second @captured-sql))))))))
+
+(deftest validate-silver-proposal-warehouse-uses-bigquery-sql-path
+  (let [captured-validation (atom nil)
+        captured-sql (atom nil)]
+    (with-redefs [bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                  bitool.modeling.automation/proposal-by-id (fn [_] {:proposal_id 22
+                                                                     :layer "silver"
+                                                                     :target_model "silver_trip"})
+                  bitool.modeling.automation/synthesize-silver-graph! (fn [_ _]
+                                                                        {:graph_artifact_id 77
+                                                                         :graph_id 88
+                                                                         :graph_version 3})
+                  bitool.modeling.automation/compile-silver-graph-artifact! (fn [_]
+                                                                              {:sql_ir {:materialization {:mode "merge"}}
+                                                                               :select_sql "SELECT bronze.`trip_id` AS `trip_id` FROM `demo_project`.`bronze`.`trip_raw` bronze"
+                                                                               :compiled_sql "MERGE INTO `demo_project`.`silver`.`trip` t USING (SELECT bronze.`trip_id` AS `trip_id` FROM `demo_project`.`bronze`.`trip_raw` bronze) s ON t.`trip_id` = s.`trip_id` WHEN MATCHED THEN UPDATE SET t.`trip_id` = s.`trip_id` WHEN NOT MATCHED THEN INSERT (`trip_id`) VALUES (s.`trip_id`)"})
+                  db/getGraph (fn [_] {:n {9 {:na {:btype "Tg"}}}})
+                  bitool.modeling.automation/target-node-id-from-graph-artifact (fn [_ _] 9)
+                  g2/getData (fn [_ _] {:target_kind "bigquery"
+                                        :connection_id 42
+                                        :catalog "demo_project"
+                                        :schema "silver"
+                                        :table_name "trip"})
+                  db/create-dbspec-from-id (fn [_]
+                                             {:dbtype "bigquery"
+                                              :project-id "demo-project"
+                                              :dataset "analytics"
+                                              :location "US"
+                                              :token "{\"type\":\"service_account\"}"})
+                  bitool.bigquery/dry-run-sql! (fn [_ sql]
+                                                (reset! captured-sql sql)
+                                                {:jobReference {:jobId "job-1"}
+                                                 :estimated_bytes_processed 2048
+                                                 :totalBytesProcessed "2048"})
+                  bitool.modeling.automation/persist-model-validation! (fn [payload]
+                                                                         (reset! captured-validation payload)
+                                                                         {:validation_id 701})]
+      (let [result (modeling/validate-silver-proposal-warehouse! 22 {:created_by "alice"})]
+        (is (= "valid" (:status result)))
+        (is (= "bigquery_sql" (:backend result)))
+        (is (= "silver_warehouse_sql" (:validation-kind @captured-validation)))
+        (is (= 2048 (get-in result [:validation :estimated_bytes_processed])))
+        (is (re-find #"^MERGE INTO `demo_project`\.`silver`\.`trip`" @captured-sql))))))
 
 (deftest execute-silver-release-runs-snowflake-synchronously
   (let [completed (atom nil)]
@@ -1597,6 +1792,52 @@
           (is (= 501 (first @captured-complete)))
           (is (= "succeeded" (get-in @captured-complete [1 :status]))))))))
 
+(deftest execute-silver-release-runs-bigquery-synchronously
+  (let [captured-complete (atom nil)
+        captured-exec (atom nil)]
+    (with-redefs [bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                  bitool.modeling.automation/execute-silver-release-tx! (fn [_ release-row created-by]
+                                                                           (is (= 700 (:release_id release-row)))
+                                                                           (is (= "alice" created-by))
+                                                                           {:model_run_id 501
+                                                                            :release_id 700
+                                                                            :graph_artifact_id 91
+                                                                            :graph_id 801
+                                                                            :graph_version 3
+                                                                            :conn_id 9
+                                                                            :warehouse "bigquery"
+                                                                            :compiled_sql "MERGE INTO `demo_project`.`silver`.`trip` t USING (SELECT 1 AS `trip_id`) s ON t.`trip_id` = s.`trip_id` WHEN MATCHED THEN UPDATE SET t.`trip_id` = s.`trip_id` WHEN NOT MATCHED THEN INSERT (`trip_id`) VALUES (s.`trip_id`)"
+                                                                            :status "pending"})
+                  bitool.modeling.automation/release-by-id (fn [_]
+                                                             {:release_id 700
+                                                              :layer "silver"
+                                                              :graph_artifact_id 91
+                                                              :target_model "silver_trip"})
+                  db/create-dbspec-from-id (fn [_]
+                                             {:dbtype "bigquery"
+                                              :project-id "demo-project"
+                                              :dataset "analytics"
+                                              :location "US"
+                                              :token "{\"type\":\"service_account\"}"})
+                  bitool.bigquery/execute-sql! (fn [_ sql]
+                                                (reset! captured-exec sql)
+                                                {:rows []
+                                                 :update-count 8
+                                                 :job {:job_id "job-88"}
+                                                 :raw {:jobComplete true}})
+                  bitool.modeling.automation/complete-model-run! (fn [model-run-id payload]
+                                                                   (reset! captured-complete [model-run-id payload])
+                                                                   nil)]
+      (let [result (modeling/execute-silver-release! 700 {:created_by "alice"})]
+        (is (= 501 (:model_run_id result)))
+        (is (= "succeeded" (:status result)))
+        (is (= "bigquery_sql" (:backend result)))
+        (is (re-find #"^MERGE INTO `demo_project`\.`silver`\.`trip`" @captured-exec))
+        (is (= 501 (first @captured-complete)))
+        (is (= [{:next.jdbc/update-count 8}]
+               (get-in @captured-complete [1 :response-json :result])))
+        (is (= "succeeded" (get-in @captured-complete [1 :status])))))))
+
 (deftest execute-silver-release-rejects-duplicate-inflight-run
   (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
                    #'bitool.modeling.automation/release-by-id (fn [_]
@@ -1860,3 +2101,45 @@
           (is (= "snowflake_sql" (:backend result)))
           (is (= "succeeded" (:status result)))
           (is (= 601 (first @completed))))))))
+
+(deftest execute-gold-release-runs-bigquery-synchronously
+  (let [completed (atom nil)
+        captured-exec (atom nil)]
+    (with-redefs [bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                  bitool.modeling.automation/release-by-id (fn [_]
+                                                             {:release_id 191
+                                                              :layer "gold"
+                                                              :graph_artifact_id 901})
+                  bitool.modeling.automation/execute-gold-release-tx! (fn [_ _ _]
+                                                                        {:model_run_id 602
+                                                                         :release_id 191
+                                                                         :graph_artifact_id 901
+                                                                         :graph_id 77
+                                                                         :graph_version 2
+                                                                         :conn_id 31
+                                                                         :warehouse "bigquery"
+                                                                         :compiled_sql "MERGE INTO `demo_project`.`gold`.`trip_daily` t USING (SELECT 1 AS `trip_id`) s ON t.`trip_id` = s.`trip_id` WHEN MATCHED THEN UPDATE SET t.`trip_id` = s.`trip_id` WHEN NOT MATCHED THEN INSERT (`trip_id`) VALUES (s.`trip_id`)"
+                                                                         :params {}
+                                                                         :status "pending"})
+                  db/create-dbspec-from-id (fn [_]
+                                             {:dbtype "bigquery"
+                                              :project-id "demo-project"
+                                              :dataset "analytics"
+                                              :location "US"
+                                              :token "{\"type\":\"service_account\"}"})
+                  bitool.bigquery/execute-sql! (fn [_ sql]
+                                                (reset! captured-exec sql)
+                                                {:rows []
+                                                 :update-count 12
+                                                 :job {:job_id "job-99"}
+                                                 :raw {:jobComplete true}})
+                  bitool.modeling.automation/complete-model-run! (fn [model-run-id payload]
+                                                                   (reset! completed [model-run-id payload]))]
+      (let [result (modeling/execute-gold-release! 191 {:created_by "alice"})]
+        (is (= 602 (:model_run_id result)))
+        (is (= "bigquery_sql" (:backend result)))
+        (is (= "succeeded" (:status result)))
+        (is (re-find #"^MERGE INTO `demo_project`\.`gold`\.`trip_daily`" @captured-exec))
+        (is (= 602 (first @completed)))
+        (is (= [{:next.jdbc/update-count 12}]
+               (get-in @completed [1 :response-json :result])))))))

@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Samsara Analytics Gold Catalog</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --paper: #fffdf8;
+      --ink: #1f2a24;
+      --muted: #5d675f;
+      --line: #d9d2c3;
+      --accent: #0e7a53;
+      --accent-soft: #e4f3ec;
+      --code: #f1ede4;
+      --shadow: 0 10px 30px rgba(31, 42, 36, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, #efe9da 0, transparent 26%),
+        linear-gradient(180deg, #f7f3ea 0%, var(--bg) 100%);
+      line-height: 1.5;
+    }
+
+    .page {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #16362a 0%, #24503f 100%);
+      color: #f7f4ed;
+      border-radius: 18px;
+      padding: 28px 30px;
+      box-shadow: var(--shadow);
+      margin-bottom: 22px;
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 40px;
+      line-height: 1.08;
+    }
+
+    .hero p {
+      margin: 0;
+      color: rgba(247, 244, 237, 0.88);
+      font-size: 17px;
+      max-width: 940px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin: 18px 0 26px;
+    }
+
+    .meta-card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .meta-card h2 {
+      margin: 0 0 6px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .meta-card p, .meta-card ul {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .meta-card ul {
+      padding-left: 18px;
+    }
+
+    .toc {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .toc h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+
+    .toc ul {
+      margin: 0;
+      padding-left: 20px;
+      columns: 2;
+      column-gap: 32px;
+    }
+
+    .toc li {
+      margin: 0 0 6px;
+      break-inside: avoid;
+    }
+
+    .toc a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 22px 22px 18px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    section h2 {
+      margin: 0 0 14px;
+      font-size: 24px;
+    }
+
+    section h3 {
+      margin: 18px 0 10px;
+      font-size: 18px;
+    }
+
+    p, li {
+      font-size: 15px;
+    }
+
+    ul {
+      margin: 10px 0 0;
+      padding-left: 22px;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      background: var(--code);
+      border-radius: 5px;
+      padding: 2px 6px;
+      font-size: 0.92em;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 920px;
+    }
+
+    thead th {
+      background: #efe9da;
+      color: #22322b;
+      font-size: 13px;
+      text-align: left;
+      padding: 12px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    tbody td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #e9e3d6;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    tbody tr:nth-child(even) td {
+      background: #fffcf5;
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .pill {
+      background: var(--accent-soft);
+      color: #17563f;
+      border: 1px solid #bfe2d1;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .package {
+      border-top: 1px solid #e7dfd0;
+      padding-top: 14px;
+      margin-top: 16px;
+    }
+
+    .footer-note {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .toc ul { columns: 1; }
+      .hero h1 { font-size: 32px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <h1>Samsara Analytics Gold Catalog</h1>
+      <p>Report-ready Gold tables for a sellable Samsara analytics product, mapped to the local Samsara mock coverage in this repo and designed for fleet operations, safety, compliance, dispatch, fuel, asset, and industrial reporting.</p>
+    </header>
+
+    <div class="meta">
+      <div class="meta-card">
+        <h2>Base URL</h2>
+        <p><code>http://localhost:3001</code></p>
+      </div>
+      <div class="meta-card">
+        <h2>Examples</h2>
+        <ul>
+          <li><code>/fleet/vehicles</code></li>
+          <li><code>/fleet/drivers</code></li>
+          <li><code>/fleet/safety/events</code></li>
+        </ul>
+      </div>
+      <div class="meta-card">
+        <h2>Coverage</h2>
+        <p>95 endpoints across vehicles, drivers, HOS, DVIR, dispatch, fuel, geofences, alerts, documents, users, gateways, sensors, and industrial telemetry.</p>
+      </div>
+    </div>
+
+    <nav class="toc">
+      <h2>Contents</h2>
+      <ul>
+        <li><a href="#coverage">Coverage Summary</a></li>
+        <li><a href="#principles">Gold Design Principles</a></li>
+        <li><a href="#core">Recommended Core Gold Tables</a></li>
+        <li><a href="#vehicles">Vehicle Analytics</a></li>
+        <li><a href="#drivers">Driver Analytics</a></li>
+        <li><a href="#assets">Trailer, Asset, Reefer, and Equipment</a></li>
+        <li><a href="#safety">Safety and Incident</a></li>
+        <li><a href="#compliance">Compliance and Maintenance</a></li>
+        <li><a href="#dispatch">Dispatch, Route, and Service</a></li>
+        <li><a href="#fuel">Fuel, Tax, and Sustainability</a></li>
+        <li><a href="#network">Geofence, Address, and Network</a></li>
+        <li><a href="#workflow">Document, Alert, and Workflow</a></li>
+        <li><a href="#admin">User, Org, and Admin</a></li>
+        <li><a href="#industrial">Industrial, Sensor, and Gateway</a></li>
+        <li><a href="#packages">Sellable Analytics Packages</a></li>
+        <li><a href="#modeling-note">Important Modeling Note</a></li>
+      </ul>
+    </nav>
+
+    <section id="coverage">
+      <h2>Coverage Summary</h2>
+      <p>The local Samsara mock in this repo covers the major analytics domains needed for a sellable fleet analytics product:</p>
+      <div class="pill-list">
+        <span class="pill">Vehicles</span>
+        <span class="pill">Drivers</span>
+        <span class="pill">Trailers</span>
+        <span class="pill">Assets</span>
+        <span class="pill">Equipment</span>
+        <span class="pill">Safety Events</span>
+        <span class="pill">HOS Logs</span>
+        <span class="pill">HOS Violations</span>
+        <span class="pill">DVIR</span>
+        <span class="pill">Defects</span>
+        <span class="pill">Routes</span>
+        <span class="pill">Dispatch Jobs</span>
+        <span class="pill">Fuel</span>
+        <span class="pill">IFTA</span>
+        <span class="pill">Addresses</span>
+        <span class="pill">Geofences</span>
+        <span class="pill">Tags</span>
+        <span class="pill">Users</span>
+        <span class="pill">Contacts</span>
+        <span class="pill">Webhooks</span>
+        <span class="pill">Documents</span>
+        <span class="pill">Alerts</span>
+        <span class="pill">Gateways</span>
+        <span class="pill">Industrial Assets</span>
+        <span class="pill">Sensors</span>
+      </div>
+      <p>This means the product can support fleet operations, safety, compliance, maintenance, dispatch, utilization, geospatial, and industrial/IoT reporting from one connector family.</p>
+    </section>
+
+    <section id="principles">
+      <h2>Gold Design Principles</h2>
+      <p>For Samsara analytics, Gold should be organized into:</p>
+      <ul>
+        <li>executive daily scorecards</li>
+        <li>current-state operational marts</li>
+        <li>daily/weekly performance marts</li>
+        <li>compliance and exception marts</li>
+        <li>domain-specific scorecards by vehicle, driver, asset, site, and route</li>
+      </ul>
+      <p>Gold tables should be report-ready:</p>
+      <ul>
+        <li>business-friendly names</li>
+        <li>stable dimensions and measures</li>
+        <li>one clear business grain per table</li>
+        <li>support for BI dashboards, scheduled reports, and customer-facing analytics packs</li>
+      </ul>
+    </section>
+
+    <section id="core">
+      <h2>Recommended Core Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Primary source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>fleet_overview_daily</code></td><td>day</td><td><code>fleet/vehicles</code>, <code>fleet/drivers</code>, <code>fleet/dispatch/jobs</code>, <code>fleet/safety/events</code>, <code>alerts</code></td><td>Daily executive fleet KPIs: active vehicles, active drivers, jobs completed, safety events, alerts triggered.</td></tr>
+            <tr><td><code>fleet_exception_daily</code></td><td>day</td><td><code>fleet/hos/violations</code>, <code>fleet/maintenance/dvirs</code>, <code>fleet/defects</code>, <code>alerts</code>, <code>fleet/safety/events</code></td><td>Daily operational exception summary across compliance, safety, and maintenance.</td></tr>
+            <tr><td><code>fleet_asset_status_current</code></td><td>current snapshot</td><td><code>fleet/vehicles</code>, <code>fleet/trailers</code>, <code>fleet/assets</code>, <code>fleet/equipment</code>, <code>fleet/vehicles/locations</code>, <code>fleet/trailers/locations</code>, <code>fleet/equipment/locations</code></td><td>Current location and status of all mobile and non-mobile fleet assets in one operational mart.</td></tr>
+            <tr><td><code>fleet_dispatch_performance_daily</code></td><td>day</td><td><code>fleet/routes</code>, <code>fleet/dispatch/routes</code>, <code>fleet/dispatch/jobs</code></td><td>Route and dispatch productivity: jobs assigned, jobs completed, routes active, route completion rate.</td></tr>
+            <tr><td><code>fleet_energy_cost_daily</code></td><td>day</td><td><code>fleet/vehicles/fuel-energy</code>, <code>fleet/fuel-energy/vehicle-report</code>, <code>fleet/ifta/summary</code></td><td>Daily fuel consumption, economy, emissions proxy, and fuel-tax reporting readiness.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="vehicles">
+      <h2>Vehicle Analytics Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>vehicle_master_current</code></td><td>current snapshot</td><td><code>fleet/vehicles</code>, <code>tags</code></td><td>Current vehicle roster with make/model/year/VIN/tag segmentation for BI slicing.</td></tr>
+            <tr><td><code>vehicle_utilization_daily</code></td><td>vehicle, day</td><td><code>fleet/vehicles</code>, <code>fleet/vehicles/stats</code>, <code>fleet/vehicles/locations</code>, <code>fleet/dispatch/jobs</code></td><td>Vehicle usage by day: active status, movement, jobs serviced, operating intensity.</td></tr>
+            <tr><td><code>vehicle_utilization_weekly</code></td><td>vehicle, week</td><td><code>fleet/vehicles/stats</code>, <code>fleet/dispatch/jobs</code></td><td>Weekly trend view for vehicle utilization, used for capacity planning and underused asset detection.</td></tr>
+            <tr><td><code>vehicle_location_current</code></td><td>vehicle</td><td><code>fleet/vehicles/locations</code></td><td>Last known location, speed, heading, and freshness for live fleet maps and dispatch boards.</td></tr>
+            <tr><td><code>vehicle_location_history_daily</code></td><td>vehicle, day</td><td><code>fleet/vehicles/locations/history</code></td><td>Daily rollups of location movement, last stop, motion patterns, and route adherence.</td></tr>
+            <tr><td><code>vehicle_performance_daily</code></td><td>vehicle, day</td><td><code>fleet/vehicles/stats</code>, <code>fleet/vehicles/:id/stats/history</code></td><td>Operating statistics per vehicle per day for health/performance trend reporting.</td></tr>
+            <tr><td><code>vehicle_fuel_efficiency_daily</code></td><td>vehicle, day</td><td><code>fleet/vehicles/fuel-energy</code>, <code>fleet/fuel-energy/vehicle-report</code></td><td>MPG/energy efficiency reporting, fuel consumed, cost proxy, and emissions proxy by vehicle.</td></tr>
+            <tr><td><code>vehicle_safety_score_daily</code></td><td>vehicle, day</td><td><code>fleet/safety/events</code>, <code>fleet/safety/scores/vehicles</code>, <code>fleet/vehicles/:id/safety/score</code></td><td>Daily safety scorecard by vehicle with event count, severity mix, and risk ranking.</td></tr>
+            <tr><td><code>vehicle_driver_assignment_current</code></td><td>vehicle</td><td><code>fleet/vehicles/driver-assignments</code></td><td>Current assigned driver by vehicle for dispatch, accountability, and utilization reporting.</td></tr>
+            <tr><td><code>vehicle_driver_assignment_history</code></td><td>vehicle, assignment</td><td><code>fleet/vehicles/driver-assignments</code>, <code>fleet/drivers/vehicle-assignments</code></td><td>Historical assignment lineage between vehicles and drivers for operational audit and shift analytics.</td></tr>
+            <tr><td><code>vehicle_alert_activity_daily</code></td><td>vehicle, day</td><td><code>alerts</code>, <code>alerts/configurations</code></td><td>Vehicle-specific alert volume, alert types, threshold hits, and alert coverage by day.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="drivers">
+      <h2>Driver Analytics Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>driver_master_current</code></td><td>current snapshot</td><td><code>fleet/drivers</code>, <code>fleet/users</code>, <code>user-roles</code>, <code>tags</code></td><td>Current driver dimension with employment status, tags, user mapping, and role segmentation.</td></tr>
+            <tr><td><code>driver_productivity_daily</code></td><td>driver, day</td><td><code>fleet/drivers</code>, <code>fleet/dispatch/jobs</code>, <code>fleet/routes</code></td><td>Daily driver output: assigned work, completed jobs, route participation, and activity trends.</td></tr>
+            <tr><td><code>driver_safety_daily</code></td><td>driver, day</td><td><code>fleet/safety/events</code>, <code>fleet/safety/scores/drivers</code>, <code>fleet/drivers/:id/safety/score</code></td><td>Driver risk monitoring: event counts, severity mix, safety score trends, coachable events.</td></tr>
+            <tr><td><code>driver_hos_compliance_daily</code></td><td>driver, day</td><td><code>fleet/hos/logs</code>, <code>fleet/hos/daily-logs</code>, <code>fleet/hos/clocks</code>, <code>fleet/hos/violations</code></td><td>Daily HOS compliance dashboard: duty status, remaining clocks, violations, and audit readiness.</td></tr>
+            <tr><td><code>driver_hos_violation_detail</code></td><td>violation</td><td><code>fleet/hos/violations</code>, <code>fleet/drivers/:id/hos/violations</code></td><td>Detailed violation reporting for compliance teams and remediation workflows.</td></tr>
+            <tr><td><code>driver_dvir_activity_daily</code></td><td>driver, day</td><td><code>fleet/maintenance/dvirs</code></td><td>Inspection submission and defect reporting activity by driver.</td></tr>
+            <tr><td><code>driver_vehicle_assignment_current</code></td><td>driver</td><td><code>fleet/drivers/vehicle-assignments</code></td><td>Current assigned vehicle by driver for operations and dispatch.</td></tr>
+            <tr><td><code>driver_risk_scorecard_monthly</code></td><td>driver, month</td><td><code>fleet/safety/events</code>, <code>fleet/safety/scores/drivers</code>, <code>fleet/hos/violations</code>, <code>alerts</code></td><td>Sellable monthly driver scorecard combining safety, compliance, and alert burden.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="assets">
+      <h2>Trailer, Asset, Reefer, and Equipment Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>trailer_master_current</code></td><td>current snapshot</td><td><code>fleet/trailers</code></td><td>Current trailer inventory and segmentation by trailer type, status, and tags.</td></tr>
+            <tr><td><code>trailer_location_current</code></td><td>trailer</td><td><code>fleet/trailers/locations</code></td><td>Live trailer visibility for yard management and lost-asset prevention.</td></tr>
+            <tr><td><code>trailer_utilization_daily</code></td><td>trailer, day</td><td><code>fleet/trailers</code>, <code>fleet/trailers/locations</code>, <code>fleet/trailers/stats</code></td><td>Trailer usage, movement, idle assets, and rotation efficiency.</td></tr>
+            <tr><td><code>asset_master_current</code></td><td>current snapshot</td><td><code>fleet/assets</code></td><td>Current tracked asset inventory for non-vehicle field assets.</td></tr>
+            <tr><td><code>asset_reefer_health_daily</code></td><td>asset, day</td><td><code>fleet/assets/reefers/stats</code></td><td>Reefer unit temperature/health reporting and cold-chain monitoring.</td></tr>
+            <tr><td><code>equipment_master_current</code></td><td>current snapshot</td><td><code>fleet/equipment</code></td><td>Equipment inventory and classification for operations and maintenance reporting.</td></tr>
+            <tr><td><code>equipment_location_current</code></td><td>equipment</td><td><code>fleet/equipment/locations</code></td><td>Last-known location of equipment for site logistics and asset recovery.</td></tr>
+            <tr><td><code>equipment_usage_daily</code></td><td>equipment, day</td><td><code>fleet/equipment/stats</code>, <code>fleet/equipment/stats/history</code></td><td>Engine hours, state, fuel, and utilization trends for equipment-heavy fleets.</td></tr>
+            <tr><td><code>equipment_location_history_daily</code></td><td>equipment, day</td><td><code>fleet/equipment/locations/history</code>, <code>fleet/equipment/locations/feed</code></td><td>Historical movement and location trail for equipment deployment analytics.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="safety">
+      <h2>Safety and Incident Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>safety_event_detail</code></td><td>event</td><td><code>fleet/safety/events</code>, <code>fleet/safety/events/:id</code>, <code>fleet/safety-events</code></td><td>Detailed safety incident mart for event review, coaching, and root-cause analysis.</td></tr>
+            <tr><td><code>safety_event_trends_daily</code></td><td>day</td><td><code>fleet/safety/events</code></td><td>Event counts, severity trends, and behavior categories over time.</td></tr>
+            <tr><td><code>safety_event_trends_by_driver_daily</code></td><td>driver, day</td><td><code>fleet/safety/events</code>, <code>fleet/drivers</code></td><td>Driver-level event burden and improvement trend analysis.</td></tr>
+            <tr><td><code>safety_event_trends_by_vehicle_daily</code></td><td>vehicle, day</td><td><code>fleet/safety/events</code>, <code>fleet/vehicles</code></td><td>Vehicle-level safety event patterns and high-risk unit detection.</td></tr>
+            <tr><td><code>safety_coaching_queue_current</code></td><td>current snapshot</td><td><code>fleet/safety/events</code>, <code>fleet/safety/events/:id</code></td><td>Current queue of coachable events and unresolved safety review items.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="compliance">
+      <h2>Compliance and Maintenance Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>dvir_submission_daily</code></td><td>day</td><td><code>fleet/maintenance/dvirs</code>, <code>fleet/dvirs/history</code></td><td>Inspection volume, completion rate, and submission timeliness by day.</td></tr>
+            <tr><td><code>dvir_defect_open_current</code></td><td>defect</td><td><code>fleet/maintenance/dvirs</code>, <code>fleet/defects</code>, <code>fleet/defects/history</code></td><td>Open unresolved defects with age, severity, responsible asset, and resolution status.</td></tr>
+            <tr><td><code>maintenance_compliance_daily</code></td><td>day</td><td><code>fleet/maintenance/dvirs</code>, <code>fleet/defects</code>, <code>fleet/defects/history</code></td><td>Daily maintenance compliance KPIs: inspections done, open defects, aging backlog.</td></tr>
+            <tr><td><code>vehicle_defect_history_daily</code></td><td>vehicle, day</td><td><code>fleet/defects</code>, <code>fleet/defects/history</code>, <code>fleet/maintenance/dvirs</code></td><td>Vehicle-specific defect trends and repeat issue detection.</td></tr>
+            <tr><td><code>driver_compliance_scorecard_monthly</code></td><td>driver, month</td><td><code>fleet/hos/violations</code>, <code>fleet/hos/daily-logs</code>, <code>fleet/maintenance/dvirs</code></td><td>Monthly driver compliance scorecard combining HOS and inspection behaviors.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="dispatch">
+      <h2>Dispatch, Route, and Service Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>route_master_current</code></td><td>current snapshot</td><td><code>fleet/routes</code>, <code>fleet/dispatch/routes</code>, <code>addresses</code>, <code>fleet/geofences</code></td><td>Current route catalog with route structure and served locations.</td></tr>
+            <tr><td><code>route_execution_daily</code></td><td>route, day</td><td><code>fleet/routes</code>, <code>fleet/dispatch/routes</code>, <code>fleet/dispatch/jobs</code></td><td>Route productivity, completion status, route counts, and service output per day.</td></tr>
+            <tr><td><code>dispatch_job_detail</code></td><td>job</td><td><code>fleet/dispatch/jobs</code></td><td>Detailed delivery/service job mart for workload, status, and SLA analytics.</td></tr>
+            <tr><td><code>dispatch_job_execution_daily</code></td><td>day</td><td><code>fleet/dispatch/jobs</code></td><td>Jobs created, assigned, completed, failed, late, and in-progress by day.</td></tr>
+            <tr><td><code>dispatch_productivity_by_driver_daily</code></td><td>driver, day</td><td><code>fleet/dispatch/jobs</code>, <code>fleet/drivers</code></td><td>Driver delivery productivity and work allocation by day.</td></tr>
+            <tr><td><code>dispatch_productivity_by_vehicle_daily</code></td><td>vehicle, day</td><td><code>fleet/dispatch/jobs</code>, <code>fleet/vehicles</code></td><td>Vehicle utilization in service execution and dispatch throughput.</td></tr>
+            <tr><td><code>route_on_time_performance_daily</code></td><td>route, day</td><td><code>fleet/dispatch/routes</code>, <code>fleet/dispatch/jobs</code>, <code>addresses</code>, <code>fleet/geofences</code></td><td>Planned vs actual execution and route SLA reporting.</td></tr>
+            <tr><td><code>customer_site_service_daily</code></td><td>address/geofence, day</td><td><code>fleet/dispatch/jobs</code>, <code>addresses</code>, <code>fleet/geofences</code></td><td>Customer-site service volume, dwell, and service coverage reporting.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="fuel">
+      <h2>Fuel, Tax, and Sustainability Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>fuel_consumption_daily</code></td><td>vehicle, day</td><td><code>fleet/vehicles/fuel-energy</code>, <code>fleet/fuel-energy/vehicle-report</code></td><td>Gallons consumed, distance covered, and fuel-use trend by day.</td></tr>
+            <tr><td><code>fuel_efficiency_daily</code></td><td>vehicle, day</td><td><code>fleet/vehicles/fuel-energy</code>, <code>fleet/fuel-energy/vehicle-report</code>, <code>fleet/vehicles/stats</code></td><td>MPG/efficiency comparisons across vehicles, classes, and periods.</td></tr>
+            <tr><td><code>carbon_emissions_daily</code></td><td>vehicle, day</td><td><code>fleet/vehicles/fuel-energy</code>, <code>fleet/fuel-energy/vehicle-report</code></td><td>Estimated CO2 by vehicle/day for ESG and sustainability dashboards.</td></tr>
+            <tr><td><code>ifta_summary_quarterly</code></td><td>vehicle, jurisdiction, quarter</td><td><code>fleet/ifta/summary</code></td><td>Fuel tax reporting mart for IFTA preparation and audit support.</td></tr>
+            <tr><td><code>energy_exception_daily</code></td><td>day</td><td><code>fleet/vehicles/fuel-energy</code>, <code>alerts</code></td><td>Low-fuel, abnormal-consumption, and efficiency exception reporting.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="network">
+      <h2>Geofence, Address, and Network Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>address_master_current</code></td><td>current snapshot</td><td><code>addresses</code></td><td>Customer sites, depots, yards, terminals, and service locations.</td></tr>
+            <tr><td><code>geofence_master_current</code></td><td>current snapshot</td><td><code>fleet/geofences</code></td><td>Geofence inventory and operational tagging for location analytics.</td></tr>
+            <tr><td><code>geofence_activity_daily</code></td><td>geofence, day</td><td><code>fleet/geofences</code>, <code>fleet/vehicles/locations</code>, <code>alerts</code></td><td>Entry/exit activity and site traffic trends.</td></tr>
+            <tr><td><code>yard_entry_exit_daily</code></td><td>yard, day</td><td><code>fleet/geofences</code>, <code>fleet/vehicles/locations</code>, <code>alerts</code></td><td>Yard departures, arrivals, throughput, and congestion proxy metrics.</td></tr>
+            <tr><td><code>site_dwell_proxy_daily</code></td><td>site, day</td><td><code>fleet/vehicles/locations/history</code>, <code>addresses</code>, <code>fleet/geofences</code></td><td>Dwell-time proxy analytics for customer and yard operations.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="workflow">
+      <h2>Document, Alert, and Workflow Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>document_submission_daily</code></td><td>day</td><td><code>fleet/documents</code>, <code>fleet/document-types</code></td><td>Document completion and submission throughput by day and document type.</td></tr>
+            <tr><td><code>document_compliance_current</code></td><td>current snapshot</td><td><code>fleet/documents</code>, <code>fleet/document-types</code>, <code>fleet/drivers</code>, <code>fleet/vehicles</code></td><td>Missing, late, or incomplete operational documentation.</td></tr>
+            <tr><td><code>alert_activity_daily</code></td><td>day</td><td><code>alerts</code></td><td>Alert volume, alert type trends, and operational exception spikes.</td></tr>
+            <tr><td><code>alert_activity_by_entity_daily</code></td><td>entity, day</td><td><code>alerts</code>, <code>fleet/vehicles</code>, <code>fleet/drivers</code>, <code>fleet/geofences</code></td><td>Alert burden by vehicle, driver, or geofence for targeted action.</td></tr>
+            <tr><td><code>alert_configuration_coverage</code></td><td>configuration</td><td><code>alerts/configurations</code></td><td>Which alert policies exist, who they notify, and where operational monitoring is weak.</td></tr>
+            <tr><td><code>webhook_configuration_current</code></td><td>current snapshot</td><td><code>webhooks</code></td><td>Webhook inventory and downstream integration footprint for platform governance.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="admin">
+      <h2>User, Org, and Admin Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>user_master_current</code></td><td>current snapshot</td><td><code>fleet/users</code>, <code>users</code>, <code>user-roles</code>, <code>me</code></td><td>Current user inventory, role mix, and workspace identity mapping.</td></tr>
+            <tr><td><code>user_role_distribution_current</code></td><td>role</td><td><code>fleet/users</code>, <code>users</code>, <code>user-roles</code></td><td>Admin/security reporting on role distribution and access footprint.</td></tr>
+            <tr><td><code>contact_master_current</code></td><td>current snapshot</td><td><code>contacts</code></td><td>Shared contact directory for dispatch, maintenance, and operational workflows.</td></tr>
+            <tr><td><code>tag_usage_current</code></td><td>tag</td><td><code>tags</code>, <code>fleet/vehicles</code>, <code>fleet/drivers</code>, <code>fleet/assets</code>, <code>fleet/equipment</code></td><td>How tags are used across entities for segment reporting and governance.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="industrial">
+      <h2>Industrial, Sensor, and Gateway Gold Tables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Gold table</th><th>Grain</th><th>Source endpoints</th><th>Analytics provided</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>gateway_health_current</code></td><td>gateway</td><td><code>gateways</code></td><td>Current IoT gateway status, last-seen freshness, and offline monitoring.</td></tr>
+            <tr><td><code>industrial_asset_master_current</code></td><td>current snapshot</td><td><code>industrial/assets</code></td><td>Industrial asset inventory for site operations analytics.</td></tr>
+            <tr><td><code>industrial_input_master_current</code></td><td>current snapshot</td><td><code>industrial/data-inputs</code></td><td>Sensor/data-input registry for industrial telemetry reporting.</td></tr>
+            <tr><td><code>industrial_sensor_health_daily</code></td><td>sensor/input, day</td><td><code>industrial/data</code>, <code>sensors/list</code>, <code>sensors/temperature</code>, <code>sensors/humidity</code>, <code>sensors/door</code></td><td>Sensor freshness, signal quality, and monitored condition trends.</td></tr>
+            <tr><td><code>industrial_asset_condition_daily</code></td><td>asset, day</td><td><code>industrial/data</code>, <code>industrial/assets</code>, <code>industrial/data-inputs</code></td><td>Asset condition and telemetry trends for facilities and industrial operations.</td></tr>
+            <tr><td><code>door_event_activity_daily</code></td><td>asset/site, day</td><td><code>sensors/door</code></td><td>Door-open/close and access-event reporting for secure facilities.</td></tr>
+            <tr><td><code>temperature_compliance_daily</code></td><td>asset/site, day</td><td><code>sensors/temperature</code>, <code>industrial/data</code></td><td>Cold-chain and facility temperature compliance reporting.</td></tr>
+            <tr><td><code>humidity_condition_daily</code></td><td>asset/site, day</td><td><code>sensors/humidity</code>, <code>industrial/data</code></td><td>Environmental condition monitoring for storage and facilities.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="packages">
+      <h2>Sellable Analytics Packages</h2>
+
+      <div class="package">
+        <h3>Fleet Operations Pack</h3>
+        <ul>
+          <li><code>fleet_overview_daily</code></li>
+          <li><code>vehicle_utilization_daily</code></li>
+          <li><code>dispatch_job_execution_daily</code></li>
+          <li><code>route_execution_daily</code></li>
+          <li><code>fleet_asset_status_current</code></li>
+        </ul>
+        <p>Use case: daily fleet command center dashboards, route efficiency and dispatch productivity, live asset visibility.</p>
+      </div>
+
+      <div class="package">
+        <h3>Safety and Compliance Pack</h3>
+        <ul>
+          <li><code>driver_safety_daily</code></li>
+          <li><code>vehicle_safety_score_daily</code></li>
+          <li><code>driver_hos_compliance_daily</code></li>
+          <li><code>driver_hos_violation_detail</code></li>
+          <li><code>dvir_defect_open_current</code></li>
+          <li><code>maintenance_compliance_daily</code></li>
+        </ul>
+        <p>Use case: safety coaching, insurance/risk reviews, compliance monitoring, inspection and defect follow-up.</p>
+      </div>
+
+      <div class="package">
+        <h3>Fuel and Sustainability Pack</h3>
+        <ul>
+          <li><code>fuel_consumption_daily</code></li>
+          <li><code>fuel_efficiency_daily</code></li>
+          <li><code>carbon_emissions_daily</code></li>
+          <li><code>ifta_summary_quarterly</code></li>
+        </ul>
+        <p>Use case: fuel optimization, route cost reduction, ESG dashboards, tax reporting support.</p>
+      </div>
+
+      <div class="package">
+        <h3>Asset and Equipment Pack</h3>
+        <ul>
+          <li><code>trailer_utilization_daily</code></li>
+          <li><code>equipment_usage_daily</code></li>
+          <li><code>equipment_location_current</code></li>
+          <li><code>asset_reefer_health_daily</code></li>
+        </ul>
+        <p>Use case: trailer pooling, heavy equipment utilization, cold-chain operations, asset recovery and site logistics.</p>
+      </div>
+
+      <div class="package">
+        <h3>Industrial and Facility Pack</h3>
+        <ul>
+          <li><code>gateway_health_current</code></li>
+          <li><code>industrial_sensor_health_daily</code></li>
+          <li><code>industrial_asset_condition_daily</code></li>
+          <li><code>temperature_compliance_daily</code></li>
+          <li><code>door_event_activity_daily</code></li>
+        </ul>
+        <p>Use case: warehouse/facility monitoring, industrial equipment telemetry, environmental compliance, secure-site operations.</p>
+      </div>
+    </section>
+
+    <section id="modeling-note">
+      <h2>Important Modeling Note</h2>
+      <p>The existing mock and local metrics package already cover core Samsara-style operational analytics, but the mock does not include a first-class <code>fleet/trips</code> endpoint. For this Samsara product, Gold should therefore lean on:</p>
+      <ul>
+        <li><code>fleet/vehicles/locations</code></li>
+        <li><code>fleet/dispatch/jobs</code></li>
+        <li><code>fleet/routes</code></li>
+        <li><code>fleet/vehicles/stats</code></li>
+      </ul>
+      <p>instead of assuming a trip ledger exists.</p>
+      <p class="footer-note">That gives a more realistic sellable analytics story for Samsara API clients: fleet utilization, dispatch throughput, safety/compliance, asset visibility, fuel/tax, and industrial telemetry, without depending on endpoints the mock does not expose.</p>
+    </section>
+  </div>
+</body>
+</html>

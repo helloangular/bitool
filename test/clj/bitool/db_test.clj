@@ -94,3 +94,59 @@
         (is (.contains sql "VALUES (?, ?)"))
         (is (= "{\"id\":\"1\"}" payload))
         (is (= "2026-03-22" load-date))))))
+
+(deftest load-rows-databricks-copy-into-emits-copy-sql
+  (let [calls (atom [])]
+    (with-redefs [db/get-opts (fn [_ _] :fake-ds)
+                  jdbc/execute! (fn [_ sqlvec]
+                                  (swap! calls conj sqlvec)
+                                  {:next.jdbc/update-count 1})]
+      (db/load-rows-databricks-copy-into!
+       9
+       nil
+       "main.bronze.file_raw"
+       {:source_uri "s3://bucket/path/"
+        :file_format "json"
+        :files ["part-0001.json" "part-0002.json"]
+        :pattern ".*\\.json"
+        :format_options {:inferSchema false}
+        :copy_options {:mergeSchema true}})
+      (let [[sqlvec] @calls
+            [sql] sqlvec]
+        (is (.contains sql "COPY INTO `main`.`bronze`.`file_raw`"))
+        (is (.contains sql "FROM 's3://bucket/path/'"))
+        (is (.contains sql "FILEFORMAT = JSON"))
+        (is (.contains sql "FILES = ('part-0001.json', 'part-0002.json')"))
+        (is (.contains sql "PATTERN = '.*\\.json'"))
+        (is (.contains sql "FORMAT_OPTIONS (inferSchema = false)"))
+        (is (.contains sql "COPY_OPTIONS (mergeSchema = true)"))))))
+
+(deftest load-rows-databricks-copy-into-rejects-missing-source-uri
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"requires source_uri"
+                        (db/load-rows-databricks-copy-into!
+                         9
+                         nil
+                         "main.bronze.file_raw"
+                         {:file_format "json"}))))
+
+(deftest load-rows-databricks-copy-into-rejects-invalid-file-format
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"supported file_format"
+                        (db/load-rows-databricks-copy-into!
+                         9
+                         nil
+                         "main.bronze.file_raw"
+                         {:source_uri "s3://bucket/path/"
+                          :file_format "exe"}))))
+
+(deftest load-rows-databricks-copy-into-rejects-invalid-credential
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"credential must be a valid identifier"
+                        (db/load-rows-databricks-copy-into!
+                         9
+                         nil
+                         "main.bronze.file_raw"
+                         {:source_uri "s3://bucket/path/"
+                          :file_format "json"
+                          :credential "cred); DROP TABLE t;"}))))

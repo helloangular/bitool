@@ -1,5 +1,6 @@
 (ns bitool.compiler.core
-  (:require [bitool.compiler.dialect.databricks :as databricks]
+  (:require [bitool.compiler.dialect.bigquery :as bigquery]
+            [bitool.compiler.dialect.databricks :as databricks]
             [bitool.compiler.dialect.postgresql :as postgresql]
             [bitool.compiler.dialect.snowflake :as snowflake]
             [bitool.compiler.ir :as ir]
@@ -23,6 +24,8 @@
   (let [warehouse  (normalize-warehouse target-warehouse)
         sql-ir     (ir/build-sql-ir (assoc proposal-json :target_warehouse warehouse) source-table)
         compile-fn (case warehouse
+                     "bigquery" {:select bigquery/compile-select-sql
+                                 :materialize bigquery/compile-materialization-sql}
                      "snowflake" {:select snowflake/compile-select-sql
                                   :materialize snowflake/compile-materialization-sql}
                      "postgresql" {:select postgresql/compile-select-sql

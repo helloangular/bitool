@@ -49,14 +49,14 @@ function showConnectorPicker(parentLabel, x, y) {
   const menu = document.createElement("div");
   menu.id = "_connPickerMenu";
   menu.style.cssText = `position:fixed;top:${y}px;left:${x}px;z-index:10000;
-    background:#fff;border:1px solid #e2e4ea;box-shadow:0 8px 32px rgba(0,0,0,0.12);
-    border-radius:10px;min-width:200px;padding:6px;font-family:'DM Sans',-apple-system,sans-serif;font-size:12.5px;`;
+    background:#fff;border:1px solid #e2e4ea;box-shadow:0 4px 16px rgba(0,0,0,0.08);
+    border-radius:12px;min-width:200px;padding:6px;font-family:'DM Sans',-apple-system,sans-serif;font-size:12.5px;`;
 
   for (const item of items) {
     const btn = document.createElement("div");
     btn.textContent = item.label;
     btn.style.cssText = "padding:7px 12px;cursor:pointer;border-radius:6px;font-weight:500;color:#1a1d26;transition:0.15s;";
-    btn.addEventListener("mouseenter", () => { btn.style.background = "#f0f1f4"; btn.style.color = "#3b7ddd"; });
+    btn.addEventListener("mouseenter", () => { btn.style.background = "#f0f1f4"; btn.style.color = "#6366f1"; });
     btn.addEventListener("mouseleave", () => { btn.style.background = ""; btn.style.color = "#1a1d26"; });
     btn.addEventListener("click", () => {
       menu.remove();
@@ -79,11 +79,11 @@ function showConnectionActions(element, label, connId, x, y) {
   const menu = document.createElement("div");
   menu.id = "_connPickerMenu";
   menu.style.cssText = `position:fixed;top:${y}px;left:${x}px;z-index:10000;
-    background:#fff;border:1px solid #e2e4ea;box-shadow:0 8px 32px rgba(0,0,0,0.12);
-    border-radius:10px;min-width:190px;padding:6px;font-family:'DM Sans',-apple-system,sans-serif;font-size:12.5px;`;
+    background:#fff;border:1px solid #e2e4ea;box-shadow:0 4px 16px rgba(0,0,0,0.08);
+    border-radius:12px;min-width:190px;padding:6px;font-family:'DM Sans',-apple-system,sans-serif;font-size:12.5px;`;
 
   const actions = [
-    { label: "Edit Connection", action: () => {
+    { label: "\u270f\ufe0f Edit Connection", action: () => {
       const dbtype = element.getAttribute("data-dbtype") || "";
       if (dbtype === "api") {
         // API connections use a separate component — pass conn_id for edit
@@ -98,7 +98,7 @@ function showConnectionActions(element, label, connId, x, y) {
         if (modal?.openForEdit) modal.openForEdit(formType, label, connId);
       }
     }},
-    { label: "Test Connection", action: async () => {
+    { label: "\ud83d\udd0d Test Connection", action: async () => {
       try {
         const res = await fetch("/testConnectionById", {
           method: "POST",
@@ -109,7 +109,7 @@ function showConnectionActions(element, label, connId, x, y) {
         alert(data.status === "ok" ? "Connection OK!" : "Connection failed: " + (data.message || data.error));
       } catch (e) { alert("Test failed: " + e.message); }
     }},
-    { label: "Delete Connection", action: async () => {
+    { label: "\ud83d\uddd1\ufe0f Delete Connection", action: async () => {
       if (!confirm(`Delete connection "${label}"?`)) return;
       try {
         await fetch("/deleteConnection", {
@@ -126,7 +126,7 @@ function showConnectionActions(element, label, connId, x, y) {
     const btn = document.createElement("div");
     btn.textContent = item.label;
     btn.style.cssText = "padding:7px 12px;cursor:pointer;border-radius:6px;font-weight:500;color:#1a1d26;transition:0.15s;";
-    btn.addEventListener("mouseenter", () => { btn.style.background = "#f0f1f4"; btn.style.color = "#3b7ddd"; });
+    btn.addEventListener("mouseenter", () => { btn.style.background = "#f0f1f4"; btn.style.color = "#6366f1"; });
     btn.addEventListener("mouseleave", () => { btn.style.background = ""; btn.style.color = "#1a1d26"; });
     btn.addEventListener("click", () => { menu.remove(); item.action(); });
     menu.appendChild(btn);

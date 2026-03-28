@@ -1,6 +1,8 @@
 (ns bitool.db
         (:require [next.jdbc :as jdbc]
+        [bitool.bigquery :as bigquery]
         [bitool.macros :refer :all]
+        [bitool.config :refer [env]]
         [clojure.string :as str]
         [next.jdbc.sql :as sql]
         [next.jdbc.result-set :as rs]
@@ -10,7 +12,8 @@
         [clojure.edn :as edn]
         [clojure.pprint :as pp]
         [clojure.java.io :as io])
-(:import [java.util UUID]
+(:import [com.zaxxer.hikari HikariConfig HikariDataSource]
+         [java.util UUID]
          [java.util.zip GZIPOutputStream GZIPInputStream]
            [java.io ByteArrayOutputStream ByteArrayInputStream]
            [java.util Base64]))
@@ -57,6 +60,8 @@
    :password "merico"})
 
 (def ds-user (jdbc/get-datasource user-db-spec))
+
+(def ^:private ds-pool-cache (atom {}))
 
 (defn compress [s]
   (let [baos (ByteArrayOutputStream.)]
@@ -121,6 +126,12 @@
 (defn insert-data [obj json-params]
     (sql/insert! ds obj json-params))
 
+(defn update-data [obj json-params where-clause]
+  (sql/update! ds obj json-params where-clause))
+
+(defn delete-data [obj where-clause]
+  (sql/delete! ds obj where-clause))
+
 (defn seq-next-val*
   [conn name]
   (let [query (str "SELECT nextval('" name "') AS next_val")]
@@ -174,23 +185,42 @@
 
 (defn get-connection [conn-id]
   (jdbc/execute! ds ["SELECT * FROM connection WHERE id = ?" conn-id]))
+
+(defn list-all-connections-summary
+  []
+  (jdbc/execute! ds
+                 ["SELECT id, connection_name, dbtype, host, dbname, schema
+                   FROM connection
+                   ORDER BY id"]
+                 {:builder-fn rs/as-unqualified-lower-maps}))
+
+(defn get-connection-detail
+  [conn-id]
+  (sql/get-by-id ds :connection conn-id {:builder-fn rs/as-unqualified-lower-maps}))
+
+(defn update-connection!
+  [conn-id attrs]
+  (sql/update! ds :connection attrs {:id conn-id}))
+
+(defn delete-connection!
+  [conn-id]
+  (sql/delete! ds :connection {:id conn-id}))
+
+(defn- backend-debug-logging-enabled? []
+  (contains? #{"true" "1" "yes" "on"}
+             (some-> (get env :bitool_backend_debug_logs) str str/lower-case)))
    
 ;; (defn updateGraph[g]
 ;;    (sql/update! ds :graph {:version (version g) :name (name g) :definition (definition g)} {:id (id g)})) 
 
 (defn save-conn [ args ]
-   (do
-      (println "-------------------DB Inside -------------------")
-      (println args)
-      (println (class (:json-params args)))
-      (println "-------------------DB1 Inside -------------------")
-      (println (:multipart-params args))
-      (println "-------------------DB2 Inside -------------------")
-      (println  (sp/transform ["dbtype"] first (sp/transform ["port"] #(Integer/parseInt %) (:multipart-params args))))
-    (def ins (insert-data :connection (sp/transform ["dbtype"] first (sp/transform ["port"] #(Integer/parseInt %) (:multipart-params args)))))
-    (println "SAVE-CONN")
-    (println ins)
-    ins))
+   (let [payload (sp/transform ["dbtype"] first
+                               (sp/transform ["port"] #(Integer/parseInt %) (:multipart-params args)))
+         ins     (insert-data :connection payload)]
+     (when (backend-debug-logging-enabled?)
+       (println "SAVE-CONN")
+       (println ins))
+     ins))
 
 ;;
 
@@ -273,6 +303,11 @@
                            dbname (assoc :dbname dbname)
                            schema (assoc :schema schema)
                            role (assoc :role role)))
+          "bigquery"   {:dbtype "bigquery"
+                        :project-id host
+                        :dataset dbname
+                        :location (or schema "US")
+                        :token (:token connection)}
           ;; Add other db types if needed
           (throw (ex-info "Unsupported database type" {:dbtype dbtype})))))))
 
@@ -284,17 +319,67 @@
 (defn get-dbtype [conn-id]
       (keyword (:dbtype (get-dbspec conn-id false))))
 
+(defn- hikari-driver-class
+  [db-spec]
+  (case (:dbtype db-spec)
+    "databricks" "com.databricks.client.jdbc.Driver"
+    "snowflake" "net.snowflake.client.jdbc.SnowflakeDriver"
+    nil))
+
+(defn- make-hikari-ds
+  [db-spec]
+  (let [cfg (HikariConfig.)]
+    (.setMaximumPoolSize cfg 4)
+    (.setMinimumIdle cfg 0)
+    (.setAutoCommit cfg true)
+    (.setPoolName cfg (str "bitool-" (or (:dbtype db-spec) "jdbc") "-" (System/currentTimeMillis)))
+    (if-let [jdbc-url (:jdbcUrl db-spec)]
+      (do
+        (.setJdbcUrl cfg jdbc-url)
+        (when-let [driver-class (hikari-driver-class db-spec)]
+          (.setDriverClassName cfg driver-class))
+        (when-let [user (:user db-spec)]
+          (.setUsername cfg user))
+        (when-let [password (:password db-spec)]
+          (.setPassword cfg password)))
+      (let [raw-spec (cond-> db-spec
+                       (:dbname db-spec) (assoc :dbname (:dbname db-spec))
+                       true (dissoc :catalog :warehouse :role))]
+        (.setDataSource cfg (jdbc/get-datasource raw-spec))))
+    (HikariDataSource. cfg)))
+
+(defn invalidate-ds-cache!
+  [conn-id db-name]
+  (let [cache-key [conn-id db-name]]
+    (when-let [existing (get @ds-pool-cache cache-key)]
+      (when (instance? HikariDataSource existing)
+        (.close ^HikariDataSource existing)))
+    (swap! ds-pool-cache dissoc cache-key)))
+
 (defn get-ds[conn-id db-name]
-   (jdbc/get-datasource (get-dbspec conn-id db-name)))
+   (let [cache-key [conn-id db-name]]
+     (or (get @ds-pool-cache cache-key)
+         (let [db-spec (get-dbspec conn-id db-name)
+               _       (when (= "bigquery" (:dbtype db-spec))
+                         (throw (ex-info "BigQuery connections use native API execution, not JDBC datasources"
+                                         {:dbtype "bigquery"
+                                          :conn_id conn-id})))
+               ds*     (make-hikari-ds db-spec)]
+           (get (swap! ds-pool-cache #(if (contains? % cache-key) % (assoc % cache-key ds*)))
+                cache-key)))))
 
 (defn get-opts[conn-id db-name]
       	(jdbc/with-options (get-ds conn-id db-name) {:builder-fn rs/as-unqualified-lower-maps}))
 
 (defn test-connection [conn-id]
   (let [db-spec (create-dbspec-from-id conn-id)
-        test-ds (jdbc/get-datasource db-spec)]
-    (jdbc/execute! test-ds ["SELECT 1"])
-    true))
+        dbtype  (:dbtype db-spec)]
+    (if (= "bigquery" dbtype)
+      (bigquery/test-connection! db-spec)
+      (let [test-ds (make-hikari-ds db-spec)]
+        (jdbc/execute! test-ds ["SELECT 1"])
+        (.close ^HikariDataSource test-ds)
+        true))))
 
 (defn get-columns-old [ dbtype db_opts table-name ] 
           (case dbtype
@@ -345,21 +430,15 @@
 ;; (defn get-metadata[conn-id db-name sql-name & params]
 (defn get-metadata[conn-id db-name sql-name & params]
         (let [
-              _ (println "----------------Inside get-metadata-----------")
-              _ (prn-v conn-id)        
-              _ (prn-v db-name)        
-              _ (prn-v sql-name)        
-              _ (prn-v params)        
               sql (get-sql (get-dbtype conn-id) sql-name)
               fx (if (= sql-name :columns) #(identity %) #(vals %))
-              _ (println (str "SQL : " sql " DBNAME : " db-name " Params : " params))
+              _ (when (backend-debug-logging-enabled?)
+                  (println (str "SQL : " sql " DBNAME : " db-name " Params : " params)))
                ]
       		(let
                      [
                        opts (get-opts conn-id db-name)
-                       _ (prn-v opts)
                        tables (map fx (jdbc/execute! opts (into [sql] params)))
-                       _ (prn-v tables)
                      ]
                      tables )))
 
@@ -382,11 +461,7 @@
        (map first (get-metadata conn-id db-name :schemas)))
       
 (defn get-tables [conn-id db-name schema-name]
-       (let [
-              _ (println "Inside get-tables")
-              _ (prn-v schema-name)
-            ]
-       	    (map first (get-metadata conn-id db-name :tables schema-name))))
+       (map first (get-metadata conn-id db-name :tables schema-name)))
 
 (defn join-column [ coldetails ]
   (->> coldetails
@@ -403,18 +478,12 @@
 (defn get-table-columns [conn-id table-name]
   (let [db-spec (create-dbspec-from-id conn-id)
         dbname (:dbname db-spec) 
-        _ (pp/pprint db-spec)
-        _ (println dbname)
         schema (if (nil? (:schema db-spec)) "public"  (:schema db-spec)) 
-        _ (println schema)
-        _ (println table-name)
        ]
        (get-columns conn-id dbname schema table-name)))
 
 (defn get-table [connection-id table-name]
       (let [columns (get-table-columns connection-id table-name)
-            _ (println "--------------COLUMNS----------------")  
-            _ (println columns)
            ]
            {:name table-name :btype "T" :tcols columns}))            
 
@@ -422,8 +491,9 @@
   (let [col-str   (str/join ", " (map clojure.core/name cols))
         table-str (clojure.core/name table)
         sql       (format "select %s from %s where id = ?" col-str table-str)]
-    (prn :col-str col-str)
-    (prn :sql sql)
+    (when (backend-debug-logging-enabled?)
+      (prn :col-str col-str)
+      (prn :sql sql))
     (jdbc/execute-one! ds [sql id])))
 
 (comment
@@ -503,7 +573,7 @@
 
     	(let [n-rows      (count rows')
         	  sql         (make-insert-sql-for-dbtype dbtype table-name columns n-rows)
-                  _ (prn-v sql)
+                  _ (when (backend-debug-logging-enabled?) (prn-v sql))
           	flat-params (vec (mapcat (fn [row]
                                         (map (fn [column value]
                                                (if (and (= "snowflake" dbtype)
@@ -600,6 +670,93 @@
             :else (str x))]
     (format "`%s`" s)))
 
+(defn- dbx-qualified-ident [x]
+  (->> (str/split (str x) #"\.")
+       (remove str/blank?)
+       (map dbx-ident)
+       (str/join ".")))
+
+(def ^:private databricks-file-format-pattern
+  #"(?i)^(CSV|JSON|PARQUET|AVRO|ORC|TEXT|BINARYFILE|XML)$")
+
+(def ^:private databricks-option-name-pattern
+  #"^[A-Za-z_][A-Za-z0-9_]*$")
+
+(defn- sql-string-literal
+  [value]
+  (str "'" (str/replace (str value) "'" "''") "'"))
+
+(defn- databricks-copy-into-option-sql
+  [[k v]]
+  (let [k (clojure.core/name k)]
+    (when-not (re-matches databricks-option-name-pattern k)
+      (throw (ex-info "Databricks COPY INTO option name must be a valid identifier"
+                      {:option_name k})))
+    (str k " = "
+         (cond
+           (nil? v) "NULL"
+           (true? v) "true"
+           (false? v) "false"
+           (number? v) (str v)
+           :else (sql-string-literal v)))))
+
+(defn- databricks-copy-into-options-clause
+  [clause-name opts]
+  (when (seq opts)
+    (str clause-name " ("
+         (str/join ", " (map databricks-copy-into-option-sql opts))
+         ")")))
+
+(defn- build-databricks-copy-into-sql
+  [table-name {:keys [source_uri file_format files pattern format_options copy_options credential]}]
+  (let [source-uri  (some-> source_uri str str/trim not-empty)
+        file-format (some-> file_format str str/trim str/upper-case)
+        files       (vec (or files []))]
+    (when-not source-uri
+      (throw (ex-info "Databricks COPY INTO requires source_uri"
+                      {:field :source_uri})))
+    (when-not (and file-format (re-matches databricks-file-format-pattern file-format))
+      (throw (ex-info "Databricks COPY INTO requires a supported file_format"
+                      {:field :file_format
+                       :value file_format})))
+    (when (and credential (not (re-matches databricks-option-name-pattern (str credential))))
+      (throw (ex-info "Databricks COPY INTO credential must be a valid identifier"
+                      {:field :credential
+                       :value credential})))
+    (str "COPY INTO " (dbx-qualified-ident table-name)
+         " FROM " (sql-string-literal source-uri)
+         (when credential
+           (str " WITH (CREDENTIAL " credential ")"))
+         " FILEFORMAT = " file-format
+         (when (seq files)
+           (str " FILES = ("
+                (str/join ", " (map sql-string-literal files))
+                ")"))
+         (when (some-> pattern str str/trim not-empty)
+           (str " PATTERN = " (sql-string-literal pattern)))
+         (when-let [clause (databricks-copy-into-options-clause "FORMAT_OPTIONS" format_options)]
+           (str " " clause))
+         (when-let [clause (databricks-copy-into-options-clause "COPY_OPTIONS" copy_options)]
+           (str " " clause)))))
+
+(defn- databricks-col-type
+  [{:keys [column_name data_type]}]
+  (if (#{"payload_json" "row_json"} (str/lower-case (str column_name)))
+    "STRING"
+    (case (-> (or data_type "STRING") str str/upper-case)
+      "STRING" "STRING"
+      "TEXT" "STRING"
+      "INT" "INT"
+      "INTEGER" "INT"
+      "BIGINT" "BIGINT"
+      "DOUBLE" "DOUBLE"
+      "FLOAT" "DOUBLE"
+      "BOOLEAN" "BOOLEAN"
+      "DATE" "DATE"
+      "TIMESTAMP" "TIMESTAMP"
+      "DECIMAL" "DECIMAL(38, 18)"
+      (str/upper-case (str data_type)))))
+
 (defn fully-qualified-table-name
   [{:keys [catalog schema]} table-name]
   (let [table-name (cond
@@ -620,7 +777,8 @@
                                  :or {data_type "STRING" is_nullable "YES"}}]
                              (str (dbx-ident column_name)
                                   " "
-                                  (str/upper-case (str data_type))
+                                  (databricks-col-type {:column_name column_name
+                                                        :data_type data_type})
                                   (when (= is_nullable "NO") " NOT NULL"))))
                       (str/join ", "))
         partition-ddl (when (seq partition-columns)
@@ -685,6 +843,22 @@
   (let [opts (get-opts conn-id db-name)]
     (jdbc/execute! opts [ddl-sql])))
 
+(defn ensure-schema-exists!
+  [conn-id db-name]
+  (let [db-spec (create-dbspec-from-id conn-id)
+        schema  (:schema db-spec)]
+    (when (seq schema)
+      (case (:dbtype db-spec)
+        "databricks" (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s.%s"
+                                                       (:catalog db-spec)
+                                                       schema))
+        "snowflake"  (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s.%s"
+                                                       (:dbname db-spec)
+                                                       schema))
+        "postgresql" (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s"
+                                                       (pg-ident schema)))
+        nil))))
+
 ;; ---------------------------
 ;; Convenience wrapper
 ;; ---------------------------
@@ -694,6 +868,7 @@
    (create-table! conn-id db-name table-name columns {}))
   ([conn-id db-name table-name columns opts]
    (let [db-spec (create-dbspec-from-id conn-id)
+         _       (ensure-schema-exists! conn-id db-name)
          ddl     (case (:dbtype db-spec)
                    "databricks" (make-create-table-sql-databricks
                                   (fully-qualified-table-name db-spec table-name)
@@ -847,4 +1022,19 @@
        :load_method :snowflake_stage_copy
        :row_count (count rows)
        :table_name table-name})))
+
+(defn load-rows-databricks-copy-into!
+  [conn-id db-name table-name {:keys [source_uri file_format files pattern format_options copy_options credential]}]
+  (let [sql (build-databricks-copy-into-sql table-name {:source_uri source_uri
+                                                        :file_format file_format
+                                                        :files files
+                                                        :pattern pattern
+                                                        :format_options format_options
+                                                        :copy_options copy_options
+                                                        :credential credential})]
+    (jdbc/execute! (get-opts conn-id db-name) [sql])
+    {:status :ok
+     :load_method :databricks_copy_into
+     :table_name table-name
+     :source_uri source_uri}))
 	

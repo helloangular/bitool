@@ -28,6 +28,24 @@ const {
   sensors,
   reeferStats,
   dispatchJobs,
+  equipment,
+  equipmentLocations,
+  equipmentStats,
+  gateways,
+  industrialAssets,
+  dataInputs,
+  userRoles,
+  driverVehicleAssignments,
+  explodeSimpleArray,
+  explodeDeepNested,
+  explodeRootArray,
+  explodeParentChild,
+  explodeNestedObject,
+  explodePeerArrays,
+  explodeCursorPaginated,
+  explodeMixedSchema,
+  explodeSingleObject,
+  explodeMultiLevel,
 } = require("./data");
 
 const app = express();
@@ -43,8 +61,8 @@ app.use(express.json());
 
 // Bearer token auth
 app.use((req, res, next) => {
-  // Allow health check without auth
-  if (req.path === "/health") return next();
+  // Allow health check and test endpoints without auth
+  if (req.path === "/health" || req.path.startsWith("/test/")) return next();
 
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -181,6 +199,13 @@ app.get("/fleet/vehicles/locations", (req, res) => {
   res.json(paginate(filtered, req));
 });
 
+// GET /fleet/vehicles/driver-assignments (must be before :id)
+app.get("/fleet/vehicles/driver-assignments", (req, res) => {
+  let filtered = driverVehicleAssignments;
+  if (req.query.vehicleId) filtered = filtered.filter((a) => a.vehicleId === req.query.vehicleId);
+  res.json(paginate(filtered, req));
+});
+
 // GET /fleet/vehicles/fuel-energy (must be before :id)
 app.get("/fleet/vehicles/fuel-energy", (req, res) => {
   let filtered = fuelEnergy;
@@ -310,6 +335,13 @@ app.get("/fleet/drivers/:id/tachograph-files", (req, res) => {
       },
     ],
   });
+});
+
+// GET /fleet/drivers/vehicle-assignments (must be before :id)
+app.get("/fleet/drivers/vehicle-assignments", (req, res) => {
+  let filtered = driverVehicleAssignments;
+  if (req.query.driverId) filtered = filtered.filter((a) => a.driverId === req.query.driverId);
+  res.json(paginate(filtered, req));
 });
 
 // GET /fleet/drivers/:id
@@ -904,8 +936,284 @@ app.get("/sensors/door", (_req, res) => {
   res.json({ data });
 });
 
+// ===========================================================================
+// Equipment
+// ===========================================================================
+
+app.get("/fleet/equipment", (req, res) => {
+  let filtered = equipment;
+  const updatedAfter = req.query.updatedAfter || req.query.updated_since;
+  if (updatedAfter) {
+    const threshold = new Date(updatedAfter);
+    filtered = filtered.filter((e) => new Date(e.updatedAtTime) > threshold);
+  }
+  res.json(paginate(filtered, req));
+});
+
+app.get("/fleet/equipment/locations", (req, res) => {
+  res.json(paginate(equipmentLocations, req));
+});
+
+app.get("/fleet/equipment/locations/feed", (req, res) => {
+  res.json(paginate(equipmentLocations, req));
+});
+
+app.get("/fleet/equipment/locations/history", (req, res) => {
+  res.json(paginate(equipmentLocations, req));
+});
+
+app.get("/fleet/equipment/stats", (req, res) => {
+  res.json(paginate(equipmentStats, req));
+});
+
+app.get("/fleet/equipment/stats/feed", (req, res) => {
+  res.json(paginate(equipmentStats, req));
+});
+
+app.get("/fleet/equipment/stats/history", (req, res) => {
+  res.json(paginate(equipmentStats, req));
+});
+
+app.get("/fleet/equipment/:id", (req, res) => {
+  const item = equipment.find((e) => e.id === req.params.id);
+  if (!item) return res.status(404).json({ message: `Equipment ${req.params.id} not found` });
+  res.json({ data: item });
+});
+
+// ===========================================================================
+// DVIRs (Driver Vehicle Inspection Reports)
+// ===========================================================================
+
+app.get("/fleet/dvirs/history", (req, res) => {
+  let filtered = dvirs;
+  const updatedAfter = req.query.updatedAfter || req.query.updated_since;
+  if (updatedAfter) {
+    const threshold = new Date(updatedAfter);
+    filtered = filtered.filter((d) => new Date(d.inspectionTime || d.updatedAtTime) > threshold);
+  }
+  res.json(paginate(filtered, req));
+});
+
+// ===========================================================================
+// Safety Events (new v2 API path)
+// ===========================================================================
+
+app.get("/fleet/safety-events", (req, res) => {
+  let filtered = safetyEvents;
+  const updatedAfter = req.query.updatedAfter || req.query.updated_since;
+  if (updatedAfter) {
+    const threshold = new Date(updatedAfter);
+    filtered = filtered.filter((e) => new Date(e.time) > threshold);
+  }
+  if (req.query.vehicleId) {
+    filtered = filtered.filter((e) => e.vehicle?.id === req.query.vehicleId);
+  }
+  res.json(paginate(filtered, req));
+});
+
+// ===========================================================================
+// Routes (fleet routes / dispatch routes)
+// ===========================================================================
+
+app.get("/fleet/routes", (req, res) => {
+  let filtered = fleetRoutes;
+  if (req.query.status) {
+    filtered = filtered.filter((r) => r.status === req.query.status);
+  }
+  res.json(paginate(filtered, req));
+});
+
+// ===========================================================================
+// Driver-Vehicle Assignments
+// ===========================================================================
+
+app.get("/fleet/drivers/vehicle-assignments", (req, res) => {
+  let filtered = driverVehicleAssignments;
+  if (req.query.driverId) {
+    filtered = filtered.filter((a) => a.driverId === req.query.driverId);
+  }
+  res.json(paginate(filtered, req));
+});
+
+app.get("/fleet/vehicles/driver-assignments", (req, res) => {
+  let filtered = driverVehicleAssignments;
+  if (req.query.vehicleId) {
+    filtered = filtered.filter((a) => a.vehicleId === req.query.vehicleId);
+  }
+  res.json(paginate(filtered, req));
+});
+
+// ===========================================================================
+// Defects History
+// ===========================================================================
+
+app.get("/fleet/defects/history", (req, res) => {
+  let filtered = defects;
+  const updatedAfter = req.query.updatedAfter || req.query.updated_since;
+  if (updatedAfter) {
+    const threshold = new Date(updatedAfter);
+    filtered = filtered.filter((d) => new Date(d.reportedAtTime || d.updatedAtTime) > threshold);
+  }
+  res.json(paginate(filtered, req));
+});
+
+// ===========================================================================
+// Vehicle Location & Stats History
+// ===========================================================================
+
+app.get("/fleet/vehicles/locations/history", (req, res) => {
+  let filtered = vehicleLocations;
+  if (req.query.vehicleId) {
+    filtered = filtered.filter((l) => l.id === req.query.vehicleId);
+  }
+  res.json(paginate(filtered, req));
+});
+
+app.get("/fleet/vehicles/stats/history", (req, res) => {
+  let filtered = vehicleStats;
+  if (req.query.vehicleId) {
+    filtered = filtered.filter((s) => s.id === req.query.vehicleId);
+  }
+  res.json(paginate(filtered, req));
+});
+
+// ===========================================================================
+// Gateways
+// ===========================================================================
+
+app.get("/gateways", (req, res) => {
+  res.json(paginate(gateways, req));
+});
+
+// ===========================================================================
+// Industrial Assets & Data Inputs
+// ===========================================================================
+
+app.get("/industrial/assets", (req, res) => {
+  res.json(paginate(industrialAssets, req));
+});
+
+app.get("/industrial/data-inputs", (req, res) => {
+  res.json(paginate(dataInputs, req));
+});
+
+// ===========================================================================
+// Users & User Roles
+// ===========================================================================
+
+app.get("/users", (req, res) => {
+  res.json(paginate(users, req));
+});
+
+app.get("/users/:id", (req, res) => {
+  const user = users.find((u) => u.id === req.params.id);
+  if (!user) return res.status(404).json({ message: `User ${req.params.id} not found` });
+  res.json({ data: user });
+});
+
+app.get("/user-roles", (_req, res) => {
+  res.json({ data: userRoles });
+});
+
 // ---------------------------------------------------------------------------
 // Catch-all for unmatched routes
+// ---------------------------------------------------------------------------
+// JSON Explode Test Endpoints — exercise every explode rule pattern
+// ---------------------------------------------------------------------------
+
+// Pattern 1: Simple array wrapper — explode path: "data"
+app.get("/test/explode/simple-array", (_req, res) => {
+  res.json({ data: explodeSimpleArray });
+});
+
+// Pattern 2: Deep nested wrapper — explode path: "response.results.items"
+app.get("/test/explode/deep-nested", (_req, res) => {
+  res.json({
+    response: {
+      results: {
+        items: explodeDeepNested,
+        total_count: explodeDeepNested.length,
+        query_time_ms: 42,
+      },
+      request_id: "req-abc-123",
+    },
+  });
+});
+
+// Pattern 3: Root-level array — explode path: "$" or ""
+app.get("/test/explode/root-array", (_req, res) => {
+  res.json(explodeRootArray);
+});
+
+// Pattern 4: Parent with child arrays — explode path: "data", children: "line_items", "approvals"
+app.get("/test/explode/parent-child", (_req, res) => {
+  res.json({ data: explodeParentChild });
+});
+
+// Pattern 5: Nested objects to flatten — explode path: "data", flatten: "location", "config"
+app.get("/test/explode/nested-object", (_req, res) => {
+  res.json({ data: explodeNestedObject });
+});
+
+// Pattern 6: Multiple peer arrays — explode path: "trucks" or "trailers" or "drivers"
+app.get("/test/explode/peer-arrays", (_req, res) => {
+  res.json(explodePeerArrays);
+});
+
+// Pattern 7: Cursor-paginated — explode path: "data.events"
+app.get("/test/explode/cursor-paginated", (req, res) => {
+  const limit = parseInt(req.query.limit) || 5;
+  const after = req.query.after || null;
+  const startIdx = after
+    ? explodeCursorPaginated.findIndex((e) => e.event_id === after) + 1
+    : 0;
+  const page = explodeCursorPaginated.slice(startIdx, startIdx + limit);
+  const hasMore = startIdx + limit < explodeCursorPaginated.length;
+  res.json({
+    data: {
+      events: page,
+      total: explodeCursorPaginated.length,
+    },
+    pagination: {
+      endCursor: hasMore ? page[page.length - 1]?.event_id : null,
+      hasNextPage: hasMore,
+    },
+  });
+});
+
+// Pattern 8: Mixed/inconsistent schemas — explode path: "readings"
+app.get("/test/explode/mixed-schema", (_req, res) => {
+  res.json({ readings: explodeMixedSchema });
+});
+
+// Pattern 9: Single object (not array) — explode path: "report"
+app.get("/test/explode/single-object", (_req, res) => {
+  res.json({ report: explodeSingleObject });
+});
+
+// Pattern 10: Multi-level nesting — explode path: "data", children: "zones[].racks[].items[]"
+app.get("/test/explode/multi-level", (_req, res) => {
+  res.json({ data: explodeMultiLevel });
+});
+
+// Test index — lists all patterns with descriptions
+app.get("/test/explode", (_req, res) => {
+  res.json({
+    patterns: [
+      { path: "/test/explode/simple-array",      explode: "data",                         description: "Simple array wrapper {data: [...]}" },
+      { path: "/test/explode/deep-nested",        explode: "response.results.items",       description: "3-level nested path to array" },
+      { path: "/test/explode/root-array",          explode: "$",                            description: "Array at root level [...]" },
+      { path: "/test/explode/parent-child",        explode: "data",                         description: "Parent rows with child arrays: line_items[], approvals[]" },
+      { path: "/test/explode/nested-object",       explode: "data",                         description: "Objects with nested sub-objects to flatten: location{}, config{}" },
+      { path: "/test/explode/peer-arrays",         explode: "trucks|trailers|drivers",      description: "Multiple peer arrays at same level" },
+      { path: "/test/explode/cursor-paginated",    explode: "data.events",                  description: "Cursor-paginated, nested data path, ?limit=N&after=ID" },
+      { path: "/test/explode/mixed-schema",        explode: "readings",                     description: "Array items with inconsistent schemas, nulls, extra fields" },
+      { path: "/test/explode/single-object",       explode: "report",                       description: "Single object (not array), has nested top_drivers[]" },
+      { path: "/test/explode/multi-level",         explode: "data",                         description: "3-level nested arrays: zones[].racks[].items[]" },
+    ],
+  });
+});
+
 // ---------------------------------------------------------------------------
 
 app.use((_req, res) => {
@@ -924,6 +1232,11 @@ app.listen(PORT, () => {
   console.log(`  Locations:       ${vehicleLocations.length} records`);
   console.log(`  Doc Types:       ${documentTypes.length} records`);
   console.log(`  Trailers:        ${trailers.length} records`);
+  console.log(`  Equipment:       ${equipment.length} records`);
+  console.log(`  Gateways:        ${gateways.length} records`);
+  console.log(`  Ind. Assets:     ${industrialAssets.length} records`);
+  console.log(`  Data Inputs:     ${dataInputs.length} records`);
+  console.log(`  Assignments:     ${driverVehicleAssignments.length} records`);
   console.log(`  Assets:          ${assets.length} records`);
   console.log(`  Safety Events:   ${safetyEvents.length} records`);
   console.log(`  HOS Logs:        ${hosLogs.length} records`);

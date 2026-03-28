@@ -1,5 +1,6 @@
 import EventHandler from "./library/eventHandler.js";
 import { customConfirm, request } from "./library/utils.js";
+import { aiAssistCSS, renderAiLoading, renderAiCard, callAiEndpoint } from "./aiAssistCard.js";
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -110,13 +111,14 @@ template.innerHTML = `
   .close-x:hover {
     color: #17251c;
   }
+  ${aiAssistCSS}
 </style>
 <div class="shell">
   <div class="header">
-    <div class="title">
-      <h2>Target</h2>
-      <p>Configure Bronze destination and optional Databricks Bronze/Silver/Gold job triggers.</p>
-    </div>
+      <div class="title">
+        <h2>Target</h2>
+      <p>Configure Bronze destination and optional warehouse-native Silver/Gold execution settings.</p>
+      </div>
     <div class="actions">
       <button id="saveButton" type="button">Save</button>
       <button id="closeButton" class="secondary" type="button">Close</button>
@@ -130,6 +132,7 @@ template.innerHTML = `
         <label for="targetKind">Target Kind</label>
         <select id="targetKind" data-field="target_kind">
           <option value="databricks">databricks</option>
+          <option value="bigquery">bigquery</option>
           <option value="postgresql">postgresql</option>
           <option value="mysql">mysql</option>
           <option value="snowflake">snowflake</option>
@@ -156,8 +159,15 @@ template.innerHTML = `
         <select id="writeMode" data-field="write_mode">
           <option value="append">append</option>
           <option value="merge">merge</option>
-          <option value="overwrite">overwrite</option>
+          <option value="replace">replace</option>
+          <option value="update">update</option>
+          <option value="delete">delete</option>
+          <option value="copy_into">copy_into (files)</option>
         </select>
+        <button id="aiExplainWriteMode" type="button"
+          style="margin-top:6px;padding:4px 12px;border:1px solid #7c5cfc;border-radius:6px;background:#f8f6ff;color:#7c5cfc;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">
+          Explain write mode
+        </button>
       </div>
       <div>
         <label for="tableFormat">Table Format</label>
@@ -192,6 +202,7 @@ template.innerHTML = `
         <input id="triggerGoldOnSuccess" data-field="trigger_gold_on_success" type="checkbox" />
       </div>
     </div>
+    <div id="aiWriteModeResult"></div>
   </div>
 
   <div class="card" id="snowflakeCard" style="display:none;">
@@ -328,7 +339,7 @@ class TargetComponent extends HTMLElement {
       catalog: rect.catalog || "",
       schema: rect.schema || "",
       table_name: rect.table_name || "",
-      write_mode: rect.write_mode || "append",
+      write_mode: rect.write_mode === "overwrite" ? "replace" : (rect.write_mode || "append"),
       table_format: rect.table_format || "delta",
       partition_columns: Array.isArray(rect.partition_columns) ? rect.partition_columns : [],
       merge_keys: Array.isArray(rect.merge_keys) ? rect.merge_keys : [],
@@ -386,6 +397,32 @@ class TargetComponent extends HTMLElement {
         EventHandler.on(el, "change", (event) => this.updateField(event), false, "Target");
       }
     });
+
+    const aiBtn = this.shadowRoot.querySelector("#aiExplainWriteMode");
+    if (aiBtn) {
+      EventHandler.on(aiBtn, "click", () => this.aiExplainWriteMode(), false, "Target");
+    }
+  }
+
+  async aiExplainWriteMode() {
+    const resultEl = this.shadowRoot.querySelector("#aiWriteModeResult");
+    if (!resultEl) return;
+    resultEl.innerHTML = renderAiLoading("Explaining write mode...");
+    try {
+      const result = await callAiEndpoint("/aiExplainTargetStrategy", {
+        target_config: {
+          target_kind:       this.state.target_kind,
+          write_mode:        this.state.write_mode,
+          table_format:      this.state.table_format,
+          merge_keys:        this.state.merge_keys,
+          partition_columns: this.state.partition_columns,
+          cluster_by:        this.state.cluster_by,
+        },
+      });
+      resultEl.innerHTML = renderAiCard(result, { title: "Write Mode Strategy" });
+    } catch (err) {
+      resultEl.innerHTML = `<div class="ai-warnings">&#9888; ${err.message || "AI request failed"}</div>`;
+    }
   }
 
   toggleSnowflakeCard() {

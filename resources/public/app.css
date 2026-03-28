@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   Bitool Design System — Sentinel-inspired
+   Bitool Design System — dagly
    ═══════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -13,25 +13,48 @@
   --text-primary: #1a1d26;
   --text-secondary: #5c6070;
   --text-muted: #8b91a3;
-  --accent-blue: #3b7ddd;
-  --accent-blue-dim: rgba(59, 125, 221, 0.1);
-  --accent-green: #0fa968;
-  --accent-green-dim: rgba(15, 169, 104, 0.1);
-  --accent-red: #e5484d;
-  --accent-red-dim: rgba(229, 72, 77, 0.1);
-  --accent-amber: #d97706;
-  --accent-amber-dim: rgba(217, 119, 6, 0.1);
+
+  /* dagly color palette */
+  --accent-blue: #6366f1;
+  --accent-blue-hover: #4f46e5;
+  --accent-blue-dim: rgba(99, 102, 241, 0.1);
+  --accent-blue-light: #eef2ff;
+  --primary-ultralight: #eef2ff;
+  --accent-green: #10b981;
+  --accent-green-dim: rgba(16, 185, 129, 0.1);
+  --accent-red: #ef4444;
+  --accent-red-dim: rgba(239, 68, 68, 0.1);
+  --accent-amber: #f59e0b;
+  --accent-amber-dim: rgba(245, 158, 11, 0.1);
   --accent-purple: #7c5cfc;
   --accent-purple-dim: rgba(124, 92, 252, 0.1);
   --accent-cyan: #0ea5c7;
+  --accent-info: #3b82f6;
+
+  /* dagly radius scale */
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* dagly shadow scale */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-hover: 0 4px 16px rgba(99, 102, 241, 0.12);
   --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px var(--border-subtle);
   --shadow-elevated: 0 8px 32px rgba(0,0,0,0.08);
+
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --font-sans: 'DM Sans', -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+
+  /* dagly sidebar */
+  --sidebar-bg: linear-gradient(180deg, #111827, #0f172a);
+  --sidebar-text: #f1f5f9;
+  --sidebar-text-muted: #94a3b8;
+  --sidebar-active-bg: rgba(99, 102, 241, 0.2);
+  --sidebar-active-text: #a5b4fc;
 }
 
 * { box-sizing: border-box; }
@@ -79,6 +102,8 @@ body {
 .panel-btns button:hover {
   background: var(--bg-elevated) !important;
   color: var(--text-primary) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: var(--shadow-hover) !important;
 }
 .panel-btns button.btn-text {
   font-family: var(--font-sans) !important;
@@ -92,6 +117,8 @@ body {
 .panel-btns button.btn-text:hover {
   color: var(--accent-blue) !important;
   background: var(--accent-blue-dim) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: var(--shadow-hover) !important;
 }
 
 /* ── Tooltips ── */
@@ -103,23 +130,46 @@ body {
   padding: 5px 10px !important;
 }
 
-/* ── Smart-tree sidebar ── */
+/* ── Smart-tree sidebar (dagly dark theme) ── */
 smart-tree {
   font-family: var(--font-sans) !important;
   --smart-font-family: 'DM Sans', -apple-system, sans-serif;
   --smart-font-size: 12.5px;
   --smart-tree-item-height: 30px;
   --smart-primary: var(--accent-blue);
-  --smart-secondary: var(--bg-primary);
-  --smart-surface: var(--bg-secondary);
-  --smart-border: var(--border);
-  --smart-ui-state-hover: var(--bg-elevated);
-  --smart-ui-state-active: var(--accent-blue-dim);
-  --smart-ui-state-focus: var(--accent-blue-dim);
+  --smart-secondary: #0f172a;
+  --smart-surface: #111827;
+  --smart-border: #1e293b;
+  --smart-ui-state-hover: rgba(99, 102, 241, 0.12);
+  --smart-ui-state-active: rgba(99, 102, 241, 0.2);
+  --smart-ui-state-focus: rgba(99, 102, 241, 0.2);
   --smart-tree-indent: 18px;
-  background: var(--bg-secondary) !important;
-  border-right: 1px solid var(--border) !important;
+  background: linear-gradient(180deg, #111827, #0f172a) !important;
+  border-right: 1px solid #1e293b !important;
+  color: #f1f5f9 !important;
 }
+
+smart-tree smart-tree-item,
+smart-tree smart-tree-items-group {
+  color: #e2e8f0 !important;
+}
+
+smart-tree smart-tree-item:hover,
+smart-tree smart-tree-items-group:hover {
+  color: #ffffff !important;
+}
+
+smart-tree smart-tree-item[selected],
+smart-tree smart-tree-items-group[selected] {
+  background: rgba(99, 102, 241, 0.2) !important;
+  color: #a5b4fc !important;
+}
+
+/* Dark scrollbar for sidebar */
+smart-tree::-webkit-scrollbar { width: 5px; }
+smart-tree::-webkit-scrollbar-track { background: #0f172a; }
+smart-tree::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+smart-tree::-webkit-scrollbar-thumb:hover { background: #475569; }
 
 /* ── Smart-window / dialog ── */
 smart-window, smart-dialog {
@@ -129,9 +179,9 @@ smart-window, smart-dialog {
   --smart-primary: var(--accent-blue);
   --smart-surface: var(--bg-secondary);
   --smart-border: var(--border);
-  --smart-border-radius: var(--radius-lg);
+  --smart-border-radius: var(--radius-xl);
   --smart-window-header-height: 44px;
-  border-radius: var(--radius-lg) !important;
+  border-radius: var(--radius-xl) !important;
   border: 1px solid var(--border) !important;
   box-shadow: 0 16px 48px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.04) !important;
   overflow: hidden !important;
@@ -166,7 +216,7 @@ smart-window [smart-id="headerSection"] {
 }
 .smart-form-row input:focus {
   border-color: var(--accent-blue) !important;
-  box-shadow: 0 0 0 3px rgba(59,125,221,0.1) !important;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.15) !important;
 }
 
 /* ── Smart dropdown ── */
@@ -194,12 +244,16 @@ smart-menu {
   box-shadow: var(--shadow-elevated) !important;
 }
 
-/* ── Buttons global ── */
+/* ── Buttons global (dagly) ── */
 .button, button.save-button, .save-button {
   font-family: var(--font-sans) !important;
-  border-radius: var(--radius-sm) !important;
+  border-radius: var(--radius-md) !important;
   font-weight: 600 !important;
   transition: var(--transition) !important;
+}
+.button:hover, button.save-button:hover, .save-button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: var(--shadow-hover) !important;
 }
 
 /* ── Labels / form fields ── */
@@ -220,8 +274,23 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus {
   border-color: var(--accent-blue) !important;
-  box-shadow: 0 0 0 3px rgba(59,125,221,0.1) !important;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.15) !important;
   outline: none !important;
+}
+
+/* ── Mono font for technical inputs ── */
+.mono, code, pre {
+  font-family: var(--font-mono) !important;
+}
+
+/* ── Status badges / pills (dagly) ── */
+.badge, .pill, .status-badge {
+  border-radius: 20px !important;
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  display: inline-flex !important;
+  align-items: center !important;
 }
 
 /* ── Button-container (save/close bars) ── */

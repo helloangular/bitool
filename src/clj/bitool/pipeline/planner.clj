@@ -117,8 +117,11 @@
                       :partition_columns ["partition_date"]}}]
 
         ;; Resolve Silver entities
-        ;; First try intent, then fall back to metric package
-        metric-pkg    (when-let [pkg-name (some (fn [g] (:metric-package g)) gold)]
+        ;; First try intent, then metric package, then infer from Bronze
+        metric-pkg    (when-let [pkg-name (or (some (fn [g] (:metric-package g)) gold)
+                                              ;; Also try matching a metric package by system name
+                                              (let [candidates (list-metric-packages)]
+                                                (first (filter #(string/includes? (str %) system-name) candidates))))]
                         (load-metric-package pkg-name))
         silver-entities
         (if (seq silver)
@@ -137,8 +140,8 @@
                                          :event-time-column "updated_at"
                                          :late-data-mode "merge"}}))
                 silver)
-          ;; Fall back to metric package silver entities
-          (when metric-pkg
+          (if metric-pkg
+            ;; Fall back to metric package silver entities
             (mapv (fn [se]
                     {:target-model   (:table se)
                      :layer          "silver"
@@ -148,7 +151,26 @@
                      :business-keys  (:business-keys se)
                      :columns        (:columns se)
                      :processing-policy (:processing-policy se)})
-                  (:silver-entities metric-pkg))))
+                  (:silver-entities metric-pkg))
+            ;; Infer Silver from Bronze endpoints when no explicit Silver or metric package
+            (mapv (fn [b]
+                    (let [ep-url (or (:object b) (:endpoint b) "unknown")
+                          entity-name (-> ep-url
+                                          (string/replace #"^fleet/" "")
+                                          (string/replace "/" "_")
+                                          (string/replace "-" "_"))
+                          entity-kind (if (string/includes? ep-url "event") "fact" "dimension")]
+                      {:target-model   (silver-table-name entity-kind entity-name)
+                       :layer          "silver"
+                       :source-bronze  (bronze-table-name system-name ep-url)
+                       :source-endpoint ep-url
+                       :entity-kind    entity-kind
+                       :business-keys  ["id"]
+                       :columns        []
+                       :processing-policy {:ordering-strategy "latest_event_time_wins"
+                                           :event-time-column "updated_at"
+                                           :late-data-mode "merge"}}))
+                  bronze)))
 
         ;; Resolve Gold models
         ;; If any gold item references a metric-package, expand from the package
@@ -165,8 +187,8 @@
                    :dimensions   (or (:dimensions g) [])
                    :sql-template nil})
                 gold)
-          ;; Expand from metric package (either explicit reference or fallback)
-          (when metric-pkg
+          (if metric-pkg
+            ;; Expand from metric package
             (mapv (fn [gm]
                     {:target-model (gold-table-name (:table gm))
                      :layer        "gold"
@@ -178,7 +200,23 @@
                                     (-> (:sql-template gm)
                                         (string/replace "{{silver_schema}}"
                                                         (str catalog "." silver-schema))))})
-                  (:gold-models metric-pkg))))
+                  (:gold-models metric-pkg))
+            ;; Infer a basic Gold aggregation from Silver entities when nothing specified
+            (when (seq silver-entities)
+              (let [fact-entities (filter #(= "fact" (:entity-kind %)) silver-entities)
+                    dim-entities  (filter #(= "dimension" (:entity-kind %)) silver-entities)
+                    primary      (or (first fact-entities) (first silver-entities))
+                    ep-name      (-> (or (:source-endpoint primary) "summary")
+                                     (string/replace #"^fleet/" "")
+                                     (string/replace "/" "_")
+                                     (string/replace "-" "_"))]
+                [{:target-model (gold-table-name (str ep-name "_daily"))
+                  :layer        "gold"
+                  :grain        "day"
+                  :depends-on   (mapv :target-model silver-entities)
+                  :measures     ["count" "distinct_count"]
+                  :dimensions   (mapv :target-model dim-entities)
+                  :sql-template nil}]))))
 
         ;; Build assumptions
         assumptions

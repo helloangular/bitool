@@ -222,7 +222,7 @@ function buildTemplate() {
   }
   .modal {
     background: #fff; width: 540px; max-width: 92vw; max-height: 86vh;
-    overflow-y: auto; border-radius: 14px;
+    overflow-y: auto; border-radius: 16px;
     box-shadow: 0 16px 48px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.04);
     font-family: 'DM Sans', -apple-system, sans-serif; color: #1a1d26;
   }
@@ -231,6 +231,8 @@ function buildTemplate() {
   .modal-header {
     padding: 20px 24px 14px; border-bottom: 1px solid #eceef2;
     display: flex; justify-content: space-between; align-items: flex-start;
+    background: linear-gradient(135deg, #eef2ff 0%, #f5f6f8 100%);
+    border-radius: 16px 16px 0 0;
   }
   .modal-header h3 { margin: 0; font-size: 16px; font-weight: 700; color: #1a1d26; }
   .modal-header p { margin: 4px 0 0; font-size: 11.5px; color: #8b91a3; font-weight: 500; }
@@ -255,7 +257,7 @@ function buildTemplate() {
     transition: 0.2s;
   }
   .field input:focus, .field select:focus, .field textarea:focus {
-    outline: none; border-color: #3b7ddd; box-shadow: 0 0 0 3px rgba(59,125,221,0.1);
+    outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
   }
   .field input::placeholder, .field textarea::placeholder { color: #8b91a3; }
   .field textarea {
@@ -263,19 +265,19 @@ function buildTemplate() {
     font-family: 'JetBrains Mono', monospace; font-size: 12px;
   }
   .field .checkbox-row { display: flex; align-items: center; gap: 8px; }
-  .field .checkbox-row input { width: auto; accent-color: #3b7ddd; }
+  .field .checkbox-row input { width: auto; accent-color: #6366f1; }
   .modal-footer {
     padding: 14px 24px 18px; border-top: 1px solid #eceef2;
     display: flex; justify-content: flex-end; gap: 8px;
     background: #fafbfc;
-    border-radius: 0 0 14px 14px;
+    border-radius: 0 0 16px 16px;
   }
   button.primary {
-    background: #3b7ddd; color: #fff; border: 1px solid #3b7ddd;
+    background: #6366f1; color: #fff; border: 1px solid #6366f1;
     padding: 8px 20px; cursor: pointer; font-size: 12.5px; font-weight: 600;
     font-family: 'DM Sans', sans-serif; border-radius: 8px; transition: 0.2s;
   }
-  button.primary:hover { background: #2d6bc4; border-color: #2d6bc4; }
+  button.primary:hover { background: #4f46e5; border-color: #4f46e5; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99, 102, 241, 0.12); }
   button.secondary {
     background: #fff; color: #5c6070; border: 1px solid #e2e4ea;
     padding: 8px 20px; cursor: pointer; font-size: 12.5px; font-weight: 500;

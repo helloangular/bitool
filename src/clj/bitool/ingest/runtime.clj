@@ -10,6 +10,7 @@
             [bitool.graph2 :as g2]
             [bitool.ingest.bronze :as bronze]
             [bitool.ingest.checkpoint :as checkpoint]
+            [bitool.ingest.grain-planner :as grain-planner]
             [bitool.ingest.schema-infer :as schema-infer]
             [bitool.operations :as operations]
             [cheshire.core :as json]
@@ -1520,6 +1521,40 @@
     (if (and *row-load-context*
              (= table-name (:primary-table-name *row-load-context*))
              (= :file (:source-kind *row-load-context*))
+             (= "databricks" (some-> (connection-dbtype conn-id) string/lower-case))
+             (= "copy_into" (some-> (get-in *row-load-context* [:target :write_mode]) str string/lower-case)))
+      (let [copy-into-ran? (or (:copy-into-ran? *row-load-context*)
+                               (atom false))
+            copy-into-opts (merge (or (get-in *row-load-context* [:target :options :copy_into]) {})
+                                  (or (get-in *row-load-context* [:target :options "copy_into"]) {}))
+            source-uri     (or (:source_uri copy-into-opts)
+                               (:source-uri copy-into-opts)
+                               (:base_path (:config *row-load-context*)))]
+        (if (compare-and-set! copy-into-ran? false true)
+          (db/load-rows-databricks-copy-into!
+           conn-id
+           nil
+           table-name
+           {:source_uri source-uri
+            :file_format (or (:file_format copy-into-opts)
+                             (:file-format copy-into-opts)
+                             "JSON")
+            :files (vec (or (:files copy-into-opts) []))
+            :pattern (:pattern copy-into-opts)
+            :format_options (or (:format_options copy-into-opts)
+                                (:format-options copy-into-opts)
+                                {})
+            :copy_options (or (:copy_options copy-into-opts)
+                              (:copy-options copy-into-opts)
+                              {})
+            :credential (:credential copy-into-opts)})
+          {:status :ok
+           :load_method :databricks_copy_into
+           :already_loaded true
+           :table_name table-name}))
+      (if (and *row-load-context*
+             (= table-name (:primary-table-name *row-load-context*))
+             (= :file (:source-kind *row-load-context*))
              (= "snowflake" (some-> (connection-dbtype conn-id) string/lower-case))
              (= "stage_copy" (some-> (get-in *row-load-context* [:target :sf_load_method]) str string/lower-case)))
       (db/load-rows-snowflake-stage-copy!
@@ -1533,7 +1568,7 @@
         :sf_purge (get-in *row-load-context* [:target :sf_purge])})
       (if *batch-sql-opts*
       (insert-rows-in-current-opts! (sql-opts conn-id) table-name rows)
-      (db/load-rows! conn-id nil table-name rows (key->col (first rows)))))))
+      (db/load-rows! conn-id nil table-name rows (key->col (first rows))))))))
 
 (defn- fetch-checkpoint [conn-id table-name source-system endpoint-name]
   (let [table-name (validated-qualified-table-name table-name)
@@ -5109,14 +5144,19 @@
         endpoint'       (if (seq (string/trim (str detected-path)))
                           (assoc endpoint :json_explode_rules [{:path detected-path}])
                           endpoint)
-        inferred       (schema-infer/infer-endpoint-fields endpoint' (:body response))]
+        inferred       (schema-infer/infer-endpoint-fields endpoint' (:body response))
+        recommendations (grain-planner/recommend-endpoint-config endpoint'
+                                                                  inferred
+                                                                  {:detected-records-path detected-path
+                                                                   :configured-records-path configured-path})]
     {:endpoint_name (:endpoint_name endpoint)
      :http_status (:status response)
      :sampled_records (count (schema-infer/logical-records-from-body (:body response)
                                                                      (get-in endpoint' [:json_explode_rules 0 :path])))
      :detected_records_path detected-path
      :applied_json_explode_rules (vec (or (:json_explode_rules endpoint') []))
-     :inferred_fields inferred}))
+     :inferred_fields inferred
+     :recommendations recommendations}))
 
 (defn run-api-node!
   ([graph-id api-node-id] (run-api-node! graph-id api-node-id {}))
@@ -5653,7 +5693,8 @@
                        stream-state      (binding [*row-load-context* {:primary-table-name table-name
                                                                        :source-kind source-kind
                                                                        :target target
-                                                                       :config config}]
+                                                                       :config config
+                                                                       :copy-into-ran? (atom false)}]
                                            (process-source-stream!
                                             conn-id
                                             {:table-name table-name

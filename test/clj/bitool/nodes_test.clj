@@ -68,6 +68,34 @@
         item (g2/get-auth-item 2 g')]
     (is (false? (get item "secret_set")))))
 
+(deftest get-orphan-attrs-serializes-unconnected-api-node
+  (let [g {:a {:name "test" :v 0 :id 99}
+           :n {1 {:na {:name "O" :btype "O" :tcols {}} :e {}}
+               2 {:na {:name "Samsara" :btype "Ap" :tcols {} :x 320 :y 180} :e {}}}}
+        attrs (g2/getOrphanAttrs g)
+        samsara-node (some #(when (= 2 (get % "id")) %) attrs)]
+    (is (= {"alias" "Samsara"
+            "endpoint_label" ""
+            "y" 180
+            "x" 320
+            "btype" "Ap"
+            "parent" 0
+            "id" 2}
+           samsara-node))))
+
+(deftest create-coordinates-tolerates-node-with-missing-parent-path
+  (let [g {:a {:name "test" :v 0 :id 2443}
+           :n {1 {:na {:name "O" :btype "O" :tcols {}} :e {3 {}}}
+               2 {:na {:name "api-connection" :btype "Ap" :tcols {} :x 275.5 :y 307.5}
+                  :e {1 {} 4 {:endpoint_url "fleet/vehicles"}}}
+               3 {:na {:name "target" :btype "Tg" :tcols {}}}}}
+        coords (vec (g2/createCoordinates g))]
+    (is (some #(= 2 (:id %)) coords))
+    (is (every? #(contains? % :x) coords))
+    (is (every? #(contains? % :y) coords))
+    (is (not-any? #(nil? (:id %)) coords))
+    (is (not-any? #(nil? (:btype %)) coords))))
+
 ;; ---------------------------------------------------------------------------
 ;; DB Execute node (Dx)
 ;; ---------------------------------------------------------------------------

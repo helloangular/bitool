@@ -1,5 +1,6 @@
 (ns bitool.modeling.automation
-  (:require [bitool.config :as config]
+  (:require [bitool.bigquery :as bigquery]
+            [bitool.config :as config]
             [bitool.compiler.core :as compiler]
             [bitool.control-plane :as control-plane]
             [bitool.databricks.jobs :as dbx-jobs]
@@ -37,6 +38,9 @@
 
 (def ^:private allowed-window-units
   #{"minutes" "hours" "days"})
+
+(declare bigquery-db-spec
+         bigquery-query-result->jdbc-result)
 
 (def ^:private allowed-late-data-modes
   #{"merge" "append"})
@@ -126,7 +130,7 @@
 (defn- quote-sql-ident-for-warehouse
   [warehouse value]
   (let [warehouse (some-> warehouse str string/lower-case)]
-    (if (= warehouse "databricks")
+    (if (contains? #{"databricks" "bigquery"} warehouse)
       (str "`"
            (-> (or value "")
                str
@@ -294,6 +298,15 @@
 (def ^:private unsafe-expression-pattern #"(?:--|/\*|\*/|;)")
 (def ^:private unsafe-expression-keyword-pattern #"(?i)\b(insert|update|delete|drop|alter|merge|copy|put|grant|revoke|truncate|create|replace|execute|call)\b")
 (def ^:private general-expression-pattern #"(?is)^[A-Za-z0-9_.'\"()\[\]{}=<>!%+\-*/,:\s|&]+$")
+(def ^:private databricks-expression-pattern #"(?is)^[A-Za-z0-9_.'\"`()\[\]{}=<>!%+\-*/,:\s|&]+$")
+(def ^:private databricks-disallowed-keyword-pattern
+  #"(?is)\b(SELECT|FROM|JOIN|QUALIFY|UNION|WITH|MERGE|INSERT|UPDATE|DELETE|COPY|OPTIMIZE|VACUUM|REORG|ALTER|DROP|CREATE|CALL)\b")
+(def ^:private databricks-comment-pattern #"(?s)(--|/\*|\*/|;)")
+(def ^:private databricks-function-call-pattern #"(?is)\b[A-Za-z_][A-Za-z0-9_]*\(")
+(def ^:private databricks-qualified-ref-pattern
+  #"(?is)(?:^|[^A-Za-z0-9_`])(?:s|t)\s*\.\s*(?:`[^`]+`|[A-Za-z_][A-Za-z0-9_]*)")
+(def ^:private databricks-simple-literal-pattern
+  #"(?is)^('([^']|'')*'|-?\d+(?:\.\d+)?|NULL|TRUE|FALSE)$")
 
 (defn- split-top-level-args
   [value]
@@ -375,6 +388,88 @@
                 (or (seq (re-seq source-reference-finder-pattern expr))
                     (seq (re-seq json-extraction-finder-pattern expr))
                     (= "COUNT(*)" expr))))))))
+
+(defn- safe-databricks-sql-fragment?
+  ([value]
+   (safe-databricks-sql-fragment? value {}))
+  ([value {:keys [require-ref? allow-or? allow-literal-only?]
+           :or {require-ref? false
+                allow-or? true
+                allow-literal-only? false}}]
+   (let [expr         (some-> value str string/trim)
+         has-ref?     (boolean (and expr (re-find databricks-qualified-ref-pattern expr)))
+         literal-only? (boolean (and expr (re-matches databricks-simple-literal-pattern expr)))]
+     (boolean
+      (and (seq expr)
+           (re-matches databricks-expression-pattern expr)
+           (not (re-find unsafe-expression-pattern expr))
+           (not (re-find unsafe-expression-keyword-pattern expr))
+           (not (re-find databricks-comment-pattern expr))
+           (not (re-find databricks-disallowed-keyword-pattern expr))
+           (not (re-find databricks-function-call-pattern expr))
+           (or allow-or?
+               (not (re-find #"(?i)\bOR\b" expr)))
+           (or (not require-ref?) has-ref?)
+           (or has-ref?
+               allow-literal-only?
+               literal-only?))))))
+
+(defn- materialization-mode-supported?
+  [warehouse mode]
+  (contains? (if (= warehouse "databricks")
+               #{"merge" "table_replace" "append" "update" "delete"}
+               #{"merge" "table_replace" "append"})
+             mode))
+
+(defn- materialization-extra-options
+  [proposal-json]
+  (let [materialization (:materialization proposal-json)
+        when-not-matched-by-source (:when_not_matched_by_source materialization)
+        databricks-sql (cond-> {}
+                         (contains? materialization :schema_evolution)
+                         (assoc :schema_evolution (boolean (:schema_evolution materialization)))
+                         (contains? materialization :update_on_matched)
+                         (assoc :update_on_matched (boolean (:update_on_matched materialization)))
+                         (contains? materialization :insert_on_not_matched)
+                         (assoc :insert_on_not_matched (boolean (:insert_on_not_matched materialization)))
+                         (some-> (:matched_condition materialization) non-blank-str)
+                         (assoc :matched_condition (:matched_condition materialization))
+                         (some-> (:not_matched_condition materialization) non-blank-str)
+                         (assoc :not_matched_condition (:not_matched_condition materialization))
+                         (seq (or (:update_assignments materialization) []))
+                         (assoc :update_assignments (vec (:update_assignments materialization)))
+                         (map? when-not-matched-by-source)
+                         (assoc :when_not_matched_by_source when-not-matched-by-source))]
+    (cond-> {}
+      (seq databricks-sql) (assoc :databricks_sql databricks-sql))))
+
+(defn- materialization-from-target-config
+  [target-config]
+  (let [databricks-sql (get-in target-config [:options :databricks_sql])]
+    (cond-> {:mode (case (:write_mode target-config)
+                     "replace" "table_replace"
+                     "overwrite" "table_replace"
+                     "append" "append"
+                     "update" "update"
+                     "delete" "delete"
+                     "merge")
+             :keys (vec (or (:merge_keys target-config) []))}
+      (map? databricks-sql)
+      (merge (cond-> {}
+               (contains? databricks-sql :schema_evolution)
+               (assoc :schema_evolution (boolean (:schema_evolution databricks-sql)))
+               (contains? databricks-sql :update_on_matched)
+               (assoc :update_on_matched (boolean (:update_on_matched databricks-sql)))
+               (contains? databricks-sql :insert_on_not_matched)
+               (assoc :insert_on_not_matched (boolean (:insert_on_not_matched databricks-sql)))
+               (some-> (:matched_condition databricks-sql) non-blank-str)
+               (assoc :matched_condition (:matched_condition databricks-sql))
+               (some-> (:not_matched_condition databricks-sql) non-blank-str)
+               (assoc :not_matched_condition (:not_matched_condition databricks-sql))
+               (seq (or (:update_assignments databricks-sql) []))
+               (assoc :update_assignments (vec (:update_assignments databricks-sql)))
+               (map? (:when_not_matched_by_source databricks-sql))
+               (assoc :when_not_matched_by_source (:when_not_matched_by_source databricks-sql)))))))
 
 (def ^:private allowed-review-states
   #{"reviewed" "approved" "rejected" "changes_requested"})
@@ -1617,9 +1712,72 @@
 
           :else (recur (inc poll-count)))))))
 
+(defn- bigquery-db-spec
+  [conn-id]
+  (db/create-dbspec-from-id conn-id))
+
+(defn- bigquery-query-result->jdbc-result
+  [{:keys [rows update-count]}]
+  (if (some? update-count)
+    [{:next.jdbc/update-count update-count}]
+    (vec rows)))
+
+(defn- persist-bigquery-warehouse-validation!
+  [{:keys [conn-id
+           proposal-id
+           graph-artifact
+           compile-result
+           target-table
+           validation-kind
+           created-by]}]
+  (let [response        (bigquery/dry-run-sql! (bigquery-db-spec conn-id)
+                                               (:compiled_sql compile-result))
+        validation-json (cond-> {:graph_artifact_id (:graph_artifact_id graph-artifact)
+                                 :graph_id (:graph_id graph-artifact)
+                                 :graph_version (:graph_version graph-artifact)
+                                 :backend "bigquery_sql"
+                                 :request {:proposal_id proposal-id
+                                           :graph_artifact_id (:graph_artifact_id graph-artifact)
+                                           :target_table target-table
+                                           :dry_run true}
+                                 :response response
+                                 :sql_ir (:sql_ir compile-result)
+                                 :sql_checksum (sha256-hex (:compiled_sql compile-result))}
+                          (:estimated_bytes_processed response)
+                          (assoc :estimated_bytes_processed (:estimated_bytes_processed response)))
+        validation-row  (persist-model-validation! {:proposal-id proposal-id
+                                                    :status "valid"
+                                                    :validation-kind validation-kind
+                                                    :validation-json validation-json
+                                                    :compiled-sql (:compiled_sql compile-result)
+                                                    :created-by created-by})]
+    {:validation_id (:validation_id validation-row)
+     :proposal_id proposal-id
+     :status "valid"
+     :backend "bigquery_sql"
+     :graph_artifact_id (:graph_artifact_id graph-artifact)
+     :validation validation-json}))
+
 (defn- execute-pending-model-run!
   [pending-run poll-fn]
   (case (:warehouse pending-run)
+    "bigquery"
+    (let [response      (bigquery/execute-sql! (bigquery-db-spec (:conn_id pending-run))
+                                               (:compiled_sql pending-run))
+          result-rows   (bigquery-query-result->jdbc-result response)
+          response-json {:result result-rows
+                         :job (:job response)
+                         :raw (:raw response)}]
+      (complete-model-run! (:model_run_id pending-run)
+                           {:status "succeeded"
+                            :response-json response-json
+                            :completed-at (now-utc)})
+      (-> pending-run
+          (select-keys [:model_run_id :release_id :graph_artifact_id :graph_id :graph_version])
+          (assoc :response result-rows
+                 :status "succeeded"
+                 :backend "bigquery_sql")))
+
     "snowflake"
     (let [response (jdbc/execute! (db/get-opts (:conn_id pending-run) nil)
                                   [(:compiled_sql pending-run)])]
@@ -1888,7 +2046,14 @@
         target-column-set (set target-columns)
         mappings        (proposal-mappings proposal-json)
         materialization (:materialization proposal-json)
+        warehouse       (some-> (or (:target_warehouse proposal-json)
+                                    (:target_kind proposal-json)
+                                    "databricks")
+                                str
+                                string/lower-case)
         merge-keys      (vec (or (:keys materialization) []))
+        update-assignments (vec (or (:update_assignments materialization) []))
+        when-not-matched-by-source (:when_not_matched_by_source materialization)
         group-by-cols   (vec (or (:group_by proposal-json) []))
         target-table    (:target_table proposal-json)
         processing-policy (:processing_policy proposal-json)
@@ -1925,13 +2090,95 @@
                      (re-find #"(?i)\b(select|insert|update|delete|drop|alter|merge|union|join|from|into|copy|put)\b" graph-filter)
                      (not (re-matches #"[A-Za-z0-9_.'\"()=<>!%+\-*/,\s]+" graph-filter))))
         [{:kind "schema" :field "graph_filter_sql" :message "Graph filter contains unsupported SQL"}])
-      (when-not (contains? #{"merge" "table_replace" "append"} (:mode materialization))
-        [{:kind "schema" :message "Materialization mode must be one of merge, table_replace, or append"}])
+      (when-not (materialization-mode-supported? warehouse (:mode materialization))
+        [{:kind "schema"
+          :message (if (= warehouse "databricks")
+                     "Materialization mode must be one of merge, table_replace, append, update, or delete"
+                     "Materialization mode must be one of merge, table_replace, or append")}])
       (when (and (= "merge" (:mode materialization)) (empty? merge-keys))
         [{:kind "mapping" :message "Merge materialization requires at least one merge key"}])
+      (when (and (= "update" (:mode materialization)) (empty? merge-keys))
+        [{:kind "mapping" :message "Update materialization requires at least one merge key"}])
+      (when (and (= "delete" (:mode materialization)) (empty? merge-keys))
+        [{:kind "mapping" :message "Delete materialization requires at least one merge key"}])
       (when (and (seq merge-keys)
                  (not-every? target-column-set merge-keys))
         [{:kind "mapping" :message "All merge keys must be target columns"}])
+      (when (and (not= warehouse "databricks")
+                 (or (contains? materialization :schema_evolution)
+                     (contains? materialization :update_on_matched)
+                     (contains? materialization :insert_on_not_matched)
+                     (seq update-assignments)
+                     (map? when-not-matched-by-source)))
+        [{:kind "schema"
+          :field "materialization"
+          :message "Advanced materialization options are currently supported only for Databricks targets"}])
+      (when (and (contains? materialization :schema_evolution)
+                 (not= "merge" (:mode materialization)))
+        [{:kind "schema"
+          :field "materialization.schema_evolution"
+          :message "Schema evolution is only supported for merge materialization"}])
+      (when (and (seq update-assignments)
+                 (not-every? #(contains? target-column-set (:target_column %)) update-assignments))
+        [{:kind "mapping"
+          :field "materialization.update_assignments"
+          :message "All update assignment target columns must be target columns"}])
+      (when (and (seq update-assignments)
+                 (not-every? #(safe-databricks-sql-fragment? (:expression %)
+                                                            {:allow-literal-only? true})
+                             update-assignments))
+        [{:kind "mapping"
+          :field "materialization.update_assignments"
+          :message "All update assignment expressions must use supported Databricks SQL syntax"}])
+      (when (and (some-> (:matched_condition materialization) seq)
+                 (not (safe-databricks-sql-fragment? (:matched_condition materialization)
+                                                    {:require-ref? true
+                                                     :allow-or? false})))
+        [{:kind "mapping"
+          :field "materialization.matched_condition"
+          :message "Matched condition must use supported Databricks SQL syntax"}])
+      (when (and (some-> (:not_matched_condition materialization) seq)
+                 (not (safe-databricks-sql-fragment? (:not_matched_condition materialization)
+                                                    {:require-ref? true
+                                                     :allow-or? false})))
+        [{:kind "mapping"
+          :field "materialization.not_matched_condition"
+          :message "Not matched condition must use supported Databricks SQL syntax"}])
+      (when (and (map? when-not-matched-by-source)
+                 (not= "merge" (:mode materialization)))
+        [{:kind "mapping"
+          :field "materialization.when_not_matched_by_source"
+          :message "WHEN NOT MATCHED BY SOURCE options are only supported for merge materialization"}])
+      (when (and (map? when-not-matched-by-source)
+                 (not (contains? #{"delete" "update"} (:action when-not-matched-by-source))))
+        [{:kind "mapping"
+          :field "materialization.when_not_matched_by_source.action"
+          :message "WHEN NOT MATCHED BY SOURCE action must be delete or update"}])
+      (when (and (= "update" (:action when-not-matched-by-source))
+                 (empty? (or (:assignments when-not-matched-by-source) [])))
+        [{:kind "mapping"
+          :field "materialization.when_not_matched_by_source.assignments"
+          :message "WHEN NOT MATCHED BY SOURCE update requires one or more assignments"}])
+      (when (and (seq (or (:assignments when-not-matched-by-source) []))
+                 (not-every? #(contains? target-column-set (:target_column %))
+                             (:assignments when-not-matched-by-source)))
+        [{:kind "mapping"
+          :field "materialization.when_not_matched_by_source.assignments"
+          :message "WHEN NOT MATCHED BY SOURCE assignments must target proposal columns"}])
+      (when (and (seq (or (:assignments when-not-matched-by-source) []))
+                 (not-every? #(safe-databricks-sql-fragment? (:expression %)
+                                                            {:allow-literal-only? true})
+                             (:assignments when-not-matched-by-source)))
+        [{:kind "mapping"
+          :field "materialization.when_not_matched_by_source.assignments"
+          :message "WHEN NOT MATCHED BY SOURCE assignment expressions must use supported Databricks SQL syntax"}])
+      (when (and (some-> (:condition when-not-matched-by-source) seq)
+                 (not (safe-databricks-sql-fragment? (:condition when-not-matched-by-source)
+                                                    {:require-ref? true
+                                                     :allow-or? false})))
+        [{:kind "mapping"
+          :field "materialization.when_not_matched_by_source.condition"
+          :message "WHEN NOT MATCHED BY SOURCE condition must use supported Databricks SQL syntax"}])
       (when (and (seq group-by-cols)
                  (not-every? target-column-set group-by-cols))
         [{:kind "mapping" :message "All group-by columns must be target columns"}])
@@ -2058,8 +2305,11 @@
     (throw (ex-info "No target connection is available for sample execution"
                     {:failure_class "target_connection"})))
   (let [limited-sql (str select-sql " LIMIT " (sample-limit limit))
+        dbtype      (some-> (connection-dbtype target-connection-id) string/lower-case)
         query-task  (future
-                      (jdbc/execute! (db/get-opts target-connection-id nil) [limited-sql]))
+                      (if (= "bigquery" dbtype)
+                        (:rows (bigquery/execute-sql! (bigquery-db-spec target-connection-id) limited-sql))
+                        (jdbc/execute! (db/get-opts target-connection-id nil) [limited-sql])))
         rows        (deref query-task sample-query-timeout-ms ::timed-out)
         target-cols (mapv :target_column (proposal-columns proposal-json))
         key-cols    (vec (or (get-in proposal-json [:materialization :keys]) []))]
@@ -2108,7 +2358,8 @@
         output-ref      "output"
         table-parts     (split-qualified-table (:target_table proposal-json))
         processing-policy (normalize-processing-policy (:processing_policy proposal-json))
-        target-config   {:target_kind (or (:target_kind target) "databricks")
+        target-kind     (or (:target_kind target) "databricks")
+        target-config   {:target_kind target-kind
                          :connection_id (target-connection-id target)
                          :catalog (or (:catalog target) (:catalog table-parts) "")
                          :schema (or (:schema target) (:schema table-parts) "")
@@ -2116,9 +2367,15 @@
                          :write_mode (case (get-in proposal-json [:materialization :mode])
                                        "table_replace" "replace"
                                        "append" "append"
+                                       "update" "update"
+                                       "delete" "delete"
                                        "merge")
-                         :table_format "delta"
+                         :table_format (if (= "bigquery" (some-> target-kind str string/lower-case))
+                                         "table"
+                                         "delta")
                          :merge_keys (vec (or (get-in proposal-json [:materialization :keys]) []))
+                         :options (merge (or (:options target) {})
+                                         (materialization-extra-options proposal-json))
                          :silver_job_id (or (:silver_job_id target) "")
                          :silver_job_params (merge {:target_model (:target_model proposal-row)
                                                     :proposal_id (:proposal_id proposal-row)}
@@ -2188,7 +2445,8 @@
         output-ref      "output"
         table-parts     (split-qualified-table (:target_table proposal-json))
         processing-policy (normalize-processing-policy (:processing_policy proposal-json))
-        target-config   {:target_kind (or (:target_kind target) "databricks")
+        target-kind     (or (:target_kind target) "databricks")
+        target-config   {:target_kind target-kind
                          :connection_id (target-connection-id target)
                          :catalog (or (:catalog target) (:catalog table-parts) "")
                          :schema (or (:schema target) (:schema table-parts) "")
@@ -2196,9 +2454,15 @@
                          :write_mode (case (get-in proposal-json [:materialization :mode])
                                        "table_replace" "replace"
                                        "append" "append"
+                                       "update" "update"
+                                       "delete" "delete"
                                        "merge")
-                         :table_format "delta"
+                         :table_format (if (= "bigquery" (some-> target-kind str string/lower-case))
+                                         "table"
+                                         "delta")
                          :merge_keys (vec (or (get-in proposal-json [:materialization :keys]) []))
+                         :options (merge (or (:options target) {})
+                                         (materialization-extra-options proposal-json))
                          :gold_job_id (or (:gold_job_id target) "")
                          :gold_job_params (merge {:target_model (:target_model proposal-row)
                                                   :proposal_id (:proposal_id proposal-row)}
@@ -2292,11 +2556,7 @@
      :target_warehouse (or (:target_kind target-config) "databricks")
      :columns columns
      :mappings mappings
-     :materialization {:mode (case (:write_mode target-config)
-                               "replace" "table_replace"
-                               "append" "append"
-                               "merge")
-                       :keys (vec (or (:merge_keys target-config) []))}
+     :materialization (materialization-from-target-config target-config)
      :graph_filter_sql (get-in filter-node [:config :sql])}))
 
 (defn- proposal-json-from-gold-gil
@@ -2327,11 +2587,7 @@
      :columns columns
      :mappings mappings
      :group_by group-by
-     :materialization {:mode (case (:write_mode target-config)
-                               "replace" "table_replace"
-                               "append" "append"
-                               "merge")
-                       :keys (vec (or (:merge_keys target-config) []))}
+     :materialization (materialization-from-target-config target-config)
      :graph_filter_sql (get-in filter-node [:config :sql])}))
 
 (defn compile-silver-graph-artifact!
@@ -3209,6 +3465,15 @@
         warehouse       (target-warehouse target-node conn-id)
         target-table    (qualified-target-table target-node)]
     (case warehouse
+      "bigquery"
+      (persist-bigquery-warehouse-validation! {:conn-id conn-id
+                                               :proposal-id proposal-id
+                                               :graph-artifact graph-artifact
+                                               :compile-result compile-result
+                                               :target-table target-table
+                                               :validation-kind "silver_warehouse_sql"
+                                               :created-by created_by})
+
       "snowflake"
       (let [response        (jdbc/execute! (db/get-opts conn-id nil)
                                            [(str "EXPLAIN USING TEXT " (:select_sql compile-result))])
@@ -3322,6 +3587,15 @@
         warehouse       (target-warehouse target-node conn-id)
         target-table    (qualified-target-table target-node)]
     (case warehouse
+      "bigquery"
+      (persist-bigquery-warehouse-validation! {:conn-id conn-id
+                                               :proposal-id proposal-id
+                                               :graph-artifact graph-artifact
+                                               :compile-result compile-result
+                                               :target-table target-table
+                                               :validation-kind "gold_warehouse_sql"
+                                               :created-by created_by})
+
       "snowflake"
       (let [response        (jdbc/execute! (db/get-opts conn-id nil)
                                            [(str "EXPLAIN USING TEXT " (:select_sql compile-result))])
@@ -3507,7 +3781,7 @@
      (let [pending-run (jdbc/with-transaction [tx db/ds]
                          (execute-silver-release-tx! tx release-row created_by))]
        (try
-         (if (contains? #{"snowflake" "postgresql"} (:warehouse pending-run))
+         (if (contains? #{"bigquery" "snowflake" "postgresql"} (:warehouse pending-run))
            (execute-pending-model-run! pending-run poll-silver-model-run!)
            (let [response (dbx-jobs/trigger-job! (:conn_id pending-run) (:job_id pending-run) (:params pending-run))]
              (update-model-run-progress! (:model_run_id pending-run)
@@ -3620,7 +3894,7 @@
      (let [pending-run (jdbc/with-transaction [tx db/ds]
                          (execute-gold-release-tx! tx release-row created_by))]
        (try
-         (if (contains? #{"snowflake" "postgresql"} (:warehouse pending-run))
+         (if (contains? #{"bigquery" "snowflake" "postgresql"} (:warehouse pending-run))
            (execute-pending-model-run! pending-run poll-gold-model-run!)
            (let [response (dbx-jobs/trigger-job! (:conn_id pending-run) (:job_id pending-run) (:params pending-run))]
              (update-model-run-progress! (:model_run_id pending-run)

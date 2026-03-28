@@ -7,8 +7,54 @@
             [bitool.pipeline.sdp :as sdp]
             [ring.util.http-response :as http-response]
             [cheshire.core :as json]
+            [clojure.string :as string]
             [clojure.walk :as walk]
             [clojure.tools.logging :as log]))
+
+(defn- apply-direct-edit
+  "Try to apply common spec edits directly without LLM. Returns updated spec or nil."
+  [spec edit-text]
+  (let [text (string/lower-case (or edit-text ""))]
+    (cond
+      ;; Grain changes: "make X weekly/daily/monthly/hourly"
+      (re-find #"(?:make|change|set)\s+(.+?)\s+(weekly|daily|monthly|hourly|minute)" text)
+      (let [[_ model-hint grain] (re-find #"(?:make|change|set)\s+(.+?)\s+(weekly|daily|monthly|hourly|minute)" text)
+            grain-map {"weekly" "week" "daily" "day" "monthly" "month" "hourly" "hour" "minute" "minute"}
+            target-grain (get grain-map grain grain)
+            model-words (string/split model-hint #"\s+")
+            match-fn (fn [gm]
+                       (let [name-lower (string/lower-case (or (:target-model gm) ""))]
+                         (every? #(string/includes? name-lower %) model-words)))]
+        (when-let [gold-models (:gold-models spec)]
+          (let [updated (mapv (fn [gm]
+                                (if (match-fn gm)
+                                  (-> gm
+                                      (assoc :grain target-grain)
+                                      ;; Also update the model name if it contains the old grain
+                                      (update :target-model
+                                              #(string/replace % #"_(daily|weekly|monthly|hourly)"
+                                                                       (str "_" (string/replace grain #"ly$" "")))))
+                                  gm))
+                              gold-models)]
+            (when (not= gold-models updated)
+              (-> spec
+                  (assoc :gold-models updated)
+                  ;; Update assumptions
+                  (update :assumptions
+                          (fn [a] (mapv (fn [s]
+                                          (if (and (string? s) (string/includes? s "Gold models:"))
+                                            (str "Gold models: " (string/join ", " (map :target-model updated)))
+                                            s)) (or a [])))))))))
+
+      ;; Add endpoint: "add fleet/X"
+      (re-find #"(?:add|include)\s+(fleet/\S+|/\S+)" text)
+      nil ;; Let LLM handle complex additions
+
+      ;; Remove: "remove X"
+      (re-find #"(?:remove|drop|delete)\s+(\S+)" text)
+      nil ;; Let LLM handle removals
+
+      :else nil)))
 
 (defn- ok [data]
   (-> (http-response/ok (json/generate-string {:ok true :data data}))
@@ -146,16 +192,22 @@
                          (throw (ex-info "text is required" {:status 400 :error "bad_request"})))
           _            (when-not current-spec
                          (throw (ex-info "spec is required" {:status 400 :error "bad_request"})))
-          updated-intent (try
-                           (intent/edit-intent current-spec edit-text)
-                           (catch Exception e
-                             (log/warn e "LLM edit failed, returning original spec")
-                             nil))
-          spec         (if updated-intent
-                         (planner/plan-pipeline updated-intent)
-                         (walk/keywordize-keys current-spec))
+          kw-spec      (walk/keywordize-keys current-spec)
+          ;; Try direct spec mutation for common edits first
+          direct-edit  (apply-direct-edit kw-spec edit-text)
+          spec         (if direct-edit
+                         direct-edit
+                         ;; Fall back to LLM edit
+                         (let [updated-intent (try
+                                               (intent/edit-intent kw-spec edit-text)
+                                               (catch Exception e
+                                                 (log/warn e "LLM edit failed, returning original spec")
+                                                 nil))]
+                           (if updated-intent
+                             (planner/plan-pipeline updated-intent)
+                             kw-spec)))
           prev         (preview/generate-preview spec)]
-      (ok {:intent  updated-intent
+      (ok {:intent  nil
            :spec    spec
            :preview prev
            :text    (preview/preview-text prev)}))

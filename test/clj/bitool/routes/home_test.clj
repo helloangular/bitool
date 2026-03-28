@@ -10,6 +10,7 @@
 	            [bitool.modeling.automation :as modeling-automation]
 	            [bitool.operations :as operations]
 	            [bitool.routes.home :as home]
+            [bitool.ai.assistant :as ai-assistant]
             [cheshire.core :as json]
             [clojure.walk :as walk]
             [clojure.test :refer :all]
@@ -167,6 +168,29 @@
         (is (= "Local PG" (:connection_name @captured-insert)))
         (is (= 5432 (:port @captured-insert)))
         (is (= 472 @captured-test))
+        (is (= "ok" (:status body)))))))
+
+(deftest test-db-connection-route-persists-bigquery-native-fields
+  (let [captured-insert (atom nil)]
+    (with-redefs [db/insert-data (fn [_table conn-params]
+                                   (reset! captured-insert conn-params)
+                                   {:connection/id 611})
+                  db/test-connection (fn [_] true)]
+      (let [response ((test-handler)
+                      (assoc (mock/request :post "/testDbConnection")
+                             :params {:connection_name "BQ"
+                                      :dbtype "bigquery"
+                                      :host "demo-project"
+                                      :dbname "analytics"
+                                      :schema "US"
+                                      :token "{\"type\":\"service_account\"}"}))
+            body     (response-body->map response)]
+        (is (= 200 (:status response)))
+        (is (= "bigquery" (:dbtype @captured-insert)))
+        (is (= "demo-project" (:host @captured-insert)))
+        (is (= "analytics" (:dbname @captured-insert)))
+        (is (= "US" (:schema @captured-insert)))
+        (is (= "{\"type\":\"service_account\"}" (:token @captured-insert)))
         (is (= "ok" (:status body)))))))
 
 (deftest bronze-source-batches-route-returns-batches
@@ -1114,6 +1138,28 @@
       (is (= 400 (:status response)))
       (is (= "Preview base_url must not target local or private addresses" (:error body))))))
 
+(deftest preview-api-schema-inference-allows-local-mock-server
+  (with-redefs [config/env {:bitool-rbac-enabled "true"}
+                ingest-runtime/preview-endpoint-schema! (fn [api-node endpoint]
+                                                          {:http_status 200
+                                                           :sampled_records 1
+                                                           :base_url (:base_url api-node)
+                                                           :endpoint_name (:endpoint_name endpoint)
+                                                           :inferred_fields [{:path "$.data[].id"
+                                                                              :column_name "id"}]})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/previewApiSchemaInference")
+                           :params {:base_url "http://localhost:3001"
+                                    :auth_ref {:type "bearer" :token "mock-samsara-token"}
+                                    :endpoint_config {:endpoint_name "fleet/vehicles"
+                                                      :endpoint_url "/fleet/vehicles"}}
+                           :session {:roles ["api.ops"]}))
+          body (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "http://localhost:3001" (:base_url body)))
+      (is (= "fleet/vehicles" (:endpoint_name body)))
+      (is (= "$.data[].id" (get-in body [:inferred_fields 0 :path]))))))
+
 (deftest html-handler-rejects-unsafe-template-name
   (let [response (home/html-handler {:path-params {:file "../../etc/passwd"}})
         body (response-body->map response)]
@@ -1516,9 +1562,12 @@
 (deftest save-api-route-returns-success-for-rich-endpoint-config
   (let [graph {:a {:id 99 :v 0 :name "test"}
                :n {1 {:na {:name "O" :btype "O" :tcols {}} :e {}}
-                   2 {:na {:name "api" :btype "Ap" :tcols {}} :e {1 {}}}}}]
+                   2 {:na {:name "api" :btype "Ap" :tcols {}} :e {1 {}}}}}
+        persisted (atom nil)]
     (with-redefs [db/getGraph (fn [_] graph)
-                  control-plane/persist-graph! (fn [g _] g)]
+                  control-plane/persist-graph! (fn [g _]
+                                                 (reset! persisted g)
+                                                 g)]
       (let [response ((test-handler)
                       (assoc (mock/request :post "/saveApi")
                              :params {:id "2"
@@ -1548,7 +1597,6 @@
                                                           :body_params {}
                                                           :json_explode_rules []
                                                           :inferred_fields []
-                                                          :bad_record_alert_ratio ""
                                                           :retry_policy {:max_retries 3
                                                                          :base_backoff_ms 1000}
                                                           :enabled true}]}
@@ -1557,7 +1605,13 @@
         (is (= 200 (:status response)))
         (is (sequential? body))
         (is (some #(= "api" (:alias %)) body))
-        (is (some #(= "Output" (:alias %)) body))))))
+        (is (some #(= "Output" (:alias %)) body))
+        (is (= #{1 2}
+               (set (keys (:n @persisted)))))
+        (is (nil? (some (fn [[_ node]]
+                          (when (#{"Mp" "Tg"} (get-in node [:na :btype]))
+                            true))
+                        (:n @persisted))))))))
 
 (deftest save-endpoint-route-returns-conflict-for-stale-graph-version
   (let [graph {:a {:id 99 :v 4 :name "test"}
@@ -1604,3 +1658,364 @@
         (is (= 409 (:status response)))
         (is (= "Graph version conflict" (:error body)))
         (is (= 5 (get-in body [:data :current_version])))))))
+
+;; ---------------------------------------------------------------------------
+;; AI Assist routes (P1)
+;; ---------------------------------------------------------------------------
+
+(deftest ai-explain-preview-schema-returns-envelope
+  (with-redefs [ai-assistant/explain-preview-schema!
+                (fn [_]
+                  {:summary "Record grain is data[]. PK is id."
+                   :confidence 0.85
+                   :recommendations ["Use updatedAt as watermark"]
+                   :edits {}
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "explain_preview" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainPreviewSchema")
+                           :params {:endpoint_config {:endpoint_name "fleet/vehicles"}
+                                    :inferred_fields [{:column_name "id" :type "STRING"}]}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "Record grain is data[]. PK is id." (:summary body)))
+      (is (= 0.85 (:confidence body)))
+      (is (= "deterministic_plus_ai" (get-in body [:debug :source]))))))
+
+(deftest ai-explain-preview-schema-requires-params
+  (with-redefs [ai-assistant/explain-preview-schema! (fn [_] (throw (Exception. "should not be called")))]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainPreviewSchema")
+                           :params {:endpoint_config {:endpoint_name "fleet/vehicles"}}))]
+      (is (= 400 (:status response))))))
+
+(deftest ai-suggest-bronze-keys-returns-envelope
+  (with-redefs [ai-assistant/suggest-bronze-keys!
+                (fn [_]
+                  {:summary "Recommended PK: id, watermark: updatedAtTime"
+                   :confidence 0.9
+                   :recommendations [{:text "id is a stable identifier"}]
+                   :edits {}
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "suggest_bronze_keys" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiSuggestBronzeKeys")
+                           :params {:endpoint_config {:endpoint_name "fleet/vehicles"}
+                                    :inferred_fields [{:column_name "id" :type "STRING"}]}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (string? (:summary body)))
+      (is (= "suggest_bronze_keys" (get-in body [:debug :task]))))))
+
+(deftest ai-explain-model-proposal-returns-envelope
+  (with-redefs [ai-assistant/explain-model-proposal!
+                (fn [_]
+                  {:summary "This proposal creates a deduped Silver table."
+                   :confidence 0.8
+                   :recommendations []
+                   :edits {}
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "explain_proposal" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainModelProposal")
+                           :params {:proposal_id "1"
+                                    :proposal_json {:columns [{:target_column "id" :type "STRING"}]}}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "explain_proposal" (get-in body [:debug :task]))))))
+
+(deftest ai-explain-model-proposal-requires-proposal-id
+  (with-redefs [ai-assistant/explain-model-proposal! (fn [_] (throw (Exception. "should not be called")))]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainModelProposal")
+                           :params {:proposal_json {:columns []}}))]
+      (is (= 400 (:status response))))))
+
+(deftest ai-explain-proposal-validation-returns-envelope
+  (with-redefs [ai-assistant/explain-proposal-validation!
+                (fn [_]
+                  {:summary "2 checks failed: missing PK and type mismatch."
+                   :confidence 0.75
+                   :recommendations ["Add primary key column"]
+                   :edits {}
+                   :open_questions []
+                   :warnings ["Deterministic fallback used"]
+                   :debug {:task "explain_validation" :source "deterministic_only"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainProposalValidation")
+                           :params {:proposal_id "1"
+                                    :validation_result {:status "invalid"
+                                                        :checks [{:kind "pk_check" :result "fail"}]}}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "explain_validation" (get-in body [:debug :task]))))))
+
+(deftest ai-explain-proposal-validation-requires-validation-result
+  (with-redefs [ai-assistant/explain-proposal-validation! (fn [_] (throw (Exception. "should not be called")))]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainProposalValidation")
+                           :params {:proposal_id "1"}))]
+      (is (= 400 (:status response))))))
+
+;; ---------------------------------------------------------------------------
+;; P2 AI Routes
+;; ---------------------------------------------------------------------------
+
+(deftest ai-suggest-silver-transforms-returns-envelope
+  (with-redefs [ai-assistant/suggest-silver-transforms!
+                (fn [_]
+                  {:summary "2 transform suggestions"
+                   :confidence 0.8
+                   :edits {:type_casts [{:description "Cast to TIMESTAMP" :target_column "updated_at"}]}
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "suggest_silver_transforms" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiSuggestSilverTransforms")
+                           :params {:proposal_id "1"
+                                    :proposal {:columns [{:target_column "id"}]}}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "suggest_silver_transforms" (get-in body [:debug :task]))))))
+
+(deftest ai-suggest-silver-transforms-requires-proposal
+  (with-redefs [ai-assistant/suggest-silver-transforms! (fn [_] (throw (Exception. "should not be called")))]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiSuggestSilverTransforms")
+                           :params {:proposal_id "1"}))]
+      (is (= 400 (:status response))))))
+
+(deftest ai-generate-silver-from-brd-returns-envelope
+  (with-redefs [ai-assistant/generate-silver-proposal-from-brd!
+                (fn [_]
+                  {:summary "Mapped 3 of 4 requirements"
+                   :confidence 0.75
+                   :edits {:target_columns [{:target_column "id" :source_column "id"}]}
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "silver_from_brd" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiGenerateSilverFromBRD")
+                           :params {:brd_text "Need vehicle tracking"
+                                    :source_columns [{:column_name "id"}]}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "silver_from_brd" (get-in body [:debug :task]))))))
+
+(deftest ai-generate-silver-from-brd-requires-brd-text
+  (with-redefs [ai-assistant/generate-silver-proposal-from-brd! (fn [_] (throw (Exception. "should not be called")))]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiGenerateSilverFromBRD")
+                           :params {:source_columns [{:column_name "id"}]}))]
+      (is (= 400 (:status response))))))
+
+(deftest ai-generate-gold-from-brd-returns-envelope
+  (with-redefs [ai-assistant/generate-gold-proposal-from-brd!
+                (fn [_]
+                  {:summary "Gold mart design from BRD"
+                   :confidence 0.7
+                   :edits {}
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "gold_from_brd" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiGenerateGoldFromBRD")
+                           :params {:brd_text "Daily vehicle count" :source_columns [{:column_name "id"}]}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "gold_from_brd" (get-in body [:debug :task]))))))
+
+(deftest ai-suggest-gold-mart-returns-envelope
+  (with-redefs [ai-assistant/suggest-gold-mart-design!
+                (fn [_]
+                  {:summary "Consider adding partition keys"
+                   :confidence 0.85
+                   :edits {:add_columns [{:description "Add day partition" :target_column "day"}]}
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "suggest_gold_mart" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiSuggestGoldMartDesign")
+                           :params {:proposal_id "5"
+                                    :proposal {:columns [{:target_column "count"}]}}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "suggest_gold_mart" (get-in body [:debug :task]))))))
+
+(deftest ai-explain-schema-drift-returns-envelope
+  (with-redefs [ai-assistant/explain-schema-drift!
+                (fn [_]
+                  {:summary "New field gps_accuracy added"
+                   :confidence 0.9
+                   :severity "info"
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "explain_drift" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainSchemaDrift")
+                           :params {:event_id "42"}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "explain_drift" (get-in body [:debug :task]))))))
+
+(deftest ai-suggest-drift-remediation-returns-envelope
+  (with-redefs [ai-assistant/suggest-drift-remediation!
+                (fn [_]
+                  {:summary "Add gps_accuracy to Bronze table"
+                   :confidence 0.85
+                   :edits {:bronze_changes [{:description "Add column" :action "add" :target "gps_accuracy"}]}
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "suggest_drift_remediation" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiSuggestDriftRemediation")
+                           :params {:event_id "42"}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "suggest_drift_remediation" (get-in body [:debug :task]))))))
+
+;; ---------------------------------------------------------------------------
+;; P3-A: Explain Endpoint Business Shape
+;; ---------------------------------------------------------------------------
+
+(deftest ai-explain-endpoint-business-shape-returns-envelope
+  (with-redefs [ai-assistant/explain-endpoint-business-shape!
+                (fn [_]
+                  {:summary "Event entity — GPS pings per vehicle"
+                   :confidence 0.88
+                   :entity_type "event"
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "explain_business_shape" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainEndpointBusinessShape")
+                           :params {:endpoint_config {:endpoint_name "vehicles"}
+                                    :inferred_fields [{:column_name "id" :type "STRING"}]}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "explain_business_shape" (get-in body [:debug :task]))))))
+
+(deftest ai-explain-endpoint-business-shape-requires-params
+  (let [response ((test-handler)
+                  (assoc (mock/request :post "/aiExplainEndpointBusinessShape")
+                         :params {}))
+        body     (response-body->map response)]
+    (is (= 400 (:status response)))
+    (is (re-find #"endpoint_config" (:error body)))))
+
+;; ---------------------------------------------------------------------------
+;; P3-B: Explain Target Strategy
+;; ---------------------------------------------------------------------------
+
+(deftest ai-explain-target-strategy-returns-envelope
+  (with-redefs [ai-assistant/explain-target-strategy!
+                (fn [_]
+                  {:summary "Merge mode upserts on primary key"
+                   :confidence 0.9
+                   :write_mode_notes "MERGE ensures idempotent upserts"
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "explain_target_strategy" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainTargetStrategy")
+                           :params {:target_config {:write_mode "merge" :target_kind "databricks"}}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "explain_target_strategy" (get-in body [:debug :task]))))))
+
+(deftest ai-explain-target-strategy-requires-target-config
+  (let [response ((test-handler)
+                  (assoc (mock/request :post "/aiExplainTargetStrategy")
+                         :params {}))
+        body     (response-body->map response)]
+    (is (= 400 (:status response)))
+    (is (re-find #"target_config" (:error body)))))
+
+;; ---------------------------------------------------------------------------
+;; P3-C: Generate Metric Glossary
+;; ---------------------------------------------------------------------------
+
+(deftest ai-generate-metric-glossary-returns-envelope
+  (with-redefs [ai-assistant/generate-metric-glossary!
+                (fn [_]
+                  {:summary "Generated 2 metric definitions"
+                   :confidence 0.85
+                   :glossary [{:metric "total_trips" :definition "Count of trips"}]
+                   :recommendations []
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "generate_metric_glossary" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiGenerateMetricGlossary")
+                           :params {:proposal_id "100"
+                                    :proposal {:columns [{:column_name "total_trips"}]}}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "generate_metric_glossary" (get-in body [:debug :task]))))))
+
+(deftest ai-generate-metric-glossary-requires-proposal
+  (let [response ((test-handler)
+                  (assoc (mock/request :post "/aiGenerateMetricGlossary")
+                         :params {:proposal_id "100"}))
+        body     (response-body->map response)]
+    (is (= 400 (:status response)))
+    (is (re-find #"proposal" (:error body)))))
+
+;; ---------------------------------------------------------------------------
+;; P3-D: Explain Run/KPI Anomaly
+;; ---------------------------------------------------------------------------
+
+(deftest ai-explain-run-or-kpi-anomaly-returns-envelope
+  (with-redefs [ai-assistant/explain-run-or-kpi-anomaly!
+                (fn [_]
+                  {:summary "Row count doubled after schema change"
+                   :confidence 0.82
+                   :likely_causes ["Schema drift"]
+                   :recommendations ["Verify rows are not duplicates"]
+                   :open_questions []
+                   :warnings []
+                   :debug {:task "explain_anomaly" :source "deterministic_plus_ai"}})]
+    (let [response ((test-handler)
+                    (assoc (mock/request :post "/aiExplainRunOrKpiAnomaly")
+                           :params {:proposal_id "100"
+                                    :run_history [{:status "success" :row_count 1000}]}))
+          body     (response-body->map response)]
+      (is (= 200 (:status response)))
+      (is (= "explain_anomaly" (get-in body [:debug :task]))))))
+
+;; AI routes respect RBAC
+
+(deftest ai-routes-return-403-when-rbac-enabled-and-role-missing
+  (with-redefs [config/env {:bitool-rbac-enabled "true"}]
+    (doseq [[route params] [["/aiExplainPreviewSchema"       {:endpoint_config {} :inferred_fields []}]
+                             ["/aiSuggestBronzeKeys"          {:endpoint_config {} :inferred_fields []}]
+                             ["/aiExplainModelProposal"       {:proposal_id "1" :proposal_json {}}]
+                             ["/aiExplainProposalValidation"  {:proposal_id "1" :validation_result {}}]
+                             ["/aiSuggestSilverTransforms"    {:proposal_id "1" :proposal {}}]
+                             ["/aiGenerateSilverFromBRD"      {:brd_text "test" :source_columns []}]
+                             ["/aiGenerateGoldFromBRD"        {:brd_text "test" :source_columns []}]
+                             ["/aiSuggestGoldMartDesign"      {:proposal_id "1" :proposal {}}]
+                             ["/aiExplainSchemaDrift"         {:event_id "1"}]
+                             ["/aiSuggestDriftRemediation"    {:event_id "1"}]
+                             ["/aiExplainEndpointBusinessShape" {:endpoint_config {} :inferred_fields []}]
+                             ["/aiExplainTargetStrategy"      {:target_config {}}]
+                             ["/aiGenerateMetricGlossary"     {:proposal_id "1" :proposal {}}]
+                             ["/aiExplainRunOrKpiAnomaly"     {:proposal_id "1"}]]]
+      (let [response ((test-handler)
+                      (assoc (mock/request :post route)
+                             :params params
+                             :session {:roles ["viewer"]}))
+            body (response-body->map response)]
+        (is (= 403 (:status response)) (str route " should return 403"))
+        (is (= "Forbidden" (:error body)) (str route " error message"))))))

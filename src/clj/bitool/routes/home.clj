@@ -17,6 +17,7 @@
    [ring.util.response :as response ]
    [ring.middleware.session :as session]
    [ring.util.http-response :as http-response]
+   [next.jdbc.sql :as sql]
    [cheshire.core :as json]
    [clj-http.client :as client]
    [buddy.core.crypto :as crypto]
@@ -38,10 +39,24 @@
    [bitool.modeling.automation :as modeling-automation]
    [bitool.operations :as operations]
    [bitool.gil.api :as gil-api]
+   [bitool.ai.assistant :as ai-assistant]
+   [bitool.ops.schema-drift :as schema-drift]
    )
   (:import [java.net URI InetAddress]))
 
 (filters/add-filter! :second second)
+
+(defn- backend-debug-logging-enabled? []
+  (contains? #{"true" "1" "yes" "on"}
+             (some-> (get env :bitool_backend_debug_logs) str string/lower-case)))
+
+(defn- dbg [& args]
+  (when (backend-debug-logging-enabled?)
+    (apply println args)))
+
+(defn- dbg-pp [value]
+  (when (backend-debug-logging-enabled?)
+    (pp/pprint value)))
 
 (defn updateCoordinates [coordV] (map #(update % :y (fn[x] (+ (* x 50) 150)) ) (map #(update % :x (fn[x] (+ (* x 100) 150)) ) coordV)))
 
@@ -64,19 +79,14 @@
            ]
            {:cp cp :sp sp}))
 
-(declare persist-graph! graph-save-error-response)
+(declare persist-graph! graph-save-error-response
+         parse-required-int parse-optional-int parse-optional-bool)
 
 (defn mapCoordinates[g]
       (let [
 		retmap (splitCpSp g)
-                _ (tel/log! {:level :info, :msg (str "retmap : " retmap)})
-                _ (println "++++++++++ CP retmap ++++++++++++")
-                _ (println (getCoordinates (:cp retmap)))
-                _ (println "++++++++++ SP retmap ++++++++++++")
-                _ (println (:sp retmap))
-                ret  (assoc {} :cp (getCoordinates (:cp retmap)) :sp (g2/getOrphanAttrs (:sp retmap)))
-                _ (println "++++++++++ RETMAP ++++++++++++")
-                _ (pp/pprint ret)
+                _ (when (backend-debug-logging-enabled?)
+                    (tel/log! {:level :debug :msg "mapCoordinates" :data {:retmap retmap}}))
 
            ]
              (into (getCoordinates (:cp retmap)) (g2/getOrphanAttrs (:sp retmap)))))
@@ -89,17 +99,17 @@
       (assoc :headers {"Content-Type" "text/plain"})))
 
 (defn home-page [request]
-  (let [_ (println (str "Session :" (:session request)))]
+  (let [_ (dbg (str "Session :" (:session request)))]
   (layout/render request "index.html" {:name "Harish"})))
 
 (defn custom [request]
-  (let [_ (println (str "Session :" (:session request)))]
+  (let [_ (dbg (str "Session :" (:session request)))]
   (layout/render request "customWebComponent.html" {:name "Harish"})))
 
 
 (defn testReq [request] (let [x (:params request)]
-					(println (:table1 x))
-					(println (:table2 x))
+					(dbg (:table1 x))
+					(dbg (:table2 x))
 					(+ 1 1)))
 (defn get-conn[request]
   (let [conn-id-str (:conn-id (:params request))]
@@ -108,26 +118,26 @@
       (http-response/ok (g2/getDBTree (Integer. conn-id-str))))))
 
 (defn get-btype[alias]
-      (if (some #{"join" "union" "projection" "aggregation" "sorter" "filter" "function" "target" "output" "api-connection" "kafka-source" "file-source" "graphql-builder" "mapping" "conditionals" "endpoint" "response-builder" "validator" "auth" "db-execute" "rate-limiter" "cors" "logger" "cache" "event-emitter" "circuit-breaker" "scheduler" "webhook"} [alias])
+      (if (some #{"join" "union" "projection" "aggregation" "sorter" "filter" "function" "target" "output" "api-connection" "api" "kafka-source" "file-source" "graphql-builder" "mapping" "conditionals" "endpoint" "response-builder" "validator" "auth" "db-execute" "rate-limiter" "cors" "logger" "cache" "event-emitter" "circuit-breaker" "scheduler" "webhook"} [alias])
           alias
           "T"))
 
-(defn addSingle[request] (let [ _ (pp/pprint request)
+(defn addSingle[request] (let [ _ (dbg-pp request)
                                  params (:params request)
-                              _ (println (str "BTYPE : " (:alias params)))
-                              _ (println (str "ALIAS class: " (class (:alias params))))
-                              _ (println (str "ALIAS count: " (count (:alias params))))
+                              _ (dbg (str "BTYPE : " (:alias params)))
+                              _ (dbg (str "ALIAS class: " (class (:alias params))))
+                              _ (dbg (str "ALIAS count: " (count (:alias params))))
                               gid (:gid (:session request))
                               alias (:alias params)
- 			      _ (println (str "gid : " gid))
+ 			      _ (dbg (str "gid : " gid))
 			      g (g2/add-single-node gid (Integer. (anil? (:conn_id params) "123")) alias (get-btype alias) (:x params) (:y params))
                                ]
                                g))
 
-(defn connectSingle[request] (let [ _ (pp/pprint request)
+(defn connectSingle[request] (let [ _ (dbg-pp request)
                                  params (:params request)
                               gid (:gid (:session request))
- 			      _ (println (str "gid : " gid))
+ 			      _ (dbg (str "gid : " gid))
 			      g (g2/connect-single-node gid (Integer. (:conn_id params)) (Integer. (:src params)) (Integer. (:dest params)))
                                ]
 			       g))
@@ -136,33 +146,33 @@
                               ;;  _ (pp/pprint request)
                                  params (:params request)
                               gid (:gid (:session request))
- 			      _ (println (str "gid : " gid))
-                              _ (println "Inside save-rect-join")
+ 			      _ (dbg (str "gid : " gid))
+                              _ (dbg "Inside save-rect-join")
                               g (g2/rect-join gid (Integer. (:src params)) (Integer. (:dest params)))
-                              _ (println "FINAL GRAPH")
-                                _ (pp/pprint g)
+                              _ (dbg "FINAL GRAPH")
+                                _ (dbg-pp g)
                                ]
                                g))
 
-(defn addTable [request] (let [ _ (pp/pprint request)
+(defn addTable [request] (let [ _ (dbg-pp request)
                               params (:params request)
 			      t1 (:table1 params) 
 			      t2 (Integer. (:table2 params))
 			      c1 (Integer. (:conn_id params))
                               gid (:gid (:session request))
                               jtype (:action params)
- 			      _ (println (str "gid : " gid))
-                              _ (println (str "t1 -home: " t1))
-                              _ (println (str "t2 -home: " t2))
-                              _ (println (str "c2 -home: " c1))
+ 			      _ (dbg (str "gid : " gid))
+                              _ (dbg (str "t1 -home: " t1))
+                              _ (dbg (str "t2 -home: " t2))
+                              _ (dbg (str "c2 -home: " c1))
                               t1-map (db/get-table c1 t1)
 			      g (g2/processAddTable gid t2 c1 t1-map (g2/btype-codes jtype))
-                              _ (println "AFTER processAddTable")
+                              _ (dbg "AFTER processAddTable")
                         ;;      _ (pp/pprint g)
                               session (:session request)
-                              _ (println "Session " session)
-                              _ (println "Printing Graph")
-			      _ (print (class g))
+                              _ (dbg "Session " session)
+                              _ (dbg "Printing Graph")
+			      _ (dbg (class g))
 			      ]
                               g))
                               ;; (g2/createCoordinates g)))
@@ -170,13 +180,13 @@
 (defn deleteTable [request] (let [params (:params request)
 			      t1 (:item params)
                               gid (:gid (:session request))
- 			      _ (println (str "gid : " gid))
-                              _ (println (str "t1 -home: " t1))
+ 			      _ (dbg (str "gid : " gid))
+                              _ (dbg (str "t1 -home: " t1))
 			      g (graph/deleteTable gid t1)
-                              _ (println g)
+                              _ (dbg g)
 			      ]
-                              (println "Printing Graph")
-			      (print (class g))
+                              (dbg "Printing Graph")
+			      (dbg (class g))
                               g))
                               ;; (g2/createCoordinates g)))
 
@@ -186,8 +196,8 @@
         item (:item params)
         gid (:gid (:session request))
         ftype (:label params)
-        _ (println (str "ITEM " item))
-        _ (println (str "ftype " ftype))
+        _ (dbg (str "ITEM " item))
+        _ (dbg (str "ftype " ftype))
         retmap (g2/addRightClickNode gid (Integer. item) (g2/btype-codes ftype))]
                               (assoc retmap :cp (getCoordinates (:cp retmap)))))
 
@@ -195,7 +205,7 @@
   (let [
          params (:params request)
          gid (:gid params)
-         _ (println (str "home gid : " gid))
+         _ (dbg (str "home gid : " gid))
          graph (db/getGraph (Integer. gid))
          ver (get-in graph [:a :v])
          session (:session request)
@@ -207,25 +217,213 @@
 (defn list-models [_request]
   (http-response/ok (db/list-models)))
 
+(defn- connection-tree-parent
+  [dbtype]
+  (case (some-> dbtype string/lower-case)
+    "api" "API"
+    "databricks" "Databricks"
+    "bigquery" "GCP"
+    "snowflake" "Snowflake"
+    ("kafka_stream" "connector") "Kafka"
+    ("postgresql" "oracle" "sqlserver" "mysql" "db2") "RDBMS"
+    nil))
+
+(defn- connection->tree-item
+  [conn]
+  (let [dbtype (:dbtype conn)]
+    {:conn_id (:id conn)
+     :label (or (:connection_name conn) (str "Connection " (:id conn)))
+     :dbtype dbtype
+     :treeParent (connection-tree-parent dbtype)
+     :nodetype (when (= "api" (some-> dbtype string/lower-case))
+                 "api-connection")}))
+
+(defn list-connections [_request]
+  (let [connections (->> (db/list-all-connections-summary)
+                         (map connection->tree-item)
+                         (remove #(nil? (:treeParent %)))
+                         vec)]
+    (http-response/ok {:connections connections})))
+
+(defn get-connection-detail [request]
+  (try
+    (let [params (:params request)
+          conn-id (parse-required-int (or (:conn_id params) (:conn-id params)) :conn_id)
+          detail (db/get-connection-detail conn-id)]
+      (if detail
+        (http-response/ok detail)
+        (http-response/not-found {:error "Connection not found" :conn_id conn-id})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn create-api-connection [request]
+  (try
+    (let [params (:params request)
+          connection-name (or (:api_name params) (:connection_name params))
+          conn-id-param (or (:conn_id params) (:conn-id params))
+          spec-url (:specification_url params)
+          uri (when (seq (str spec-url))
+                (try
+                  (URI. (str spec-url))
+                  (catch Exception _
+                    nil)))
+          port (let [explicit (some-> uri .getPort)]
+                 (cond
+                   (and explicit (not= -1 explicit)) explicit
+                   (= "https" (some-> uri .getScheme string/lower-case)) 443
+                   (= "http" (some-> uri .getScheme string/lower-case)) 80
+                   :else 443))
+          conn-row {:connection_name connection-name
+                    :dbtype "api"
+                    :host spec-url
+                    :port port
+                    :schema (:authentication params)
+                    :username (:username params)
+                    :password (:password params)}
+          conn-id (when (some? conn-id-param)
+                    (parse-required-int conn-id-param :conn_id))
+          _       (when conn-id
+                    (db/update-connection! conn-id conn-row))
+          inserted (when-not conn-id
+                     (db/insert-data :connection conn-row))
+          conn-id (or conn-id (:connection/id inserted))]
+      (http-response/ok
+       {"conn-id" conn-id
+        "tree-data" {:label (or connection-name "API Connection")
+                     :items []
+                     :nodetype "api-connection"}}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn update-db-connection [request]
+  (try
+    (let [params (:params request)
+          conn-id (parse-required-int (or (:conn_id params) (:conn-id params)) :conn_id)
+          existing (db/get-connection-detail conn-id)]
+      (when-not existing
+        (throw (ex-info "Connection not found" {:status 404 :conn_id conn-id})))
+      (let [attrs (cond-> {}
+                    (contains? params :connection_name) (assoc :connection_name (:connection_name params))
+                    (contains? params :dbtype) (assoc :dbtype (:dbtype params))
+                    (contains? params :host) (assoc :host (:host params))
+                    (contains? params :dbname) (assoc :dbname (:dbname params))
+                    (contains? params :schema) (assoc :schema (:schema params))
+                    (contains? params :username) (assoc :username (:username params))
+                    (contains? params :password) (assoc :password (:password params))
+                    (contains? params :sid) (assoc :sid (:sid params))
+                    (contains? params :service) (assoc :service (:service params))
+                    (contains? params :token) (assoc :token (:token params))
+                    (contains? params :http_path) (assoc :http_path (:http_path params))
+                    (contains? params :catalog) (assoc :catalog (:catalog params))
+                    (contains? params :warehouse) (assoc :warehouse (:warehouse params))
+                    (contains? params :role) (assoc :role (:role params))
+                    (some-> (:port params) str not-empty) (assoc :port (Integer/parseInt (str (:port params)))))]
+        (db/update-connection! conn-id attrs)
+        (when-let [db-name (:dbname existing)]
+          (db/invalidate-ds-cache! conn-id db-name))
+        (http-response/ok {:status "ok" :conn_id conn-id})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch NumberFormatException e
+      (http-response/bad-request {:error (.getMessage e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn delete-connection [request]
+  (try
+    (let [params (:params request)
+          conn-id (parse-required-int (or (:conn_id params) (:conn-id params)) :conn_id)
+          existing (db/get-connection-detail conn-id)]
+      (when-not existing
+        (throw (ex-info "Connection not found" {:status 404 :conn_id conn-id})))
+      (db/delete-connection! conn-id)
+      (when-let [db-name (:dbname existing)]
+        (db/invalidate-ds-cache! conn-id db-name))
+      (http-response/ok {:status "ok" :conn_id conn-id}))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn test-connection-by-id [request]
+  (try
+    (let [params (:params request)
+          conn-id (parse-required-int (or (:conn_id params) (:conn-id params)) :conn_id)]
+      (db/test-connection conn-id)
+      (http-response/ok {:status "ok" :conn_id conn-id}))
+    (catch clojure.lang.ExceptionInfo e
+      (http-response/bad-request {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/ok {:status "error"
+                         :conn_id (or (some-> request :params :conn_id)
+                                      (some-> request :params :conn-id))
+                         :error (.getMessage e)}))))
+
+(defn test-db-connection [request]
+  (try
+    (let [params (:params request)
+          conn-row (cond-> {:connection_name (:connection_name params)
+                            :dbtype (:dbtype params)
+                            :host (:host params)
+                            :dbname (:dbname params)
+                            :schema (:schema params)
+                            :username (:username params)
+                            :password (:password params)}
+                     (some-> (:token params) str not-empty)
+                     (assoc :token (:token params))
+                     (some-> (:http_path params) str not-empty)
+                     (assoc :http_path (:http_path params))
+                     (some-> (:catalog params) str not-empty)
+                     (assoc :catalog (:catalog params))
+                     (some-> (:warehouse params) str not-empty)
+                     (assoc :warehouse (:warehouse params))
+                     (some-> (:role params) str not-empty)
+                     (assoc :role (:role params))
+                     (some-> (:port params) str not-empty)
+                     (assoc :port (Integer/parseInt (str (:port params))))
+                     (some-> (:sid params) str not-empty)
+                     (assoc :sid (:sid params))
+                     (some-> (:service params) str not-empty)
+                     (assoc :service (:service params)))
+          inserted (db/insert-data :connection conn-row)
+          conn-id (:connection/id inserted)]
+      (db/test-connection conn-id)
+      (http-response/ok {:status "ok"}))
+    (catch NumberFormatException e
+      (http-response/bad-request {:error (.getMessage e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
      ;; (layout/render request "graphbody.html" {:items  (g2/displayGraph graph) :gid gid  })))
       ;; (http-response/ok (mapCoordinates (db/getGraph gid)))))
 
 (defn new-graph [request]
   (let [
 	graphname (:graphname (:params request))
-        _ (println (str "Params : " (:params request))) 
-        _ (println (str "Graph name : " graphname)) 
+        _ (dbg (str "Params : " (:params request))) 
+        _ (dbg (str "Graph name : " graphname)) 
 	graph (g2/createGraph (:graphname (:params request)))
         gid (get-in graph [:a :id])
         ver (get-in graph [:a :v])
-        _ (println (str "home gid : " gid))
-        _ (println (str "home ver : " ver))
-        _ (println (str "home graph : " graph))
+        _ (dbg (str "home gid : " gid))
+        _ (dbg (str "home ver : " ver))
+        _ (dbg (str "home graph : " graph))
         session (:session request)
-        _ (println (str "Session Contents :" session ))
-        _ (println "DISPLAYGRAPH")
-        _ (println (g2/displayGraph graph))
-        _ (println "DISPLAYGRAPH")
+        _ (dbg (str "Session Contents :" session ))
+        _ (dbg "DISPLAYGRAPH")
+        _ (dbg (g2/displayGraph graph))
+        _ (dbg "DISPLAYGRAPH")
         ]
   (->
     ;; (layout/render request "graphbody.html" {:items  (g2/displayGraph graph) :gid gid  })
@@ -234,8 +432,8 @@
      (assoc :session (assoc session :gid gid :ver ver)))))
 
 (defn getHtml [item] (let [cat (first (str item))
-                           _ (println (str "cat " cat))
-                           _ (println (str "class " (class cat)))
+                           _ (dbg (str "cat " cat))
+                           _ (dbg (str "class " (class cat)))
                            subcat (subs (str item) 2 3) ]
                         (case cat 
                          \j "j.html"
@@ -264,7 +462,7 @@
 
 (defn getItemData [gid itemid btype] 
                         (let [id (Integer/parseInt itemid)
-                              _ (println (str "btype : " btype)) 
+                              _ (dbg (str "btype : " btype)) 
                              ] 
 			(case btype
                          ("J" "U" "P" "T" "O" "Fi" "Fu" "A" "S" "Tg") (assoc (g2/getData gid id) :id id)
@@ -327,23 +525,24 @@
            _ (when (or (nil? gid) (= "" (str gid)))
                (throw (ex-info "No graph selected" {:status 400})))
            id (Integer. id-str)
-           _ (println (str "id: " id))
-           _ (println (str "gid: " gid))
+           _ (dbg (str "id: " id))
+           _ (dbg (str "gid: " gid))
            g (db/getGraph gid)
-           _ (pp/pprint g)
+           _ (dbg-pp g)
            btype (g2/getBtype g id)
            fx (get-fx-from-btype btype)
-           _ (println "ITEM------")
-           _ (println fx)
-           _ (println (class btype))
-           _ (println id)
-           _ (println (str "btype " btype))]
+           _ (dbg "ITEM------")
+           _ (dbg fx)
+           _ (dbg (class btype))
+           _ (dbg id)
+           _ (dbg (str "btype " btype))]
      (http-response/ok (apply fx [id g])))
     (catch clojure.lang.ExceptionInfo e
       (http-response/bad-request {:error (ex-message e)}))
     (catch Exception e
-      (println "get-item error:" (.getMessage e))
-      (.printStackTrace e)
+      (when (backend-debug-logging-enabled?)
+        (println "get-item error:" (.getMessage e))
+        (.printStackTrace e))
       (http-response/internal-server-error {:error (str "Failed to get item: " (.getMessage e))}))))
 
  ;;(http-response/ok (apply fx [id (getItemData gid id btype) g]))))
@@ -360,18 +559,18 @@
 (defn get-endpoints[request]
       (let [
              url (:url (:params request))
-             _ (prn-v url)
+             _ (dbg url)
            ] 
       (http-response/ok (endpoint-json (sc/list-endpoints-from-url url)))))
 
 (defn get-endpoint-schema[request]
       (let [
              url (:url (:params request))
-             _ (prn-v url)
+             _ (dbg url)
              specurl (:spec (:params request))
-             _ (prn-v specurl)
+             _ (dbg specurl)
              method (:method (:params request))
-             _ (prn-v method)
+             _ (dbg method)
            ] 
            (http-response/ok (sc/endpoint-nodes-from-url specurl url (keyword (string/lower-case method))))))
 
@@ -574,8 +773,12 @@
          set)))
 
 (defn- bad-request
-  ([message] (http-response/bad-request {:error message}))
-  ([message data] (http-response/bad-request {:error message :data data})))
+  ([message]
+   (-> (http-response/bad-request (json/generate-string {:error message}))
+       (response/content-type "application/json; charset=utf-8")))
+  ([message data]
+   (-> (http-response/bad-request (json/generate-string {:error message :data data}))
+       (response/content-type "application/json; charset=utf-8"))))
 
 (defn- with-bad-request-number-format
   [handler]
@@ -616,6 +819,21 @@
     (catch Exception _
       false)))
 
+(defn- allowed-local-preview-uri?
+  [^URI uri]
+  (let [scheme (some-> (.getScheme uri) string/lower-case)
+        host   (some-> (.getHost uri) string/trim string/lower-case)
+        port   (let [explicit (.getPort uri)]
+                 (if (neg? explicit)
+                   (case scheme
+                     "https" 443
+                     "http" 80
+                     explicit)
+                   explicit))]
+    (and (= "http" scheme)
+         (#{"localhost" "127.0.0.1" "::1"} host)
+         (= 3001 port))))
+
 (defn- ensure-preview-base-url-safe!
   [raw-url]
   (let [uri    (URI. (or (some-> raw-url str string/trim) ""))
@@ -625,8 +843,9 @@
       (throw (ex-info "Preview base_url must be an absolute http(s) URL"
                       {:status 400
                        :field :base_url})))
-    (when (or (local-host? host)
-              (private-ip-literal? host))
+    (when (and (not (allowed-local-preview-uri? uri))
+               (or (local-host? host)
+                   (private-ip-literal? host)))
       (throw (ex-info "Preview base_url must not target local or private addresses"
                       {:status 400
                        :field :base_url
@@ -875,6 +1094,290 @@
           endpoint (:endpoint_config params)
           result (ingest-runtime/preview-endpoint-schema! api-node endpoint)]
       (http-response/ok result))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+;; ---------------------------------------------------------------------------
+;; Embedded AI assistant routes (P1)
+;; ---------------------------------------------------------------------------
+
+(defn ai-explain-preview-schema [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)]
+      (when-not (:endpoint_config params)
+        (throw (ex-info "endpoint_config is required" {:status 400 :field :endpoint_config})))
+      (when-not (:inferred_fields params)
+        (throw (ex-info "inferred_fields is required" {:status 400 :field :inferred_fields})))
+      (http-response/ok
+       (ai-assistant/explain-preview-schema!
+        {:endpoint_config (:endpoint_config params)
+         :inferred_fields (:inferred_fields params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-suggest-bronze-keys [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)]
+      (when-not (:endpoint_config params)
+        (throw (ex-info "endpoint_config is required" {:status 400 :field :endpoint_config})))
+      (when-not (:inferred_fields params)
+        (throw (ex-info "inferred_fields is required" {:status 400 :field :inferred_fields})))
+      (http-response/ok
+       (ai-assistant/suggest-bronze-keys!
+        {:endpoint_config (:endpoint_config params)
+         :inferred_fields (:inferred_fields params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-explain-model-proposal [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (when-not (:proposal_json params)
+        (throw (ex-info "proposal_json is required" {:status 400 :field :proposal_json})))
+      (http-response/ok
+       (ai-assistant/explain-model-proposal!
+        {:proposal_id    proposal-id
+         :proposal_json  (:proposal_json params)
+         :compile_result (:compile_result params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-explain-proposal-validation [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (when-not (:validation_result params)
+        (throw (ex-info "validation_result is required" {:status 400 :field :validation_result})))
+      (http-response/ok
+       (ai-assistant/explain-proposal-validation!
+        {:proposal_id       proposal-id
+         :validation_result (:validation_result params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+;; ---------------------------------------------------------------------------
+;; Embedded AI assistant routes (P2)
+;; ---------------------------------------------------------------------------
+
+(defn ai-suggest-silver-transforms [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (when-not (:proposal params)
+        (throw (ex-info "proposal is required" {:status 400 :field :proposal})))
+      (http-response/ok
+       (ai-assistant/suggest-silver-transforms!
+        {:proposal_id proposal-id
+         :proposal    (:proposal params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-generate-silver-from-brd [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)]
+      (when-not (:brd_text params)
+        (throw (ex-info "brd_text is required" {:status 400 :field :brd_text})))
+      (when-not (:source_columns params)
+        (throw (ex-info "source_columns is required" {:status 400 :field :source_columns})))
+      (http-response/ok
+       (ai-assistant/generate-silver-proposal-from-brd!
+        {:brd_text        (:brd_text params)
+         :source_columns  (:source_columns params)
+         :endpoint_config (:endpoint_config params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-generate-gold-from-brd [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)]
+      (when-not (:brd_text params)
+        (throw (ex-info "brd_text is required" {:status 400 :field :brd_text})))
+      (when-not (:source_columns params)
+        (throw (ex-info "source_columns is required" {:status 400 :field :source_columns})))
+      (http-response/ok
+       (ai-assistant/generate-gold-proposal-from-brd!
+        {:brd_text           (:brd_text params)
+         :source_columns     (:source_columns params)
+         :silver_proposal_id (:silver_proposal_id params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-suggest-gold-mart-design [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (when-not (:proposal params)
+        (throw (ex-info "proposal is required" {:status 400 :field :proposal})))
+      (http-response/ok
+       (ai-assistant/suggest-gold-mart-design!
+        {:proposal_id  proposal-id
+         :proposal     (:proposal params)
+         :source_table (:source_table params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-explain-schema-drift [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          event-id (parse-required-int (:event_id params) :event_id)]
+      (http-response/ok
+       (ai-assistant/explain-schema-drift!
+        {:event_id      event-id
+         :workspace_key (:workspace_key params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-suggest-drift-remediation [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          event-id (parse-required-int (:event_id params) :event_id)]
+      (http-response/ok
+       (ai-assistant/suggest-drift-remediation!
+        {:event_id      event-id
+         :workspace_key (:workspace_key params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         404 http-response/not-found
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-explain-endpoint-business-shape [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)]
+      (when-not (:endpoint_config params)
+        (throw (ex-info "endpoint_config is required" {:status 400 :field :endpoint_config})))
+      (when-not (:inferred_fields params)
+        (throw (ex-info "inferred_fields is required" {:status 400 :field :inferred_fields})))
+      (http-response/ok
+       (ai-assistant/explain-endpoint-business-shape!
+        {:endpoint_config (:endpoint_config params)
+         :inferred_fields (:inferred_fields params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-explain-target-strategy [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)]
+      (when-not (:target_config params)
+        (throw (ex-info "target_config is required" {:status 400 :field :target_config})))
+      (http-response/ok
+       (ai-assistant/explain-target-strategy!
+        {:target_config (:target_config params)
+         :proposal      (:proposal params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-generate-metric-glossary [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (when-not (:proposal params)
+        (throw (ex-info "proposal is required" {:status 400 :field :proposal})))
+      (http-response/ok
+       (ai-assistant/generate-metric-glossary!
+        {:proposal_id proposal-id
+         :proposal    (:proposal params)
+         :brd_text    (:brd_text params)})))
+    (catch clojure.lang.ExceptionInfo e
+      ((case (:status (ex-data e))
+         403 http-response/forbidden
+         http-response/bad-request)
+       {:error (ex-message e) :data (ex-data e)}))
+    (catch Exception e
+      (http-response/internal-server-error {:error (.getMessage e)}))))
+
+(defn ai-explain-run-or-kpi-anomaly [request]
+  (try
+    (ensure-authorized! request :api.ops)
+    (let [params (:params request)
+          proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
+      (http-response/ok
+       (ai-assistant/explain-run-or-kpi-anomaly!
+        {:proposal_id        proposal-id
+         :run_history        (:run_history params)
+         :validation_history (:validation_history params)
+         :drift_events       (:drift_events params)
+         :kpi_delta          (:kpi_delta params)})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
          403 http-response/forbidden
@@ -2307,8 +2810,9 @@
       (try
         (http-response/ok (mapCoordinates (addSingle request)))
         (catch Exception e
-          (println "add-single error:" (.getMessage e))
-          (.printStackTrace e)
+          (when (backend-debug-logging-enabled?)
+            (println "add-single error:" (.getMessage e))
+            (.printStackTrace e))
           (http-response/internal-server-error {:error (str "Failed to add node: " (.getMessage e))}))))))
 
 (defn move-single [request]
@@ -2328,7 +2832,8 @@
     (catch clojure.lang.ExceptionInfo e
       (graph-save-error-response e))
     (catch Exception e
-      (println "move-single error:" (.getMessage e))
+      (when (backend-debug-logging-enabled?)
+        (println "move-single error:" (.getMessage e)))
       (http-response/internal-server-error {:error (str "Failed to move node: " (.getMessage e))}))))
 
 (defn connect-single [request]
@@ -2427,12 +2932,12 @@
                      :function func-name}))))
 
 (defn get-item2 [request ]
-     (let [ ;; _ (pp/pprint request)
-            _ (println (:query-params request))
+     (let [ ;; _ (dbg-pp request)
+            _ (dbg (:query-params request))
             params (walk/keywordize-keys (:query-params request))
-            _ (println (str "id: " (:id params)))
+            _ (dbg (str "id: " (:id params)))
             item (g2/get-item (:conn-id params 108) (:id params))
-            _ (pp/pprint item)
+            _ (dbg-pp item)
             ] 
          (http-response/ok item)))
 
@@ -2449,9 +2954,9 @@
 (defn post-json
   [request]
   (let [json-body (json/generate-string (:form-params request)) ;; Convert Clojure map to JSON string
-        _ (println (:form-params request))
+        _ (dbg (:form-params request))
         name (get-in request [:path-params :fn])
-        _ (println (str "Name: " name))
+        _ (dbg (str "Name: " name))
         url (str "http://localhost:8081/" name)
         response  (client/post url
                                {:headers {"Content-Type" "application/json"} ;; Set headers
@@ -2479,6 +2984,13 @@
    ["/customWebComponent" {:get custom}]
    ["/graph" {:post graph-page}]
    ["/listModels" {:get list-models}]
+   ["/listConnections" {:get list-connections}]
+   ["/getConnectionDetail" {:get get-connection-detail}]
+   ["/createApiConnection" {:post create-api-connection}]
+   ["/testDbConnection" {:post test-db-connection}]
+   ["/updateDbConnection" {:post update-db-connection}]
+   ["/deleteConnection" {:post delete-connection}]
+   ["/testConnectionById" {:post test-connection-by-id}]
    ["/newgraph" {:post new-graph}]
    ["/getItem" {:get get-item}]
    ["/getEndpoints" {:get get-endpoints}]
@@ -2494,6 +3006,20 @@
    ["/saveKafkaSource" {:post save-kafka-source}]
    ["/saveFileSource" {:post save-file-source}]
    ["/previewApiSchemaInference" {:post preview-api-schema-inference}]
+   ["/aiExplainPreviewSchema" {:post ai-explain-preview-schema}]
+   ["/aiSuggestBronzeKeys" {:post ai-suggest-bronze-keys}]
+   ["/aiExplainModelProposal" {:post ai-explain-model-proposal}]
+   ["/aiExplainProposalValidation" {:post ai-explain-proposal-validation}]
+   ["/aiSuggestSilverTransforms" {:post ai-suggest-silver-transforms}]
+   ["/aiGenerateSilverFromBRD" {:post ai-generate-silver-from-brd}]
+   ["/aiGenerateGoldFromBRD" {:post ai-generate-gold-from-brd}]
+   ["/aiSuggestGoldMartDesign" {:post ai-suggest-gold-mart-design}]
+   ["/aiExplainSchemaDrift" {:post ai-explain-schema-drift}]
+   ["/aiSuggestDriftRemediation" {:post ai-suggest-drift-remediation}]
+   ["/aiExplainEndpointBusinessShape" {:post ai-explain-endpoint-business-shape}]
+   ["/aiExplainTargetStrategy" {:post ai-explain-target-strategy}]
+   ["/aiGenerateMetricGlossary" {:post ai-generate-metric-glossary}]
+   ["/aiExplainRunOrKpiAnomaly" {:post ai-explain-run-or-kpi-anomaly}]
    ["/proposeSilverSchema" {:post propose-silver-schema}]
    ["/silverProposals" {:get list-silver-proposals}]
    ["/silverProposals/:proposal_id" {:get get-silver-proposal}]

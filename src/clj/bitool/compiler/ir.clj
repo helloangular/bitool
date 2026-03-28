@@ -74,7 +74,13 @@
   (let [source-alias (or (:source_alias proposal-json)
                          (:source_layer proposal-json)
                          "bronze")
-        graph-filter (some-> (:graph_filter_sql proposal-json) str string/trim not-empty)]
+        graph-filter (some-> (:graph_filter_sql proposal-json) str string/trim not-empty)
+        materialization (or (:materialization proposal-json) {})
+        when-not-matched-by-source (when (map? (:when_not_matched_by_source materialization))
+                                     (let [cfg (:when_not_matched_by_source materialization)]
+                                       (cond-> {:action (:action cfg)}
+                                         (seq (or (:condition cfg) "")) (assoc :condition (:condition cfg))
+                                         (seq (or (:assignments cfg) [])) (assoc :assignments (vec (:assignments cfg))))))]
     (when-not (valid-alias? source-alias)
       (throw (ex-info "Proposal source alias must be a valid SQL identifier"
                       {:status 400
@@ -98,9 +104,23 @@
      :where (some-> graph-filter vector)
      :group_by (vec (or (:group_by proposal-json) []))
      :processing_policy (normalize-processing-policy proposal-json)
-     :materialization {:mode (get-in proposal-json [:materialization :mode])
+     :materialization (cond-> {:mode (get-in proposal-json [:materialization :mode])
                        :target (:target_table proposal-json)
                        :keys (vec (or (get-in proposal-json [:materialization :keys]) []))}
+                       (contains? materialization :schema_evolution)
+                       (assoc :schema_evolution (boolean (:schema_evolution materialization)))
+                       (contains? materialization :update_on_matched)
+                       (assoc :update_on_matched (boolean (:update_on_matched materialization)))
+                       (contains? materialization :insert_on_not_matched)
+                       (assoc :insert_on_not_matched (boolean (:insert_on_not_matched materialization)))
+                       (some-> (:matched_condition materialization) str string/trim not-empty)
+                       (assoc :matched_condition (:matched_condition materialization))
+                       (some-> (:not_matched_condition materialization) str string/trim not-empty)
+                       (assoc :not_matched_condition (:not_matched_condition materialization))
+                       (seq (or (:update_assignments materialization) []))
+                       (assoc :update_assignments (vec (:update_assignments materialization)))
+                       when-not-matched-by-source
+                       (assoc :when_not_matched_by_source when-not-matched-by-source))
      :target_warehouse (or (:target_warehouse proposal-json)
                            (:target_kind proposal-json)
                            "databricks")}))

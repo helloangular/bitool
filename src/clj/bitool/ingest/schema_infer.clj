@@ -31,7 +31,7 @@
     [body]))
 
 (defn- candidate-record-array-paths
-  ([value] (candidate-record-array-paths value "$" 0 4))
+  ([value] (candidate-record-array-paths value "$" 0 8))
   ([value path depth max-depth]
    (cond
      (> depth max-depth) []
@@ -95,7 +95,7 @@
     :else "STRING"))
 
 (defn- flatten-observations
-  ([value] (flatten-observations value "$" 0 4))
+  ([value] (flatten-observations value "$" 0 8))
   ([value path depth max-depth]
    (cond
      (> depth max-depth) []
@@ -135,12 +135,30 @@
                       (/ 1.0 (double (count (distinct nonnull-types)))))]
     (* coverage consistency)))
 
+(defn- normalize-user-records-path
+  "Normalize user-configured paths to include [] markers for array segments.
+   E.g. 'data' -> '$.data[]', 'response.results.items' -> '$.response.results.items[]'
+   Paths already in canonical form (e.g. '$.data[]') pass through unchanged."
+  [records-path]
+  (let [p (string/trim (str records-path))]
+    (cond
+      (string/blank? p) ""
+      ;; Already canonical: starts with $
+      (string/starts-with? p "$") p
+      ;; User-friendly format: "data" or "response.results.items"
+      ;; Convert to "$.data[]" or "$.response.results.items[]"
+      :else (let [with-prefix (str "$." p)]
+              (if (string/ends-with? with-prefix "[]")
+                with-prefix
+                (str with-prefix "[]"))))))
+
 (defn- prepend-records-path [records-path relative-path]
-  (if (seq (string/trim (str records-path)))
-    (if (= "$" relative-path)
-      records-path
-      (str records-path (subs relative-path 1)))
-    relative-path))
+  (let [canonical (normalize-user-records-path records-path)]
+    (if (seq canonical)
+      (if (= "$" relative-path)
+        canonical
+        (str canonical (subs relative-path 1)))
+      relative-path)))
 
 (defn infer-fields-from-records
   [records {:keys [records_path sample_records max_inferred_columns type_inference_enabled]
@@ -149,7 +167,7 @@
         record-count  (count sampled)
         observations  (map-indexed
                         (fn [idx record]
-                          [idx (flatten-observations record "$" 0 4)])
+                          [idx (flatten-observations record "$" 0 8)])
                         sampled)
         aggregate     (reduce
                         (fn [acc [record-idx leaves]]

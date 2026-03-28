@@ -1354,6 +1354,119 @@ const reeferStats = buildReeferStats(10);
 const dispatchJobs = buildDispatchJobs(routes, vehicles, drivers, 15);
 
 // ---------------------------------------------------------------------------
+// Equipment (powered + unpowered assets tracked by Samsara)
+// ---------------------------------------------------------------------------
+
+const EQUIPMENT_TYPES = ["generator", "compressor", "forklift", "crane", "refrigeration_unit", "pump", "welder"];
+const equipment = Array.from({ length: 15 }, (_, i) => {
+  const id = `EQ${200001 + i}`;
+  const eType = EQUIPMENT_TYPES[i % EQUIPMENT_TYPES.length];
+  return {
+    id,
+    name: `${eType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}-${String(i + 1).padStart(3, "0")}`,
+    equipmentType: eType,
+    serialNumber: `SER-EQ-${String(i + 1).padStart(5, "0")}`,
+    make: ["Caterpillar", "John Deere", "Kubota", "Hyster", "Toyota"][i % 5],
+    model: `Model-${100 + i}`,
+    year: 2019 + (i % 5),
+    notes: "",
+    externalIds: { maintenanceId: `EQMNT-${String(i + 1).padStart(4, "0")}` },
+    tags: [tags[(i * 3) % tags.length]].filter(Boolean).map(t => ({ id: t.id, name: t.name })),
+    updatedAtTime: new Date(Date.now() - i * 3 * 86400000).toISOString(),
+    createdAtTime: new Date(Date.now() - (180 + i * 10) * 86400000).toISOString(),
+  };
+});
+
+const equipmentLocations = equipment.map((eq, i) => ({
+  id: eq.id,
+  name: eq.name,
+  location: {
+    latitude: US_BOUNDS.latMin + Math.random() * (US_BOUNDS.latMax - US_BOUNDS.latMin),
+    longitude: US_BOUNDS.lonMin + Math.random() * (US_BOUNDS.lonMax - US_BOUNDS.lonMin),
+    heading: Math.floor(Math.random() * 360),
+    speed: Math.floor(Math.random() * 15),
+    time: new Date(Date.now() - i * 600000).toISOString(),
+  },
+}));
+
+const equipmentStats = equipment.map((eq, i) => ({
+  id: eq.id,
+  name: eq.name,
+  engineHours: Math.floor(1000 + Math.random() * 8000),
+  fuelPercent: Math.floor(10 + Math.random() * 90),
+  engineState: ["on", "off", "idle"][i % 3],
+  time: new Date(Date.now() - i * 300000).toISOString(),
+}));
+
+// ---------------------------------------------------------------------------
+// Gateways (IoT gateways connected to Samsara)
+// ---------------------------------------------------------------------------
+
+const gateways = Array.from({ length: 8 }, (_, i) => ({
+  id: `GW${300001 + i}`,
+  serial: `AG-${String(10000 + i)}`,
+  model: ["AG51", "AG52", "AG61"][i % 3],
+  name: `Gateway-${String(i + 1).padStart(3, "0")}`,
+  status: i < 6 ? "online" : "offline",
+  lastSeenAtTime: new Date(Date.now() - i * 3600000).toISOString(),
+  updatedAtTime: new Date(Date.now() - i * 7200000).toISOString(),
+}));
+
+// ---------------------------------------------------------------------------
+// Industrial assets + data inputs
+// ---------------------------------------------------------------------------
+
+const industrialAssets = Array.from({ length: 10 }, (_, i) => ({
+  id: `IA${400001 + i}`,
+  name: `Asset-${String(i + 1).padStart(3, "0")}`,
+  assetType: ["machine", "hvac", "tank", "conveyor", "pump"][i % 5],
+  serialNumber: `IA-SER-${String(i + 1).padStart(5, "0")}`,
+  location: addresses[i % addresses.length]?.name || "Warehouse",
+  notes: "",
+  updatedAtTime: new Date(Date.now() - i * 86400000).toISOString(),
+  createdAtTime: new Date(Date.now() - (200 + i * 15) * 86400000).toISOString(),
+}));
+
+const dataInputs = Array.from({ length: 12 }, (_, i) => ({
+  id: `DI${500001 + i}`,
+  name: `Sensor-Input-${String(i + 1).padStart(3, "0")}`,
+  inputType: ["temperature", "humidity", "pressure", "voltage", "rpm", "flow_rate"][i % 6],
+  unit: ["°F", "%", "psi", "V", "RPM", "gal/min"][i % 6],
+  assetId: industrialAssets[i % industrialAssets.length].id,
+  gatewayId: gateways[i % gateways.length].id,
+  updatedAtTime: new Date(Date.now() - i * 1800000).toISOString(),
+}));
+
+// ---------------------------------------------------------------------------
+// User roles
+// ---------------------------------------------------------------------------
+
+const userRoles = [
+  { id: "UR001", name: "Admin", description: "Full access to all features" },
+  { id: "UR002", name: "Standard", description: "Standard fleet management access" },
+  { id: "UR003", name: "Viewer", description: "Read-only access" },
+  { id: "UR004", name: "Restricted", description: "Limited access to assigned vehicles only" },
+  { id: "UR005", name: "Safety Manager", description: "Safety events and compliance" },
+  { id: "UR006", name: "Dispatch", description: "Routes and dispatch management" },
+];
+
+// ---------------------------------------------------------------------------
+// Driver-vehicle assignments
+// ---------------------------------------------------------------------------
+
+const driverVehicleAssignments = drivers.slice(0, Math.min(drivers.length, vehicles.length)).map((d, i) => ({
+  id: `DVA${600001 + i}`,
+  driverId: d.id,
+  driverName: d.name,
+  vehicleId: vehicles[i].id,
+  vehicleName: vehicles[i].name,
+  startTime: new Date(Date.now() - (30 + i) * 86400000).toISOString(),
+  endTime: i < 5 ? null : new Date(Date.now() - i * 86400000).toISOString(),
+  isActive: i < 5,
+  updatedAtTime: new Date(Date.now() - i * 43200000).toISOString(),
+}));
+
+// ---------------------------------------------------------------------------
 // Export all datasets
 // ---------------------------------------------------------------------------
 
@@ -1388,4 +1501,167 @@ module.exports = {
   sensors,
   reeferStats,
   dispatchJobs,
+  equipment,
+  equipmentLocations,
+  equipmentStats,
+  gateways,
+  industrialAssets,
+  dataInputs,
+  userRoles,
+  driverVehicleAssignments,
+
+  // -----------------------------------------------------------------------
+  // JSON Explode Test Fixtures — exercise every explode rule pattern
+  // -----------------------------------------------------------------------
+
+  // Pattern 1: Simple array wrapper — { data: [...] }
+  explodeSimpleArray: Array.from({ length: 5 }, (_, i) => ({
+    id: `SA-${1000 + i}`,
+    name: `Widget ${String.fromCharCode(65 + i)}`,
+    price: +(19.99 + i * 5.5).toFixed(2),
+    in_stock: i % 2 === 0,
+    created_at: new Date(2025, 0, 10 + i).toISOString(),
+  })),
+
+  // Pattern 2: Nested wrapper — { response: { results: { items: [...] } } }
+  explodeDeepNested: Array.from({ length: 4 }, (_, i) => ({
+    order_id: `ORD-${3000 + i}`,
+    customer: `Customer ${i + 1}`,
+    total: +(120.0 + i * 45.3).toFixed(2),
+    currency: "USD",
+    placed_at: new Date(2025, 2, 1 + i).toISOString(),
+  })),
+
+  // Pattern 3: Root-level array — [...] (no wrapper at all)
+  explodeRootArray: Array.from({ length: 6 }, (_, i) => ({
+    sensor_id: `SENS-${4000 + i}`,
+    reading: +(22.5 + i * 1.3).toFixed(1),
+    unit: i % 2 === 0 ? "celsius" : "fahrenheit",
+    ts: new Date(2025, 3, 15, 8, i * 10).toISOString(),
+  })),
+
+  // Pattern 4: Array with nested child arrays — parent has line_items[]
+  explodeParentChild: Array.from({ length: 3 }, (_, i) => ({
+    invoice_id: `INV-${5000 + i}`,
+    vendor: `Acme Corp ${i + 1}`,
+    invoice_date: new Date(2025, 1, 10 + i * 5).toISOString(),
+    status: ["pending", "approved", "paid"][i],
+    total_amount: +(500 + i * 250).toFixed(2),
+    line_items: Array.from({ length: 2 + i }, (_, j) => ({
+      line_id: `LI-${5000 + i}-${j}`,
+      description: `Part ${String.fromCharCode(65 + j)} for invoice ${i}`,
+      quantity: 1 + j * 2,
+      unit_price: +(25.0 + j * 12.5).toFixed(2),
+      tax_rate: 0.08,
+    })),
+    approvals: Array.from({ length: 1 + (i % 2) }, (_, j) => ({
+      approver: `manager_${j + 1}@acme.com`,
+      approved_at: new Date(2025, 1, 12 + i * 5 + j).toISOString(),
+      level: j + 1,
+    })),
+  })),
+
+  // Pattern 5: Nested object (not array) — flatten object fields
+  explodeNestedObject: Array.from({ length: 4 }, (_, i) => ({
+    device_id: `DEV-${6000 + i}`,
+    name: `Gateway ${i + 1}`,
+    location: {
+      lat: 37.7749 + i * 0.01,
+      lng: -122.4194 + i * 0.005,
+      address: `${100 + i * 10} Market St, San Francisco, CA`,
+      floor: i + 1,
+    },
+    config: {
+      firmware_version: `3.${i}.1`,
+      protocol: i % 2 === 0 ? "mqtt" : "https",
+      interval_seconds: 30 + i * 15,
+      tags: ["production", i % 2 === 0 ? "critical" : "standard"],
+    },
+    last_seen: new Date(2025, 4, 1, 12, i * 15).toISOString(),
+  })),
+
+  // Pattern 6: Multiple peer arrays at same level — { trucks: [...], trailers: [...] }
+  explodePeerArrays: {
+    trucks: Array.from({ length: 3 }, (_, i) => ({
+      id: `TRK-${7000 + i}`,
+      vin: `1HGBH41JXMN${100000 + i}`,
+      make: ["Freightliner", "Kenworth", "Peterbilt"][i],
+      status: "active",
+    })),
+    trailers: Array.from({ length: 4 }, (_, i) => ({
+      id: `TRL-${7100 + i}`,
+      type: ["dry_van", "reefer", "flatbed", "tanker"][i],
+      capacity_lbs: 40000 + i * 2000,
+    })),
+    drivers: Array.from({ length: 3 }, (_, i) => ({
+      id: `DRV-${7200 + i}`,
+      name: `Driver ${String.fromCharCode(65 + i)}`,
+      license_class: "A",
+      hire_date: new Date(2022, i * 3, 1).toISOString(),
+    })),
+  },
+
+  // Pattern 7: Paginated cursor-based with nested data path
+  explodeCursorPaginated: Array.from({ length: 12 }, (_, i) => ({
+    event_id: `EVT-${8000 + i}`,
+    type: ["geofence_enter", "geofence_exit", "harsh_brake", "speeding", "idle"][i % 5],
+    severity: ["low", "medium", "high"][i % 3],
+    vehicle_id: `VH-${100 + (i % 4)}`,
+    driver_id: `DR-${200 + (i % 3)}`,
+    occurred_at: new Date(2025, 4, 10, 6 + i).toISOString(),
+    location: { lat: 34.05 + i * 0.002, lng: -118.24 + i * 0.003 },
+    metadata: { speed_mph: 55 + i * 3, posted_limit_mph: 65, road_type: "highway" },
+  })),
+
+  // Pattern 8: Mixed types — array items have inconsistent schemas
+  explodeMixedSchema: [
+    { id: "MX-001", kind: "temperature", value: 72.5, unit: "F", tags: ["hvac", "zone-1"] },
+    { id: "MX-002", kind: "humidity", value: 45, unit: "%", tags: ["hvac"] },
+    { id: "MX-003", kind: "pressure", value: 14.7, unit: "psi", extra_field: "only_on_this_one", tags: [] },
+    { id: "MX-004", kind: "vibration", value: 0.03, unit: "g", nested_detail: { frequency_hz: 120, axis: "z" } },
+    { id: "MX-005", kind: "temperature", value: null, unit: "F", tags: ["offline", "fault"] },
+  ],
+
+  // Pattern 9: Single object response (not array) — { report: { ... } }
+  explodeSingleObject: {
+    report_id: "RPT-9001",
+    generated_at: new Date(2025, 4, 20, 14, 30).toISOString(),
+    period: { start: "2025-04-01", end: "2025-04-30" },
+    summary: {
+      total_miles: 125430,
+      total_fuel_gallons: 18920,
+      avg_mpg: 6.63,
+      total_drivers: 25,
+      total_vehicles: 30,
+      incidents: 7,
+    },
+    top_drivers: [
+      { driver_id: "DR-201", name: "Alice", miles: 8500, mpg: 7.2 },
+      { driver_id: "DR-202", name: "Bob", miles: 7800, mpg: 6.9 },
+      { driver_id: "DR-203", name: "Carol", miles: 7200, mpg: 7.5 },
+    ],
+    cost_breakdown: { fuel: 56760, maintenance: 12400, tolls: 3200, insurance: 8900 },
+  },
+
+  // Pattern 10: Deeply nested with arrays at multiple levels
+  explodeMultiLevel: Array.from({ length: 2 }, (_, i) => ({
+    warehouse_id: `WH-${9000 + i}`,
+    name: `Warehouse ${["Alpha", "Beta"][i]}`,
+    zones: Array.from({ length: 2 }, (_, z) => ({
+      zone_id: `Z-${i}-${z}`,
+      zone_name: `Zone ${String.fromCharCode(65 + z)}`,
+      racks: Array.from({ length: 3 }, (_, r) => ({
+        rack_id: `R-${i}-${z}-${r}`,
+        capacity: 100 + r * 50,
+        current_items: 40 + r * 20 + i * 10,
+        items: Array.from({ length: 2 }, (_, item) => ({
+          sku: `SKU-${1000 + i * 100 + z * 10 + r * 2 + item}`,
+          name: `Product ${i}${z}${r}${item}`,
+          quantity: 5 + item * 3,
+          weight_kg: +(1.5 + item * 0.8).toFixed(1),
+        })),
+      })),
+    })),
+    updated_at: new Date(2025, 4, 25, 9 + i).toISOString(),
+  })),
 };

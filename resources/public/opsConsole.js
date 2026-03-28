@@ -1143,6 +1143,13 @@
 
     html += '<div id="driftDdlPanel" style="margin-top:12px"></div>';
 
+    // P2: AI Drift buttons
+    html += '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;gap:8px;">'
+      + '<button class="ops-btn sm" id="aiExplainDriftBtn" onclick="window._opsAiExplainDrift()">&#9733; Explain drift with AI</button>'
+      + '<button class="ops-btn sm" id="aiRemediateDriftBtn" onclick="window._opsAiRemediateDrift()">&#9733; Suggest remediation</button>'
+      + '</div>';
+    html += '<div id="aiDriftResult" style="margin-top:8px"></div>';
+
     container.innerHTML = html;
   }
 
@@ -1339,6 +1346,95 @@
       await viewDriftTimeline(currentDriftEvent.graph_id, currentDriftEvent.endpoint_name);
     } catch (e) {
       alert('Error applying DDL: ' + e.message);
+    }
+  }
+
+  // ── AI Drift Assist (P2) ──
+
+  async function aiExplainDrift() {
+    if (!currentDriftEvent) return;
+    var resultDiv = document.getElementById('aiDriftResult');
+    var btn = document.getElementById('aiExplainDriftBtn');
+    if (!resultDiv) return;
+    if (btn) btn.disabled = true;
+    resultDiv.innerHTML = '<div style="color:var(--text-secondary);padding:8px">Analyzing drift...</div>';
+    try {
+      var resp = await fetch('/aiExplainSchemaDrift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: currentDriftEvent.event_id, workspace_key: getWorkspaceKey() })
+      });
+      var data = JSON.parse(await resp.text());
+      if (!resp.ok) throw new Error(data.error || 'Request failed');
+      var html = '<div class="ops-panel" style="margin-top:4px"><div class="ops-panel-header"><div class="ops-panel-title"><span class="panel-icon">&#9733;</span>AI Drift Explanation</div></div>';
+      html += '<div style="padding:12px;font-size:13px">';
+      if (data.summary) html += '<p>' + esc(data.summary) + '</p>';
+      if (data.severity) html += '<p><strong>Severity:</strong> ' + esc(data.severity) + '</p>';
+      if (data.impact_assessment) html += '<p><strong>Impact:</strong> ' + esc(data.impact_assessment) + '</p>';
+      if (data.suggested_action) html += '<p><strong>Suggested action:</strong> ' + esc(data.suggested_action) + '</p>';
+      if (data.likely_causes && data.likely_causes.length) {
+        html += '<p><strong>Likely causes:</strong></p><ul>';
+        for (var i = 0; i < data.likely_causes.length; i++) html += '<li>' + esc(data.likely_causes[i]) + '</li>';
+        html += '</ul>';
+      }
+      if (data.recommendations && data.recommendations.length) {
+        html += '<p><strong>Recommendations:</strong></p><ul>';
+        for (var j = 0; j < data.recommendations.length; j++) html += '<li>' + esc(data.recommendations[j]) + '</li>';
+        html += '</ul>';
+      }
+      if (data.confidence != null) html += '<p style="color:var(--text-secondary)">Confidence: ' + (data.confidence * 100).toFixed(0) + '%</p>';
+      html += '</div></div>';
+      resultDiv.innerHTML = html;
+    } catch (e) {
+      resultDiv.innerHTML = '<div style="color:var(--red);padding:8px">&#9888; ' + esc(e.message) + '</div>';
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function aiRemediateDrift() {
+    if (!currentDriftEvent) return;
+    var resultDiv = document.getElementById('aiDriftResult');
+    var btn = document.getElementById('aiRemediateDriftBtn');
+    if (!resultDiv) return;
+    if (btn) btn.disabled = true;
+    resultDiv.innerHTML = '<div style="color:var(--text-secondary);padding:8px">Generating remediation plan...</div>';
+    try {
+      var resp = await fetch('/aiSuggestDriftRemediation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: currentDriftEvent.event_id, workspace_key: getWorkspaceKey() })
+      });
+      var data = JSON.parse(await resp.text());
+      if (!resp.ok) throw new Error(data.error || 'Request failed');
+      var html = '<div class="ops-panel" style="margin-top:4px"><div class="ops-panel-header"><div class="ops-panel-title"><span class="panel-icon">&#9733;</span>AI Remediation Plan</div></div>';
+      html += '<div style="padding:12px;font-size:13px">';
+      if (data.summary) html += '<p>' + esc(data.summary) + '</p>';
+      if (data.edits) {
+        var cats = Object.keys(data.edits);
+        for (var c = 0; c < cats.length; c++) {
+          var cat = cats[c];
+          var items = data.edits[cat];
+          if (!items || !items.length) continue;
+          html += '<p><strong>' + esc(cat.replace(/_/g, ' ')) + ':</strong></p><ul>';
+          for (var m = 0; m < items.length; m++) {
+            html += '<li>' + esc(items[m].description || items[m].action || JSON.stringify(items[m])) + '</li>';
+          }
+          html += '</ul>';
+        }
+      }
+      if (data.recommendations && data.recommendations.length) {
+        html += '<p><strong>Recommendations:</strong></p><ul>';
+        for (var r = 0; r < data.recommendations.length; r++) html += '<li>' + esc(data.recommendations[r]) + '</li>';
+        html += '</ul>';
+      }
+      if (data.confidence != null) html += '<p style="color:var(--text-secondary)">Confidence: ' + (data.confidence * 100).toFixed(0) + '%</p>';
+      html += '</div></div>';
+      resultDiv.innerHTML = html;
+    } catch (e) {
+      resultDiv.innerHTML = '<div style="color:var(--red);padding:8px">&#9888; ' + esc(e.message) + '</div>';
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -2159,6 +2255,8 @@
   window._opsViewDriftTimeline = viewDriftTimeline;
   window._opsPreviewDriftDdl = previewDriftDdl;
   window._opsApplyDriftDdl = applyDriftDdl;
+  window._opsAiExplainDrift = aiExplainDrift;
+  window._opsAiRemediateDrift = aiRemediateDrift;
   window._opsCloseTimeline = closeDriftTimeline;
   window._opsDismissSchemaNotifications = dismissSchemaNotifications;
   window._opsResetCheckpoint = resetCheckpoint;

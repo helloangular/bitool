@@ -1,5 +1,6 @@
 import EventHandler from "./library/eventHandler.js";
 import { request, customConfirm, getPanelItems } from "./library/utils.js";
+import { aiAssistCSS, renderAiLoading, renderAiCard, renderAiEditsCard, flattenEdits, bindAiEditActions, callAiEndpoint } from "./aiAssistCard.js";
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -191,6 +192,9 @@ template.innerHTML = `
 
   .flex-between { display: flex; justify-content: space-between; align-items: center; }
   .field-help { margin-top: 4px; font-size: 12px; color: #6b7280; }
+
+  /* AI Assist (shared) */
+  ${aiAssistCSS}
 </style>
 
 <div class="shell">
@@ -460,6 +464,56 @@ template.innerHTML = `
           </thead>
           <tbody id="mappingBody"></tbody>
         </table>
+        <div style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px;">
+          <button class="ai-trigger" id="aiSuggestTransformsBtn" type="button">
+            <span class="ai-icon">&#9733;</span> Suggest transforms with AI
+          </button>
+          <div id="aiTransformsResult"></div>
+        </div>
+      </div>
+
+      <!-- BRD Intake -->
+      <div class="card" id="brdCard" style="display:none;">
+        <h3>Business Requirements (BRD)</h3>
+        <p style="font-size:13px;color:#6b7280;margin:0 0 8px 0;">Paste a BRD or describe desired model fields, grain, and business logic. AI will generate a proposal from your requirements.</p>
+        <textarea id="brdText" rows="6" placeholder="Describe your requirements: business entity, required fields, grain, SLAs..."></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;">
+          <button class="ai-trigger" id="aiGenerateFromBrdBtn" type="button">
+            <span class="ai-icon">&#9733;</span> Generate proposal from BRD
+          </button>
+        </div>
+        <div id="aiBrdResult"></div>
+      </div>
+
+      <!-- Gold Mart Suggestions -->
+      <div class="card" id="goldMartCard" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>Mart Design</h3>
+          <button class="ai-trigger" id="aiSuggestGoldMartBtn" type="button">
+            <span class="ai-icon">&#9733;</span> Suggest mart improvements
+          </button>
+        </div>
+        <div id="aiGoldMartResult"></div>
+      </div>
+
+      <div class="card" id="metricGlossaryCard" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>Metric Glossary</h3>
+          <button class="ai-trigger" id="aiGenerateMetricGlossaryBtn" type="button">
+            <span class="ai-icon">&#9733;</span> Generate metric definitions
+          </button>
+        </div>
+        <div id="aiMetricGlossaryResult"></div>
+      </div>
+
+      <div class="card" id="anomalyCard" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>Run / KPI Analysis</h3>
+          <button class="ai-trigger" id="aiExplainAnomalyBtn" type="button">
+            <span class="ai-icon">&#9733;</span> Why did this change?
+          </button>
+        </div>
+        <div id="aiAnomalyResult"></div>
       </div>
 
       <!-- Compile output -->
@@ -469,12 +523,24 @@ template.innerHTML = `
           <button id="viewSqlBtn" class="small secondary" type="button">View Full SQL</button>
         </div>
         <div id="compileInfo" style="font-size:13px;color:#374151;"></div>
+        <div style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px;">
+          <button class="ai-trigger" id="aiExplainProposalBtn" type="button">
+            <span class="ai-icon">&#9733;</span> Explain proposal with AI
+          </button>
+          <div id="aiProposalResult"></div>
+        </div>
       </div>
 
       <!-- Validation results -->
       <div class="card" id="validationCard" style="display:none;">
         <h3>Validation Results</h3>
         <div id="validationResults"></div>
+        <div style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px;">
+          <button class="ai-trigger" id="aiExplainValidationBtn" type="button">
+            <span class="ai-icon">&#9733;</span> Explain validation with AI
+          </button>
+          <div id="aiValidationResult"></div>
+        </div>
       </div>
 
       <div class="status-bar" id="detailStatus"></div>
@@ -875,8 +941,27 @@ class ModelingConsole extends HTMLElement {
     this.$compileCard = q("#compileCard");
     this.$compileInfo = q("#compileInfo");
     this.$viewSqlBtn = q("#viewSqlBtn");
+    this.$aiExplainProposalBtn = q("#aiExplainProposalBtn");
+    this.$aiProposalResult = q("#aiProposalResult");
     this.$validationCard = q("#validationCard");
     this.$validationResults = q("#validationResults");
+    this.$aiExplainValidationBtn = q("#aiExplainValidationBtn");
+    this.$aiValidationResult = q("#aiValidationResult");
+    this.$aiSuggestTransformsBtn = q("#aiSuggestTransformsBtn");
+    this.$aiTransformsResult = q("#aiTransformsResult");
+    this.$brdCard = q("#brdCard");
+    this.$brdText = q("#brdText");
+    this.$aiGenerateFromBrdBtn = q("#aiGenerateFromBrdBtn");
+    this.$aiBrdResult = q("#aiBrdResult");
+    this.$goldMartCard = q("#goldMartCard");
+    this.$aiSuggestGoldMartBtn = q("#aiSuggestGoldMartBtn");
+    this.$aiGoldMartResult = q("#aiGoldMartResult");
+    this.$metricGlossaryCard = q("#metricGlossaryCard");
+    this.$aiGenerateMetricGlossaryBtn = q("#aiGenerateMetricGlossaryBtn");
+    this.$aiMetricGlossaryResult = q("#aiMetricGlossaryResult");
+    this.$anomalyCard = q("#anomalyCard");
+    this.$aiExplainAnomalyBtn = q("#aiExplainAnomalyBtn");
+    this.$aiAnomalyResult = q("#aiAnomalyResult");
     this.$pipelineSteps = q("#pipelineSteps");
 
     this.$reviewEmpty = q("#reviewEmpty");
@@ -1002,6 +1087,35 @@ class ModelingConsole extends HTMLElement {
 
     if (this.$transformEditor) {
       on(this.$transformEditor, "transform-data", (e) => this._handleTransformData(e));
+    }
+
+    // AI Assist: P1-C — Explain Proposal
+    if (this.$aiExplainProposalBtn) {
+      on(this.$aiExplainProposalBtn, "click", () => this._aiExplainProposal());
+    }
+    // AI Assist: P1-D — Explain Validation
+    if (this.$aiExplainValidationBtn) {
+      on(this.$aiExplainValidationBtn, "click", () => this._aiExplainValidation());
+    }
+    // AI Assist: P2-A — Suggest Transforms
+    if (this.$aiSuggestTransformsBtn) {
+      on(this.$aiSuggestTransformsBtn, "click", () => this._aiSuggestTransforms());
+    }
+    // AI Assist: P2-B/C — Generate from BRD
+    if (this.$aiGenerateFromBrdBtn) {
+      on(this.$aiGenerateFromBrdBtn, "click", () => this._aiGenerateFromBrd());
+    }
+    // AI Assist: P2-D — Suggest Gold Mart Design
+    if (this.$aiSuggestGoldMartBtn) {
+      on(this.$aiSuggestGoldMartBtn, "click", () => this._aiSuggestGoldMart());
+    }
+    // AI Assist: P3-C — Generate Metric Glossary
+    if (this.$aiGenerateMetricGlossaryBtn) {
+      on(this.$aiGenerateMetricGlossaryBtn, "click", () => this._aiGenerateMetricGlossary());
+    }
+    // AI Assist: P3-D — Explain Run/KPI Anomaly
+    if (this.$aiExplainAnomalyBtn) {
+      on(this.$aiExplainAnomalyBtn, "click", () => this._aiExplainAnomaly());
     }
   }
 
@@ -1812,6 +1926,14 @@ class ModelingConsole extends HTMLElement {
       }
       this._currentProposal = p;
       this._schemaDirty = false;
+      // Clear stale AI results from previous proposal
+      if (this.$aiProposalResult) this.$aiProposalResult.innerHTML = "";
+      if (this.$aiValidationResult) this.$aiValidationResult.innerHTML = "";
+      if (this.$aiTransformsResult) this.$aiTransformsResult.innerHTML = "";
+      if (this.$aiBrdResult) this.$aiBrdResult.innerHTML = "";
+      if (this.$aiGoldMartResult) this.$aiGoldMartResult.innerHTML = "";
+      if (this.$aiMetricGlossaryResult) this.$aiMetricGlossaryResult.innerHTML = "";
+      if (this.$aiAnomalyResult) this.$aiAnomalyResult.innerHTML = "";
       this._renderDetail();
       this._setDetailStatus("");
 
@@ -1841,6 +1963,16 @@ class ModelingConsole extends HTMLElement {
     this._renderMapping(p);
     this._renderDetailActions(p);
     this._renderValidation(p);
+    // P2: Show BRD card always, show gold mart card for gold proposals
+    if (this.$brdCard) this.$brdCard.style.display = "block";
+    if (this.$goldMartCard) {
+      this.$goldMartCard.style.display = (p.layer === "gold") ? "block" : "none";
+    }
+    // P3: Metric glossary for gold proposals, anomaly card always
+    if (this.$metricGlossaryCard) {
+      this.$metricGlossaryCard.style.display = (p.layer === "gold") ? "block" : "none";
+    }
+    if (this.$anomalyCard) this.$anomalyCard.style.display = "block";
   }
 
   _pipelineState(p) {
@@ -2246,6 +2378,290 @@ class ModelingConsole extends HTMLElement {
       ${ddl ? '<p><strong>DDL present:</strong> Yes</p>' : ""}
       ${sql ? `<p><strong>SQL length:</strong> ${sql.length} chars</p>` : ""}
     `;
+  }
+
+  // ── AI Assist handlers ──
+
+  async _aiExplainProposal() {
+    const p = this._currentProposal;
+    if (!p) return;
+    const pid = p.proposal_id || p.id;
+    this.$aiExplainProposalBtn.disabled = true;
+    this.$aiProposalResult.innerHTML = renderAiLoading("Explaining proposal...");
+    try {
+      const result = await callAiEndpoint("/aiExplainModelProposal", {
+        proposal_id: pid,
+        proposal_json: p.proposal || p,
+        compile_result: this._compiledArtifact || null,
+      });
+      this.$aiProposalResult.innerHTML = renderAiCard(result, { title: "Proposal Explanation" });
+    } catch (err) {
+      this.$aiProposalResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;
+    } finally {
+      this.$aiExplainProposalBtn.disabled = false;
+    }
+  }
+
+  async _aiExplainValidation() {
+    const p = this._currentProposal;
+    if (!p) return;
+    const pid = p.proposal_id || p.id;
+    const val = p.validation || p.validation_results || p.latest_validation?.validation;
+    if (!val) return;
+    this.$aiExplainValidationBtn.disabled = true;
+    this.$aiValidationResult.innerHTML = renderAiLoading("Explaining validation results...");
+    try {
+      const result = await callAiEndpoint("/aiExplainProposalValidation", {
+        proposal_id: pid,
+        validation_result: val,
+      });
+      this.$aiValidationResult.innerHTML = renderAiCard(result, { title: "Validation Explanation" });
+    } catch (err) {
+      this.$aiValidationResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;
+    } finally {
+      this.$aiExplainValidationBtn.disabled = false;
+    }
+  }
+
+  // ── AI Assist P2 handlers ──
+
+  /** Snapshot the current proposal for one-level undo. */
+  _snapshotForUndo() {
+    const p = this._currentProposal;
+    if (!p) return;
+    this._aiUndoSnapshot = JSON.parse(JSON.stringify(p.proposal || p));
+  }
+
+  /** Restore proposal from undo snapshot and re-render. */
+  _undoAiEdits() {
+    if (!this._aiUndoSnapshot || !this._currentProposal) return;
+    if (this._currentProposal.proposal) {
+      this._currentProposal.proposal = this._aiUndoSnapshot;
+    } else {
+      Object.keys(this._aiUndoSnapshot).forEach(k => { this._currentProposal[k] = this._aiUndoSnapshot[k]; });
+    }
+    this._aiUndoSnapshot = null;
+    this._schemaDirty = true;
+    this._renderDetail();
+    this._setDetailStatus("AI edits undone.");
+  }
+
+  /**
+   * Apply an array of flattened edit objects to the current proposal.
+   * Each edit has { category, value } where value is the AI-returned entry.
+   */
+  _applyAiEdits(edits) {
+    const p = this._currentProposal;
+    if (!p || !edits.length) return;
+    this._snapshotForUndo();
+    const proposal = p.proposal || p;
+    const columns = proposal.columns || proposal.target_columns || [];
+
+    for (const edit of edits) {
+      switch (edit.category) {
+        case "type_casts": {
+          const col = columns.find(c => (c.target_column || c.column_name) === edit.value.target_column);
+          if (col) { col.expression = edit.value.expression; col.type_cast = edit.value.expression; }
+          break;
+        }
+        case "column_renames": {
+          const col = columns.find(c => (c.target_column || c.column_name) === edit.value.target_column);
+          if (col && edit.value.new_name) col.target_column = edit.value.new_name;
+          break;
+        }
+        case "derived_columns":
+        case "add_columns": {
+          if (!columns.find(c => (c.target_column || c.column_name) === edit.value.target_column)) {
+            columns.push({
+              target_column: edit.value.target_column,
+              data_type: edit.value.data_type || "STRING",
+              expression: edit.value.expression || null,
+              source_columns: edit.value.source_column ? [edit.value.source_column] : [],
+            });
+          }
+          break;
+        }
+        case "target_columns": {
+          if (!columns.find(c => (c.target_column || c.column_name) === edit.value.target_column)) {
+            columns.push(edit.value);
+          }
+          break;
+        }
+        case "modify_columns": {
+          const col = columns.find(c => (c.target_column || c.column_name) === edit.value.target_column);
+          if (col && edit.value.expression) col.expression = edit.value.expression;
+          if (col && edit.value.data_type) col.data_type = edit.value.data_type;
+          break;
+        }
+        case "materialization": {
+          proposal.materialization = edit.value;
+          break;
+        }
+        case "merge_keys": {
+          if (proposal.materialization && typeof proposal.materialization === "object") {
+            proposal.materialization.keys = Array.isArray(edit.value) ? edit.value : [edit.value];
+          } else {
+            proposal.merge_keys = Array.isArray(edit.value) ? edit.value : [edit.value];
+          }
+          break;
+        }
+        case "filters": {
+          if (!proposal.filters) proposal.filters = [];
+          proposal.filters.push(edit.value);
+          break;
+        }
+        case "partition_keys": {
+          if (!proposal.partition_keys) proposal.partition_keys = [];
+          proposal.partition_keys.push(edit.value.target_column || edit.value.expression || edit.value);
+          break;
+        }
+      }
+    }
+
+    // Ensure column array reference is set back on proposal
+    if (!proposal.columns && !proposal.target_columns) proposal.columns = columns;
+
+    this._schemaDirty = true;
+    this._renderDetail();
+    this._setDetailStatus(`Applied ${edits.length} AI edit(s). Compile or save to persist changes.`);
+  }
+
+  async _aiSuggestTransforms() {
+    const p = this._currentProposal;
+    if (!p) return;
+    const pid = p.proposal_id || p.id;
+    this.$aiSuggestTransformsBtn.disabled = true;
+    this.$aiTransformsResult.innerHTML = renderAiLoading("Analyzing transforms...");
+    try {
+      const result = await callAiEndpoint("/aiSuggestSilverTransforms", {
+        proposal_id: pid,
+        proposal: p.proposal || p,
+      });
+      const edits = flattenEdits(result.edits);
+      this.$aiTransformsResult.innerHTML = edits.length
+        ? renderAiEditsCard(result, { title: "Transform Suggestions" })
+        : renderAiCard(result, { title: "Transform Suggestions" });
+      if (edits.length) {
+        bindAiEditActions(this.$aiTransformsResult, {
+          edits,
+          onApply: (selected) => this._applyAiEdits(selected),
+          onUndo: () => this._undoAiEdits(),
+        });
+      }
+    } catch (err) {
+      this.$aiTransformsResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;
+    } finally {
+      this.$aiSuggestTransformsBtn.disabled = false;
+    }
+  }
+
+  async _aiGenerateFromBrd() {
+    const p = this._currentProposal;
+    if (!p) return;
+    const brdText = this.$brdText?.value?.trim();
+    if (!brdText) { this.$aiBrdResult.innerHTML = `<div class="ai-warnings">&#9888; Please enter BRD text first.</div>`; return; }
+    const proposal = p.proposal || p;
+    const sourceColumns = proposal.columns || proposal.target_columns || [];
+    const layer = p.layer || this._currentLayer();
+    const route = layer === "gold" ? "/aiGenerateGoldFromBRD" : "/aiGenerateSilverFromBRD";
+    this.$aiGenerateFromBrdBtn.disabled = true;
+    this.$aiBrdResult.innerHTML = renderAiLoading(`Generating ${layer} proposal from BRD...`);
+    try {
+      const payload = layer === "gold"
+        ? { brd_text: brdText, source_columns: sourceColumns, silver_proposal_id: p.proposal_id || p.id }
+        : { brd_text: brdText, source_columns: sourceColumns, endpoint_config: { endpoint_name: p.source_endpoint_name } };
+      const result = await callAiEndpoint(route, payload);
+      const edits = flattenEdits(result.edits);
+      const title = `${layer === "gold" ? "Gold" : "Silver"} Proposal from BRD`;
+      this.$aiBrdResult.innerHTML = edits.length
+        ? renderAiEditsCard(result, { title })
+        : renderAiCard(result, { title });
+      if (edits.length) {
+        bindAiEditActions(this.$aiBrdResult, {
+          edits,
+          onApply: (selected) => this._applyAiEdits(selected),
+          onUndo: () => this._undoAiEdits(),
+        });
+      }
+    } catch (err) {
+      this.$aiBrdResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;
+    } finally {
+      this.$aiGenerateFromBrdBtn.disabled = false;
+    }
+  }
+
+  async _aiSuggestGoldMart() {
+    const p = this._currentProposal;
+    if (!p) return;
+    const pid = p.proposal_id || p.id;
+    this.$aiSuggestGoldMartBtn.disabled = true;
+    this.$aiGoldMartResult.innerHTML = renderAiLoading("Analyzing mart design...");
+    try {
+      const proposal = p.proposal || p;
+      const result = await callAiEndpoint("/aiSuggestGoldMartDesign", {
+        proposal_id: pid,
+        proposal: proposal,
+        source_table: proposal.source_table || null,
+      });
+      const edits = flattenEdits(result.edits);
+      this.$aiGoldMartResult.innerHTML = edits.length
+        ? renderAiEditsCard(result, { title: "Mart Design Suggestions" })
+        : renderAiCard(result, { title: "Mart Design Suggestions" });
+      if (edits.length) {
+        bindAiEditActions(this.$aiGoldMartResult, {
+          edits,
+          onApply: (selected) => this._applyAiEdits(selected),
+          onUndo: () => this._undoAiEdits(),
+        });
+      }
+    } catch (err) {
+      this.$aiGoldMartResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;
+    } finally {
+      this.$aiSuggestGoldMartBtn.disabled = false;
+    }
+  }
+
+  async _aiGenerateMetricGlossary() {
+    const p = this._currentProposal;
+    if (!p) return;
+    const pid = p.proposal_id || p.id;
+    this.$aiGenerateMetricGlossaryBtn.disabled = true;
+    this.$aiMetricGlossaryResult.innerHTML = renderAiLoading("Generating metric definitions...");
+    try {
+      const proposal = p.proposal || p;
+      const result = await callAiEndpoint("/aiGenerateMetricGlossary", {
+        proposal_id: pid,
+        proposal: proposal,
+        brd_text: this.$brdText?.value || null,
+      });
+      this.$aiMetricGlossaryResult.innerHTML = renderAiCard(result, { title: "Metric Glossary" });
+    } catch (err) {
+      this.$aiMetricGlossaryResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;
+    } finally {
+      this.$aiGenerateMetricGlossaryBtn.disabled = false;
+    }
+  }
+
+  async _aiExplainAnomaly() {
+    const p = this._currentProposal;
+    if (!p) return;
+    const pid = p.proposal_id || p.id;
+    this.$aiExplainAnomalyBtn.disabled = true;
+    this.$aiAnomalyResult.innerHTML = renderAiLoading("Analyzing anomalies...");
+    try {
+      const result = await callAiEndpoint("/aiExplainRunOrKpiAnomaly", {
+        proposal_id: pid,
+        run_history: p.run_history || [],
+        validation_history: p.validation_history || [],
+        drift_events: p.drift_events || [],
+        kpi_delta: p.kpi_delta || null,
+      });
+      this.$aiAnomalyResult.innerHTML = renderAiCard(result, { title: "Anomaly Explanation" });
+    } catch (err) {
+      this.$aiAnomalyResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;
+    } finally {
+      this.$aiExplainAnomalyBtn.disabled = false;
+    }
   }
 
   // ── Review Tab ──

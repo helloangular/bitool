@@ -1,5 +1,6 @@
 <link rel="stylesheet" href="./app.css" />
 <link rel="stylesheet" href="./source/styles/smart.default.css" />
+<link rel="stylesheet" href="./source/styles/smart.dark-indigo.css" />
 
 <style>
   .container {
@@ -11,37 +12,46 @@
     font-family: 'DM Sans', -apple-system, sans-serif;
   }
 
-  /* Smart-tree custom properties override */
-  smart-tree {
+  /* Smart-tree overrides — dagly dark sidebar on top of dark-indigo theme */
+  smart-tree[theme="dark-indigo"] {
     --smart-font-family: 'DM Sans', -apple-system, sans-serif;
     --smart-font-size: 12.5px;
     --smart-tree-item-height: 30px;
-    --smart-primary: #3b7ddd;
-    --smart-secondary: #f5f6f8;
-    --smart-surface: #ffffff;
-    --smart-border: #e2e4ea;
-    --smart-ui-state-hover: #f0f1f4;
-    --smart-ui-state-active: rgba(59,125,221,0.1);
-    --smart-ui-state-focus: rgba(59,125,221,0.08);
+    --smart-primary-rgb: 99, 102, 241;
+    --smart-primary: #6366f1;
+    --smart-surface: #111827;
+    --smart-surface-color: #f1f5f9;
+    --smart-background: #0f172a;
+    --smart-background-color: #f1f5f9;
+    --smart-border: #1e293b;
+    --smart-ui-state-hover: rgba(99, 102, 241, 0.18);
+    --smart-ui-state-color-hover: #ffffff;
+    --smart-ui-state-selected: rgba(99, 102, 241, 0.22);
+    --smart-ui-state-color-selected: #c7d2fe;
+    --smart-scroll-bar-background: #1e293b;
+    --smart-scroll-bar-thumb-background: #475569;
     --smart-tree-indent: 16px;
     border-right: none !important;
   }
 
   .tree {
-    width: 18%;
+    width: 14%;
     height: 100%;
     min-width: 80px;
     max-width: 50%;
-    background: #ffffff;
+    background: #0f172a;
     overflow: auto;
-    border-right: 1px solid #e2e4ea;
+    border-right: 1px solid #1e293b;
     --smart-tree-default-height: 100%;
     --smart-font-size: 12.5px;
     scrollbar-width: thin;
+    scrollbar-color: #334155 #0f172a;
   }
 
   .tree::-webkit-scrollbar { width: 4px; }
-  .tree::-webkit-scrollbar-thumb { background: #e2e4ea; border-radius: 2px; }
+  .tree::-webkit-scrollbar-track { background: #0f172a; }
+  .tree::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+  .tree::-webkit-scrollbar-thumb:hover { background: #475569; }
 
   #dropable-area {
     position: relative;
@@ -75,7 +85,7 @@
   }
 
   .resizer:hover {
-    background: #3b7ddd;
+    background: #6366f1;
     opacity: 0.4;
   }
 
@@ -148,13 +158,13 @@
 
   .popup button:hover {
     background: #f0f1f4;
-    color: #3b7ddd;
+    color: #6366f1;
   }
 </style>
 
 <div class="container">
   <!-- TREE -->
-  <smart-tree class="tree">
+  <smart-tree class="tree" theme="dark-indigo">
   </smart-tree>
   <div class="resizer"></div>
   <div id="dropable-area">

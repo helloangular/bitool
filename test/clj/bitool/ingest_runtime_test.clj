@@ -91,7 +91,7 @@
                                                  :bad_record_alert_ratio ""}]})]
     (is (nil? (get-in (g2/getData g' 2) [:endpoint_configs 0 :bad_record_alert_ratio])))))
 
-(deftest save-api-adds-target-under-output-without-mapping
+(deftest save-api-does-not-add-target-or-mapping-nodes
   (let [g  (base-graph 2 "Ap")
         g' (g2/save-api g 2 {:api_name "samara"
                              :endpoint_configs [{:endpoint_name "trips"
@@ -99,24 +99,15 @@
                                                  :load_type "full"
                                                  :pagination_strategy "none"
                                                  :primary_key_fields ["id"]
-                                                 :bronze_table_name "bronze.trips_raw"}]})
-        target-id (->> (:n g')
-                       (keep (fn [[node-id node]]
-                               (when (= "Tg" (get-in node [:na :btype]))
-                                 node-id)))
-                       first)]
-    (is (some? target-id))
-    (is (nil? (some (fn [[_ node]]
-                      (when (= "Mp" (get-in node [:na :btype]))
-                        true))
-                    (:n g'))))
-    (is (= {1 {:endpoint_url "/fleet/trips"}}
+                                                 :bronze_table_name "bronze.trips_raw"}]})]
+    (is (= #{1 2}
+           (set (keys (:n g')))))
+    (is (= {1 {}}
            (get-in g' [:n 2 :e])))
-    (is (= {target-id {}}
+    (is (= {}
            (get-in g' [:n 1 :e])))
-    (is (nil? (get-in g' [:n target-id :e])))
     (is (= "bronze.trips_raw"
-           (get-in g' [:n target-id :na :table_name])))))
+           (get-in g' [:n 2 :na :endpoint_configs 0 :bronze_table_name])))))
 
 (deftest save-api-migrates-legacy-mapping-chain-to-output-target
   (let [g  {:a {:name "test" :v 0 :id 99}
@@ -135,7 +126,7 @@
                                                  :primary_key_fields ["id"]
                                                  :bronze_table_name "bronze.trips_refined"}]})]
     (is (nil? (get-in g' [:n 3])))
-    (is (= {1 {:endpoint_url "/fleet/trips"}}
+    (is (= {1 {}}
            (get-in g' [:n 2 :e])))
     (is (= {4 {}}
            (get-in g' [:n 1 :e])))
@@ -143,8 +134,42 @@
            (get-in g' [:n 4 :e])))
     (is (= 42
            (get-in g' [:n 4 :na :connection_id])))
+    (is (= "old_name"
+           (get-in g' [:n 4 :na :table_name])))
     (is (= "bronze.trips_refined"
-           (get-in g' [:n 4 :na :table_name])))))
+           (get-in g' [:n 2 :na :endpoint_configs 0 :bronze_table_name])))))
+
+(deftest save-api-removes-placeholder-legacy-mapping-chain
+  (let [g  {:a {:name "test" :v 0 :id 99}
+            :n {1 {:na {:name "O" :btype "O" :tcols {}} :e {3 {}}}
+                2 {:na {:name "Ap-node" :btype "Ap" :tcols {}} :e {1 {} 4 {:endpoint_url "/fleet/vehicles"}}}
+                3 {:na {:name "target"
+                        :btype "Tg"
+                        :tcols {}
+                        :connection_id 478
+                        :catalog "main"
+                        :schema "bronze"
+                        :table_name "existing_target"} :e {}}
+                4 {:na {:name "mapping" :btype "Mp" :tcols {} :source {} :target {} :mapping []} :e {5 {}}}
+                5 {:na {:name "target"
+                        :btype "Tg"
+                        :tcols {}
+                        :table_name ""
+                        :create_table false
+                        :truncate false} :e {}}}}
+        g' (g2/save-api g 2 {:endpoint_configs [{:endpoint_name "vehicles"
+                                                 :endpoint_url "/fleet/vehicles"
+                                                 :load_type "full"
+                                                 :pagination_strategy "none"
+                                                 :primary_key_fields ["id"]}]})]
+    (is (= #{1 2 3}
+           (set (keys (:n g')))))
+    (is (= {1 {}}
+           (get-in g' [:n 2 :e])))
+    (is (= {3 {}}
+           (get-in g' [:n 1 :e])))
+    (is (nil? (get-in g' [:n 4])))
+    (is (nil? (get-in g' [:n 5])))))
 
 (deftest save-target-normalizes-job-and-list-config
   (let [g  (base-graph 2 "Tg")
@@ -3369,6 +3394,42 @@
         (#'bitool.ingest.runtime/load-rows! 9 "lake.audit.run_batch_manifest" [{:batch_id "b1"}])
         (is (nil? @stage-copy-call))
         (is (= 5 (count @jdbc-call)))))))
+
+(deftest load-rows-routes-file-databricks-copy-into-for-primary-bronze-table-once
+  (let [copy-into-call (atom nil)
+        copy-into-count (atom 0)
+        jdbc-call (atom nil)
+        copy-into-ran? (atom false)]
+    (binding [runtime/*row-load-context* {:primary-table-name "lake.bronze.file_raw"
+                                          :source-kind :file
+                                          :copy-into-ran? copy-into-ran?
+                                          :config {:base_path "s3://bucket/raw/"}
+                                          :target {:write_mode "copy_into"
+                                                   :options {:copy_into {:file_format "JSON"
+                                                                         :pattern ".*\\.json"}}}}]
+      (with-redefs [bitool.ingest.runtime/connection-dbtype (fn [_] "databricks")
+                    db/load-rows-databricks-copy-into! (fn [conn-id db-name table-name opts]
+                                                         (swap! copy-into-count inc)
+                                                         (reset! copy-into-call [conn-id db-name table-name opts])
+                                                         {:status :ok})
+                    db/load-rows! (fn [& args]
+                                    (reset! jdbc-call args)
+                                    {:status :jdbc})]
+        (#'bitool.ingest.runtime/load-rows! 9 "lake.bronze.file_raw" [{:payload_json "{}"}])
+        (#'bitool.ingest.runtime/load-rows! 9 "lake.bronze.file_raw" [{:payload_json "{}"}])
+        (is (= 1 @copy-into-count))
+        (is (= 9 (first @copy-into-call)))
+        (is (= "lake.bronze.file_raw" (nth @copy-into-call 2)))
+        (is (= {:source_uri "s3://bucket/raw/"
+                :file_format "JSON"
+                :files []
+                :pattern ".*\\.json"
+                :format_options {}
+                :copy_options {}
+                :credential nil}
+               (nth @copy-into-call 3)))
+        (is (nil? @jdbc-call))
+        (is (true? @copy-into-ran?))))))
 
 (deftest load-rows-normalizes-databricks-temporal-bind-values
   (let [captured (atom nil)

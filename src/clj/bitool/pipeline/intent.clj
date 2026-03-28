@@ -2,12 +2,11 @@
   "Stage 1: Natural language -> PipelineIntent (LLM call).
    Uses Anthropic tool_use with constrained output schema."
   (:require [bitool.pipeline.registry :as reg]
-            [clj-http.client :as http]
+            [bitool.ai.llm :as llm]
             [cheshire.core :as json]
             [clojure.string :as string]
             [clojure.set :as set]
-            [clojure.tools.logging :as log]
-            [bitool.config :refer [env]]))
+            [clojure.tools.logging :as log]))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool schema for LLM
@@ -194,32 +193,6 @@
 (def ^:private temperatures [0 0.3 0.7])
 (def ^:private max-retries 2)
 
-(defn- call-anthropic
-  "Call Anthropic API with tool_use. Supports temperature override."
-  [system-prompt user-message & {:keys [temperature] :or {temperature 0}}]
-  (let [api-key (or (get env :anthropic-api-key)
-                    (System/getenv "ANTHROPIC_API_KEY"))
-        _       (when-not api-key
-                  (throw (ex-info "ANTHROPIC_API_KEY not set" {:error "missing_api_key"})))
-        body    {:model "claude-sonnet-4-5-20250514"
-                 :max_tokens 4096
-                 :temperature temperature
-                 :system system-prompt
-                 :tools [pipeline-intent-tool]
-                 :tool_choice {:type "tool" :name "create_pipeline_intent"}
-                 :messages [{:role "user" :content user-message}]}
-        resp    (http/post "https://api.anthropic.com/v1/messages"
-                           {:headers {"x-api-key" api-key
-                                      "anthropic-version" "2023-06-01"
-                                      "content-type" "application/json"}
-                            :body (json/generate-string body)
-                            :as :json})]
-    (let [content (get-in resp [:body :content])
-          tool-use (first (filter #(= "tool_use" (:type %)) content))]
-      (when-not tool-use
-        (throw (ex-info "LLM did not return tool_use"
-                        {:content content})))
-      (:input tool-use))))
 
 (defn- validate-intent-output
   "Basic validation of LLM output. Returns {:valid true} or {:valid false :errors [...]}."
@@ -250,7 +223,10 @@
                               (json/generate-string correction-errors {:pretty true})
                               "\n\nFix these errors and try again using the tool.")
                          user-text)
-          raw (call-anthropic system-prompt user-message :temperature temperature)
+          raw (llm/call-llm system-prompt user-message
+                           :temperature temperature
+                           :tools       [pipeline-intent-tool]
+                           :tool-choice {:type "tool" :name "create_pipeline_intent"})
           validation (validate-intent-output raw)]
       (if (:valid validation)
         raw
@@ -393,5 +369,7 @@
    Sends the current spec + edit text to the LLM."
   [current-spec edit-text]
   (let [system-prompt (build-edit-prompt current-spec edit-text)
-        raw           (call-anthropic system-prompt edit-text)]
+        raw           (llm/call-llm system-prompt edit-text
+                                    :tools       [pipeline-intent-tool]
+                                    :tool-choice {:type "tool" :name "create_pipeline_intent"})]
     (normalize-intent-keys raw)))

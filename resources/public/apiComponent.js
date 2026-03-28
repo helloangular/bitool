@@ -1,5 +1,6 @@
 import EventHandler from "./library/eventHandler.js";
 import { customConfirm, getPanelItems, request, setPanelItems } from "./library/utils.js";
+import { aiAssistCSS, renderAiTrigger, renderAiLoading, renderAiCard, bindAiTriggers, callAiEndpoint } from "./aiAssistCard.js";
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -162,6 +163,9 @@ template.innerHTML = `
   .ep-filter-row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
   .ep-filter-row input[type="text"] { flex: 1; }
   .ep-filter-row select { width: 110px; }
+
+  /* AI Assist (shared) */
+  ${aiAssistCSS}
 </style>
 <div class="shell">
   <div class="header">
@@ -584,7 +588,58 @@ const autoApplyPrimaryKeyFields = (endpoint) => {
   return true;
 };
 
-const transientEndpointKeys = new Set(["latest_run_result"]);
+const findInferredFieldForRecommendation = (endpoint, fieldName) => {
+  const target = normalizeKeyName(fieldName);
+  if (!target || !Array.isArray(endpoint?.inferred_fields)) return null;
+  return endpoint.inferred_fields.find((field) => {
+    const candidates = [
+      normalizeKeyName(field?.column_name),
+      normalizeKeyName(inferredFieldCanonicalName(field)),
+    ].filter(Boolean);
+    return candidates.includes(target);
+  }) || null;
+};
+
+const applyServerRecommendations = (endpoint) => {
+  const rec = endpoint?.schema_recommendations;
+  if (!endpoint || !rec) return false;
+  let changed = false;
+
+  if ((!Array.isArray(endpoint.json_explode_rules) || !endpoint.json_explode_rules.length)
+      && Array.isArray(rec.json_explode_rules)
+      && rec.json_explode_rules.length
+      && Number(rec?.grain?.confidence || 0) >= 80) {
+    endpoint.json_explode_rules = rec.json_explode_rules.map((rule) => ({ ...rule }));
+    changed = true;
+  }
+
+  if (Array.isArray(rec?.pk?.fields)
+      && rec.pk.fields.length
+      && Number(rec.pk.confidence || 0) >= 80
+      && !existingPrimaryKeysMatchInferredFields(endpoint)) {
+    endpoint.primary_key_fields = [...rec.pk.fields];
+    changed = true;
+  }
+
+  if (rec?.watermark?.field
+      && Number(rec.watermark.confidence || 0) >= 80
+      && !endpoint.watermark_column) {
+    endpoint.watermark_column = rec.watermark.field;
+    changed = true;
+  }
+
+  if (rec?.watermark?.field && Array.isArray(endpoint.inferred_fields) && !endpoint.inferred_fields.some((field) => field.is_watermark)) {
+    const inferredField = findInferredFieldForRecommendation(endpoint, rec.watermark.field);
+    if (inferredField) {
+      inferredField.is_watermark = true;
+      changed = true;
+    }
+  }
+
+  return changed;
+};
+
+const transientEndpointKeys = new Set(["latest_run_result", "schema_recommendations"]);
 
 const persistedEndpointConfig = (cfg) =>
   Object.fromEntries(Object.entries(cfg || {}).filter(([key]) => !transientEndpointKeys.has(key)));
@@ -1147,7 +1202,8 @@ class ApiComponent extends HTMLElement {
 
         <!-- Schema -->
         <div class="tab-panel ep-panel ${activeTab === "schema" ? "active" : ""}" data-ep-index="${index}" data-ep-panel="schema">
-          ${cfg.schema_preview_status ? `<div style="margin-bottom:8px; font-size:12px; color:#49564d;">${escapeHtml(cfg.schema_preview_status)}</div>` : ""}
+          ${cfg.schema_preview_status ? `<div style="margin-bottom:8px; font-size:12px; color:#5c6070;">${escapeHtml(cfg.schema_preview_status)}</div>` : ""}
+          ${this._renderRecommendationCard(cfg, index)}
           <div class="hint" style="margin-bottom:8px;">Preview rows below become columns in one Bronze table for this endpoint.</div>
           <div class="grid">
             <div>
@@ -1240,6 +1296,183 @@ class ApiComponent extends HTMLElement {
     `;
   }
 
+  /** Compute grain/PK/watermark recommendations from inferred fields (client-side heuristics).
+   *  In Phase 2, this will come from the backend grain_planner.clj. */
+  _computeRecommendations(cfg) {
+    if (cfg?.schema_recommendations) return cfg.schema_recommendations;
+    const fields = cfg.inferred_fields || [];
+    if (!fields.length) return null;
+
+    // Already have explode rules, PK, and watermark — score existing config
+    const hasExplode = cfg.json_explode_rules?.length > 0;
+    const hasPK = cfg.primary_key_fields?.length > 0 && cfg.primary_key_fields[0] !== "";
+    const hasWM = !!cfg.watermark_column;
+
+    // Detect record grain from field paths
+    const arrayPaths = new Map();
+    for (const f of fields) {
+      const match = (f.path || "").match(/^([^[]+)\[\]/);
+      if (match) {
+        const p = match[1];
+        if (!arrayPaths.has(p)) arrayPaths.set(p, { path: p, fields: [], idCandidates: [], tsCandidates: [] });
+        const entry = arrayPaths.get(p);
+        entry.fields.push(f);
+        if (f.type === "STRING" && /(?:^id$|_id$|_key$)/i.test(f.column_name)) entry.idCandidates.push(f.column_name);
+        if (/TIMESTAMP|DATE/i.test(f.type || "")) entry.tsCandidates.push(f.column_name);
+        if (/updated|modified/i.test(f.column_name)) entry.tsCandidates.push(f.column_name);
+      }
+    }
+
+    if (arrayPaths.size === 0) return null;
+
+    // Score candidates
+    const candidates = [];
+    for (const [path, info] of arrayPaths) {
+      let score = 50; // base: it's an array of objects
+      if (info.idCandidates.length > 0) score += 30;
+      if (info.tsCandidates.length > 0) score += 20;
+      if (info.fields.length > 5) score += 10;
+      // Penalty for very nested paths
+      const depth = (path.match(/\./g) || []).length;
+      if (depth > 1) score -= 15;
+      candidates.push({ ...info, score });
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    if (!best) return null;
+
+    // Detect child entities (nested arrays within the best candidate)
+    const childCandidates = [];
+    for (const [path, info] of arrayPaths) {
+      if (path !== best.path && path.startsWith(best.path + ".")) {
+        childCandidates.push({
+          path,
+          entityName: path.split(".").pop().toLowerCase(),
+          idCandidates: info.idCandidates,
+          parentKeys: best.idCandidates,
+          confidence: Math.min(info.score, 85),
+        });
+      }
+    }
+
+    // Build recommendations
+    const rec = {
+      grain: { path: best.path, confidence: best.score },
+      pk: best.idCandidates.length > 0
+        ? { fields: [best.idCandidates[0]], confidence: best.score >= 80 ? 90 : 65 }
+        : null,
+      watermark: null,
+      children: childCandidates,
+      reasons: [],
+    };
+
+    // Watermark: prefer "updated" variants
+    const wmCandidates = [...new Set(best.tsCandidates)];
+    const updatedWM = wmCandidates.find(c => /updated/i.test(c));
+    if (updatedWM) {
+      rec.watermark = { field: updatedWM, confidence: 85 };
+    } else if (wmCandidates.length > 0) {
+      rec.watermark = { field: wmCandidates[0], confidence: 60 };
+    }
+
+    // Reasons
+    rec.reasons.push(`${best.path}[] is an array of ${best.fields.length}-field objects`);
+    if (rec.pk) rec.reasons.push(`${rec.pk.fields[0]} is a stable ID candidate`);
+    if (rec.watermark) rec.reasons.push(`${rec.watermark.field} is a timestamp with high coverage`);
+    if (childCandidates.length) rec.reasons.push(`${childCandidates.length} nested child array(s) detected`);
+
+    return rec;
+  }
+
+  _renderRecommendationCard(cfg, index) {
+    const rec = this._computeRecommendations(cfg);
+    if (!rec) return "";
+
+    const badgeHtml = (confidence) => {
+      if (confidence >= 80) return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;background:rgba(15,169,104,0.1);color:#0fa968;">Auto-detected</span>`;
+      if (confidence >= 50) return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;background:rgba(217,119,6,0.1);color:#d97706;">Suggested</span>`;
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;background:rgba(139,145,163,0.1);color:#8b91a3;">Manual</span>`;
+    };
+
+    const grainLine = `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">
+      <span><strong>Record Grain:</strong> <code style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#f5f6f8;padding:2px 6px;border-radius:4px;">${escapeHtml(rec.grain.path)}[]</code></span>
+      ${badgeHtml(rec.grain.confidence)}
+    </div>`;
+
+    const pkLine = rec.pk
+      ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">
+          <span><strong>Primary Key:</strong> <code style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#f5f6f8;padding:2px 6px;border-radius:4px;">${escapeHtml(rec.pk.fields.join(", "))}</code></span>
+          ${badgeHtml(rec.pk.confidence)}
+        </div>`
+      : `<div style="padding:4px 0;color:#8b91a3;"><strong>Primary Key:</strong> <em>No stable key detected — manual selection required</em></div>`;
+
+    const wmLine = rec.watermark
+      ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">
+          <span><strong>Watermark:</strong> <code style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#f5f6f8;padding:2px 6px;border-radius:4px;">${escapeHtml(rec.watermark.field)}</code></span>
+          ${badgeHtml(rec.watermark.confidence)}
+        </div>`
+      : `<div style="padding:4px 0;color:#8b91a3;"><strong>Watermark:</strong> <em>No timestamp detected — consider full load</em></div>`;
+
+    const reasonsHtml = rec.reasons.length
+      ? `<details style="margin-top:8px;font-size:11px;color:#5c6070;">
+          <summary style="cursor:pointer;font-weight:600;color:#3b7ddd;">Show reasoning</summary>
+          <ul style="margin:6px 0 0 16px;padding:0;list-style:none;">
+            ${rec.reasons.map(r => `<li style="padding:2px 0;display:flex;gap:6px;"><span style="color:#0fa968;">&#10003;</span> ${escapeHtml(r)}</li>`).join("")}
+          </ul>
+        </details>`
+      : "";
+
+    const childrenHtml = rec.children.length
+      ? `<details style="margin-top:10px;border-top:1px solid #eceef2;padding-top:10px;">
+          <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#7c5cfc;">
+            Possible child entities (${rec.children.length})
+          </summary>
+          ${rec.children.map(child => `
+            <div style="margin-top:8px;padding:10px 12px;background:#f9fafb;border:1px solid #eceef2;border-radius:8px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <strong style="font-size:12px;">${escapeHtml(child.entityName)}</strong>
+                ${badgeHtml(child.confidence)}
+              </div>
+              <div style="font-size:11px;color:#5c6070;margin-top:4px;">
+                Path: <code style="font-family:'JetBrains Mono',monospace;font-size:10px;background:#f0f1f4;padding:1px 4px;border-radius:3px;">${escapeHtml(child.path)}[]</code>
+              </div>
+              ${child.parentKeys.length ? `<div style="font-size:11px;color:#5c6070;">Keys: ${escapeHtml([...child.parentKeys, ...child.idCandidates].join(" + "))}</div>` : ""}
+              <button class="create-child-endpoint" data-parent-index="${index}" data-child-path="${escapeHtml(child.path)}" data-child-name="${escapeHtml(child.entityName)}" data-child-keys="${escapeHtml(JSON.stringify([...child.parentKeys, ...child.idCandidates]))}"
+                style="margin-top:6px;padding:4px 12px;border:1px solid #e2e4ea;border-radius:6px;background:#fff;color:#7c5cfc;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">
+                Create as separate endpoint
+              </button>
+            </div>
+          `).join("")}
+        </details>`
+      : "";
+
+    // AI assist buttons (P1-A: Explain, P1-B: Refine, P3-A: Business Shape)
+    const aiTriggers = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;border-top:1px solid #eceef2;padding-top:10px;">
+        ${renderAiTrigger("Explain with AI", "explain_preview", index)}
+        ${renderAiTrigger("Refine recommendation", "suggest_keys", index)}
+        ${renderAiTrigger("What does this endpoint represent?", "business_shape", index)}
+      </div>`;
+
+    // AI result placeholder (filled dynamically)
+    const aiResultId = `ai-result-${index}`;
+    const aiResultSlot = `<div id="${aiResultId}"></div>`;
+
+    return `
+      <div style="margin-bottom:12px;padding:14px 16px;background:#fff;border:1px solid #e2e4ea;border-radius:10px;border-left:3px solid #0fa968;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+        <div style="font-size:12px;font-weight:600;color:#1a1d26;margin-bottom:8px;">Grain Recommendation</div>
+        ${grainLine}
+        ${pkLine}
+        ${wmLine}
+        ${reasonsHtml}
+        ${childrenHtml}
+        ${aiTriggers}
+        ${aiResultSlot}
+      </div>
+    `;
+  }
+
   renderEndpoints() {
     this.endpointTabState = this.state.endpoint_configs.map((_, index) => this.getEndpointTab(index));
     this.endpointList.innerHTML = this.state.endpoint_configs.map((cfg, i) => this.endpointHtml(cfg, i)).join("");
@@ -1270,12 +1503,68 @@ class ApiComponent extends HTMLElement {
       }, false, "API");
     });
 
+    // Create child endpoint buttons
+    this.endpointList.querySelectorAll(".create-child-endpoint").forEach((btn) => {
+      EventHandler.on(btn, "click", (event) => {
+        const el = event.target;
+        const parentIdx = Number(el.dataset.parentIndex);
+        const childPath = el.dataset.childPath;
+        const childName = el.dataset.childName;
+        let childKeys = [];
+        try { childKeys = JSON.parse(el.dataset.childKeys); } catch (_) {}
+
+        const parent = this.state.endpoint_configs[parentIdx];
+        if (!parent) return;
+
+        const child = {
+          ...DEFAULT_ENDPOINT(),
+          endpoint_name: `${parent.endpoint_name}.${childName}`,
+          endpoint_url: parent.endpoint_url,
+          http_method: parent.http_method,
+          load_type: parent.load_type,
+          pagination_strategy: parent.pagination_strategy,
+          cursor_field: parent.cursor_field,
+          cursor_param: parent.cursor_param,
+          json_explode_rules: [{ path: childPath }],
+          primary_key_fields: childKeys,
+          schema_mode: "infer",
+        };
+
+        this.state.endpoint_configs.push(child);
+        this.renderEndpoints();
+        this.markDirty();
+        this.statusText.textContent = `Created child endpoint "${child.endpoint_name}" from parent recommendation.`;
+        this.statusText.style.color = "#7c5cfc";
+      }, false, "API");
+    });
+
     // Preview schema buttons
     this.endpointList.querySelectorAll(".preview-schema").forEach((btn) => {
       EventHandler.on(btn, "click", (event) => {
         const idx = Number(event.target.closest(".endpoint-card").dataset.index);
         this.previewSchema(idx);
       }, false, "API");
+    });
+
+    // AI assist triggers (P1-A / P1-B)
+    bindAiTriggers(this.endpointList, async (action, index, btn) => {
+      const cfg = this.state.endpoint_configs[index];
+      if (!cfg?.inferred_fields?.length) return;
+      const resultEl = this.endpointList.querySelector(`#ai-result-${index}`);
+      if (!resultEl) return;
+      const loadingMsg = { explain_preview: "Explaining schema...", suggest_keys: "Refining recommendations...", business_shape: "Analyzing business entity..." }[action] || "Thinking...";
+      resultEl.innerHTML = renderAiLoading(loadingMsg);
+      try {
+        const endpointMap = { explain_preview: "/aiExplainPreviewSchema", suggest_keys: "/aiSuggestBronzeKeys", business_shape: "/aiExplainEndpointBusinessShape" };
+        const result = await callAiEndpoint(endpointMap[action], {
+          endpoint_config: cfg,
+          inferred_fields: cfg.inferred_fields,
+        });
+        const titleMap = { explain_preview: "Schema Explanation", suggest_keys: "Key Recommendations", business_shape: "Business Entity Analysis" };
+        resultEl.innerHTML = renderAiCard(result, { title: titleMap[action] });
+      } catch (err) {
+        resultEl.innerHTML = `<div class="ai-warnings">&#9888; ${err.message || "AI request failed"}</div>`;
+      }
     });
 
     // Endpoint sub-tabs
@@ -1609,18 +1898,20 @@ class ApiComponent extends HTMLElement {
         },
       });
       endpoint.inferred_fields = Array.isArray(result.inferred_fields) ? result.inferred_fields : [];
+      endpoint.schema_recommendations = result.recommendations || null;
       // Switch to infer mode since we now have inferred fields
       if (endpoint.inferred_fields.length && endpoint.schema_mode === "manual") {
         endpoint.schema_mode = "infer";
       }
-      // Auto-mark best watermark field and derive watermark_column
-      if (autoMarkWatermarkFields(endpoint.inferred_fields)) {
+      if (!applyServerRecommendations(endpoint) && autoMarkWatermarkFields(endpoint.inferred_fields)) {
         const wmFields = endpoint.inferred_fields.filter(f => f.is_watermark && f.enabled !== false).map(f => f.column_name);
         if (wmFields.length && !endpoint.watermark_column) {
           endpoint.watermark_column = wmFields.join(",");
         }
       }
-      autoApplyPrimaryKeyFields(endpoint);
+      if (!endpoint.primary_key_fields?.length) {
+        autoApplyPrimaryKeyFields(endpoint);
+      }
       if (Array.isArray(result.applied_json_explode_rules) && result.applied_json_explode_rules.length) {
         endpoint.json_explode_rules = result.applied_json_explode_rules;
       }

@@ -22,7 +22,7 @@ const CHAT_TEMPLATE = `
 
   .chat-panel {
     position: fixed; right: 20px; bottom: 20px; top: 60px;
-    width: 520px; min-width: 380px; max-width: 90vw;
+    width: 1040px; min-width: 380px; max-width: 90vw;
     z-index: 9999;
     background: #ffffff;
     border: 1px solid #e2e4ea;

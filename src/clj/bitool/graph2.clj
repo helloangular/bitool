@@ -68,6 +68,7 @@
   "projection" "P",
   "target" "Tg",
   "api-connection" "Ap",
+  "api" "Ap",
   "kafka-source" "Kf",
   "file-source" "Fs",
   "graphql-builder" "Gq",
@@ -406,8 +407,13 @@
 (defn unconnected-nodes[g]
       (vec (clojure.set/difference (set (keys (:n g))) (set (connected-main-nodes g)))))
 	  
-(defn top-sort [ g ] (filter (complement (set (unconnected-nodes g))) 
-                             (alg/topsort (graph/digraph (into {} (map (fn [[k v]] [k (vec (keys (:e v)))]) (:n g)))))))
+(defn top-sort [ g ]
+      (let [existing-nodes   (set (keys (:n g)))
+            connected-nodes  (complement (set (unconnected-nodes g)))
+            sorted-nodes     (alg/topsort (graph/digraph (into {} (map (fn [[k v]] [k (vec (keys (:e v)))]) (:n g)))))]
+        (filter #(and (contains? existing-nodes %)
+                      (connected-nodes %))
+                sorted-nodes)))
 
 (defn connected-graph[g]
       (sp/transform [:n]
@@ -479,18 +485,18 @@
     "Wh" (or (:webhook_path na) "")
     ""))
 
-(defn getOrphanNodeAttrs[g acc node]
-      (let [na (node node g)]
+(defn getOrphanNodeAttrs[g acc node-id]
+      (let [na (node node-id g)]
        (conj acc {"alias" (:name na)
                   "endpoint_label" (endpoint-node-label na)
-                  "y" (attr g node :y) ,
-		  "x" (attr g node :x) ,
+                  "y" (attr g node-id :y) ,
+		  "x" (attr g node-id :x) ,
 		  "btype" (:btype na) ,
-		  "parent" (case (count (parents g node))
+		  "parent" (case (count (parents g node-id))
                                         0 0
-                                        1 (first (parents g node))
-                                        (parents g node))   ,
-		  "id" node})))
+                                        1 (first (parents g node-id))
+                                        (parents g node-id))   ,
+		  "id" node-id})))
 
 (defn getOrphanAttrs[g]
       (reduce (partial getOrphanNodeAttrs g) [] (keys (:n g))))
@@ -1191,56 +1197,80 @@
 
       :else [])))
 
-(defn link-mapping[g id params]
-        (let [
-		mid (nodecount g)
-                tcols (nodes->columns id (:selected_nodes params))
-                g1 (sp/setval [:n id :e mid] (assoc params :endpoint_url (:endpoint_url params)) g)
-             ]
-	        (add-attrs g1 mid {:source tcols :target tcols :mapping []})))
+(defn- output-node-id [g]
+  (->> (:n g)
+       (keep (fn [[node-id node]]
+               (when (= "O" (get-in node [:na :btype]))
+                 node-id)))
+       first))
 
-(defn link-target[g id params]
-      (let [
-             tid (nodecount g)
-             mid (- tid 1)
-             g1 (add-edge g [mid tid])
-           ]
-           (add-attrs g1 tid (select-keys params [:table_name :create_table :truncate]))))
+(defn- legacy-api-mapping-ids [g api-id]
+  (->> (get-in g [:n api-id :e] {})
+       keys
+       (filter #(= "Mp" (get-in g [:n % :na :btype])))))
 
-(defn create-target[g id endpoint_url params]
-      (-> g
-          (add-mapping)
-          (link-mapping id params)
-          (add-target)
-          (link-target id params)))
+(defn- mapping-target-ids [g mapping-id]
+  (->> (get-in g [:n mapping-id :e] {})
+       keys
+       (filter #(= "Tg" (get-in g [:n % :na :btype])))))
 
-(defn endpoint-target-exists [g id endpoint_url]
-     (let [edge-path [:n id :e]  ;; Changed from [:n id :na :e]
-           edges (get-in g edge-path {})]
-       (sp/select-one
-         [sp/ALL
-          (sp/if-path [sp/LAST :endpoint_url (sp/pred= endpoint_url)]
-            sp/FIRST)]
-         edges)))
+(defn- incoming-node-ids [g target-id]
+  (->> (:n g)
+       (keep (fn [[node-id node]]
+               (when (contains? (:e node) target-id)
+                 node-id)))))
 
-(defn upsert-edge [g id endpoint_url params]
-      (let [edge-id (endpoint-target-exists g id endpoint_url)]
-           (if edge-id
-           	(sp/transform [:n id :e edge-id] #(merge % params) g)
-                (create-target g id endpoint_url params))))
+(defn- configured-target-node? [g target-id]
+  (let [target (get-in g [:n target-id :na])]
+    (boolean
+      (or (some? (:connection_id target))
+          (seq (trim-str (:connection target)))
+          (seq (trim-str (:target_kind target)))
+          (seq (trim-str (:catalog target)))
+          (seq (trim-str (:schema target)))
+          (seq (trim-str (:table_name target)))
+          (true? (:create_table target))
+          (true? (:truncate target))
+          (seq (:partition_columns target))
+          (seq (:merge_keys target))
+          (seq (:cluster_by target))
+          (seq (:options target))))))
+
+(defn- ensure-edge [g from-id to-id]
+  (if (contains? (get-in g [:n from-id :e] {}) to-id)
+    g
+    (add-edge g [from-id to-id])))
+
+(defn- cleanup-legacy-api-targets [g api-id]
+  (let [output-id (output-node-id g)]
+    (reduce
+      (fn [graph mapping-id]
+        (let [target-ids            (vec (mapping-target-ids graph mapping-id))
+              configured-target-ids (filterv #(configured-target-node? graph %) target-ids)]
+          (if (and (seq configured-target-ids) (nil? output-id))
+            graph
+            (let [graph' (reduce
+                           (fn [g' target-id]
+                             (cond
+                               (configured-target-node? g' target-id)
+                               (ensure-edge g' output-id target-id)
+
+                               (= [mapping-id] (vec (incoming-node-ids g' target-id)))
+                               (remove-node g' target-id)
+
+                               :else g'))
+                           graph
+                           target-ids)]
+              (remove-node graph' mapping-id)))))
+      g
+      (legacy-api-mapping-ids g api-id))))
 
 (defn save-api[g id params]
         (let [params            (kw-map params)
               endpoint-configs  (api-endpoint-configs-from-params params)
               node-params       (normalize-api-node-params params)
-              legacy-endpoint   (when (seq endpoint-configs) (first endpoint-configs))
               g1                (update-node g id node-params)]
-      	(if legacy-endpoint
-          (-> g1
-              (update-or-add-tcol id (:endpoint_url legacy-endpoint)
-                                  (select-keys legacy-endpoint [:endpoint_url :selected_nodes :table_name :create_table :truncate]))
-              (upsert-edge id (:endpoint_url legacy-endpoint) legacy-endpoint))
-          g1)))
+      	(cleanup-legacy-api-targets g1 id)))
 
 
 (defn convert-col[col]
@@ -1287,7 +1317,8 @@
      :catalog (non-blank-str (:catalog params) "")
      :schema (non-blank-str (:schema params) "")
      :table_name (non-blank-str (:table_name params) "")
-     :write_mode (non-blank-str (:write_mode params) "append")
+     :write_mode (let [write-mode (non-blank-str (:write_mode params) "append")]
+                   (if (= "overwrite" write-mode) "replace" write-mode))
      :table_format (non-blank-str (:table_format params) "delta")
      :partition_columns (split-csv (:partition_columns params))
      :merge_keys (split-csv (:merge_keys params))
@@ -2453,10 +2484,11 @@ mapping node 7
  							(join-table g t1 c2 t2-map jtype)))))
 
 (defn save-conn [ args ]
-    (let [ params (:json-params args)
-           _ (println "-------------- BODY PARAMS -------------------")
-           _ (pp/pprint args) ] 
-    (def conn-id (:connection/id (db/insert-data :connection (sp/transform :port #(Integer/parseInt %) (walk/keywordize-keys (:params args))))))
+    (let [params  (:json-params args)
+          conn-id (:connection/id
+                   (db/insert-data :connection
+                                   (sp/transform :port #(Integer/parseInt %)
+                                                 (walk/keywordize-keys (:params args)))))]
     {:conn-id conn-id :tree-data (getDBTree conn-id)}))
      ;; {(getDBTree conn-id)}))
 
@@ -2531,23 +2563,31 @@ mapping node 7
 ;; -------------------  Graph Display ----------------------------
 
 
-(defn getLevelFromSibling [g sibling] ( if sibling (case (attr g sibling :level)
-                                                        :U  :U
-                                                        :L  :L
-                                                        nil :L)
-                                           :S ))
+(defn- normalize-layout-level
+  [value default]
+  (case value
+    :U :U
+    :L :L
+    :S :S
+    default))
+
+(defn getLevelFromSibling [g sibling]
+  (if sibling
+    (normalize-layout-level (attr g sibling :level) :L)
+    :S))
 
 (defn getLevel [g sibling parent] (let [
 		;;			  _ (println (str "sibling : " sibling)) 
 		;;			  _ (println (str "parent : " parent)) 
                   ;;                        _ (pp/pprint g)
                                        ]
-					(case (attr g parent :level)
+					(case (normalize-layout-level (attr g parent :level) nil)
                                                 :U  :U
                                                 :L  :L
-                                                :S (getLevelFromSibling g sibling))))
+                                                :S (getLevelFromSibling g sibling)
+                                                (getLevelFromSibling g sibling))))
 
-(defn getLati [g sibling parent] (let [plati (attr g parent :lati)
+(defn getLati [g sibling parent] (let [plati (or (attr g parent :lati) 0)
 
                                        ]
                                         ( if sibling ( if (attr g sibling :lati) (+ plati 1) (- plati 1))
@@ -2568,7 +2608,7 @@ mapping node 7
                           lati (getLati g sibling parent)
                     ;;      _ (println (str "lati :" lati))
                     ;;      _ (println (str "level :" level))
-                          longi (- (attr g parent :longi) 1)
+                          longi (- (or (attr g parent :longi) 1) 1)
                     ;;      _ (println (str "parent longi " (attr g parent :longi) ))
                           btype (getBtype  g node)
                    ;;       _ (println (str "BTYPE " btype))
@@ -2649,10 +2689,7 @@ mapping node 7
                                                             :id (first %)
                                                            ) attrs)))
 
-(defn displayGraph [g] (let [ _ (println "Inside DISAPLAYGRAPH ")
-                              coord (createCoordinates g)
-                              _ (println "PRINTING COORD")
-                               _ (println coord) ]
+(defn displayGraph [g] (let [coord (createCoordinates g)]
                              (map #(update % :y (fn[x] (+ (* x 50) 150)) ) (map #(update % :x (fn[x] (+ (* x 300) 150)) ) coord))))
 
 (defn listNodes [g] (top-sort g))
