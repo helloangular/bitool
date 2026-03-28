@@ -12,6 +12,8 @@
    they return deterministic-only output labeled as such."
   (:require [bitool.ai.llm :as llm]
             [bitool.ingest.grain-planner :as grain]
+            [bitool.ingest.execution :as execution]
+            [bitool.modeling.automation :as modeling]
             [bitool.ops.schema-drift :as drift]
             [cheshire.core :as json]
             [clojure.tools.logging :as log]
@@ -983,21 +985,53 @@ Respond as JSON with these keys:
   next_checks (array of strings),
   recommendations (array of strings), open_questions (array of strings)")
 
+(defn- gather-anomaly-context
+  "Fetch run history, validation, and drift events for a proposal from the backend.
+   Throws 404 if the proposal does not exist."
+  [proposal_id workspace_key]
+  (let [proposal   (or (modeling/get-silver-proposal proposal_id)
+                       (modeling/get-gold-proposal proposal_id))
+        _          (when-not proposal
+                     (throw (ex-info "Proposal not found"
+                                     {:status 404 :proposal_id proposal_id})))
+        graph-id   (:source_graph_id proposal)
+        ep-name    (:source_endpoint_name proposal)
+        runs       (try (execution/list-execution-runs
+                          (cond-> {:limit 10}
+                            graph-id  (assoc :graph-id graph-id)
+                            ep-name   (assoc :endpoint-name ep-name)))
+                        (catch Exception _ []))
+        drift-evts (try (drift/list-drift-events
+                          (cond-> {:limit 10}
+                            workspace_key (assoc :workspace-key workspace_key)
+                            graph-id      (assoc :graph-id graph-id)
+                            ep-name       (assoc :endpoint-name ep-name)))
+                        (catch Exception _ []))
+        validation (:latest_validation proposal)]
+    {:run_history        runs
+     :validation_history (if validation [validation] [])
+     :drift_events       drift-evts}))
+
 (defn explain-run-or-kpi-anomaly!
-  "P3-D: Explain why a model run or KPI value is anomalous."
-  [{:keys [proposal_id run_history validation_history drift_events kpi_delta] :as params}]
+  "P3-D: Explain why a model run or KPI value is anomalous.
+   Fetches run history, drift events, and validation history server-side
+   from the proposal_id. The caller only needs to supply proposal_id and
+   optionally workspace_key."
+  [{:keys [proposal_id workspace_key kpi_delta] :as params}]
   (let [task       "explain_anomaly"
-        input-hash (stable-hash (select-keys params [:proposal_id :kpi_delta :run_history]))
+        input-hash (stable-hash (select-keys params [:proposal_id :kpi_delta]))
         cached     (cache-get task input-hash)]
     (if cached
       (assoc-in cached [:debug :source] "cached")
-      (let [context {:proposal_id        proposal_id
-                     :run_count          (count (or run_history []))
-                     :recent_runs        (take 5 (or run_history []))
-                     :validation_count   (count (or validation_history []))
-                     :recent_validations (take 3 (or validation_history []))
-                     :drift_event_count  (count (or drift_events []))
-                     :recent_drift       (take 3 (or drift_events []))
+      (let [{:keys [run_history validation_history drift_events]}
+            (gather-anomaly-context proposal_id workspace_key)
+            context {:proposal_id        proposal_id
+                     :run_count          (count run_history)
+                     :recent_runs        (take 5 run_history)
+                     :validation_count   (count validation_history)
+                     :recent_validations (take 3 validation_history)
+                     :drift_event_count  (count drift_events)
+                     :recent_drift       (take 3 drift_events)
                      :kpi_delta          kpi_delta}]
         (try
           (let [raw    (llm/call-llm-text
@@ -1011,15 +1045,16 @@ Respond as JSON with these keys:
           (catch Exception e
             (log/warn "LLM unavailable for explain-anomaly, using deterministic fallback"
                       {:error (.getMessage e)})
-            (let [run-ct   (count (or run_history []))
-                  drift-ct (count (or drift_events []))
+            (let [run-ct   (count run_history)
+                  drift-ct (count drift_events)
                   recs     (cond-> []
                              (pos? drift-ct)
                              (conj (str drift-ct " recent drift event(s) — check for schema changes"))
                              (pos? run-ct)
                              (conj (str "Review " run-ct " recent run(s) for row count or duration changes"))
                              kpi_delta
-                             (conj "KPI delta detected — compare with previous period"))
+                             (conj (str "KPI delta detected on " (or (:metric kpi_delta) "unknown")
+                                        " — " (or (:pct_change kpi_delta) "?") "% change")))
                   summary  (str "Anomaly analysis for proposal " proposal_id
                                 ": " (count recs) " potential factor(s) identified.")]
               (cache-put! task input-hash

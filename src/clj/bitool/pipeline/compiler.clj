@@ -4,6 +4,7 @@
    Apply mode persists through existing Bitool APIs."
   (:require [bitool.db :as db]
             [bitool.graph2 :as g2]
+            [bitool.modeling.automation :as modeling]
             [clojure.string :as string]
             [clojure.tools.logging :as log]
             [cheshire.core :as json]))
@@ -57,13 +58,14 @@
         g1          (db/insertGraph g0)
         gid         (get-in g1 [:a :id])
 
-        ;; Step 2: Add API source node
-        _           (g2/add-single-node gid nil (or (:api_name api-config) "API Source") "Ap" 100 200)
+        ;; Step 2: Add API source node.
+        ;; graph2/add-single-node expects the semantic node kind, not the compact btype code.
+        _           (g2/add-single-node gid nil (or (:api_name api-config) "API Source") "api-connection" 100 200)
         g2          (db/getGraph gid)
         api-node-id (first (sort (remove #{1} (keys (:n g2)))))
 
         ;; Step 3: Add Target node
-        _           (g2/add-single-node gid nil "Target" "Tg" 300 200)
+        _           (g2/add-single-node gid nil "Target" "target" 300 200)
         g3          (db/getGraph gid)
         tg-node-id  (first (sort (remove #{1 api-node-id} (keys (:n g3)))))
 
@@ -86,10 +88,10 @@
         _           (db/insertGraph g7)
 
         final-g     (db/getGraph gid)]
-    {:graph-id      gid
-     :graph-version (get-in final-g [:a :v])
-     :api-node-id   api-node-id
-     :target-node-id tg-node-id}))
+    {:graph_id      gid
+     :graph_version (get-in final-g [:a :v])
+     :api_node_id   api-node-id
+     :target_node_id tg-node-id}))
 
 ;; ---------------------------------------------------------------------------
 ;; Silver proposal generation
@@ -98,32 +100,53 @@
 (defn plan-silver-proposals
   "Return Silver proposal plans from PipelineSpec.
    These are data structures — apply-silver-proposals! persists them."
-  [spec {:keys [graph-id api-node-id]}]
-  (mapv (fn [sp]
-          {:graph-id       graph-id
-           :api-node-id    api-node-id
+  [spec bronze-result]
+  (let [graph-id    (or (:graph-id bronze-result) (:graph_id bronze-result))
+        api-node-id (or (:api-node-id bronze-result) (:api_node_id bronze-result))]
+    (mapv (fn [sp]
+            {:graph-id       graph-id
+             :api-node-id    api-node-id
            :endpoint-name  (:source-endpoint sp)
            :target-model   (:target-model sp)
            :entity-kind    (:entity-kind sp)
            :business-keys  (:business-keys sp)
            :columns        (:columns sp)
-           :processing-policy (:processing-policy sp)})
-        (:silver-proposals spec)))
+             :processing-policy (:processing-policy sp)})
+          (:silver-proposals spec))))
 
 (defn apply-silver-proposals!
   "Create Silver proposals through existing modeling automation.
    Requires Bronze graph to exist and have been run at least once (for schema).
    Returns vector of {:proposal-id, :target-model}."
   [silver-plans {:keys [created-by]}]
-  ;; This calls modeling-automation APIs which require runtime state.
-  ;; For now, return the plans as-is for the preview.
-  ;; Full apply will be wired when modeling-automation is available.
-  (log/info "Silver proposal apply deferred — modeling automation integration pending"
-            {:count (count silver-plans)})
-  (mapv (fn [plan]
-          {:proposal-id nil  ;; will be set when automation is wired
-           :target-model (:target-model plan)
-           :status "planned"})
+  (mapv (fn [{:keys [graph-id api-node-id endpoint-name target-model entity-kind business-keys
+                     columns processing-policy] :as plan}]
+          (let [base-result (modeling/propose-silver-schema!
+                             {:graph-id graph-id
+                              :api-node-id api-node-id
+                              :endpoint-name endpoint-name
+                              :created-by created-by})
+                proposal-id (:proposal_id base-result)
+                patch       (cond-> {:target_model target-model
+                                     :entity_kind entity-kind}
+                              (seq business-keys)
+                              (assoc :materialization {:mode "merge"
+                                                       :keys (vec business-keys)})
+                              (map? processing-policy)
+                              (assoc :processing_policy processing-policy)
+                              (seq columns)
+                              (assoc :columns columns))
+                final-result (if (seq patch)
+                               (modeling/update-silver-proposal!
+                                proposal-id
+                                {:proposal patch
+                                 :created_by created-by})
+                               base-result)]
+            {:proposal_id (:proposal_id final-result)
+             :target_model (:target_model final-result)
+             :status (:status final-result)
+             :layer (:layer final-result)
+             :source_endpoint endpoint-name}))
         silver-plans))
 
 ;; ---------------------------------------------------------------------------
@@ -140,13 +163,41 @@
    Requires Silver proposals to be published first.
    Returns vector of {:proposal-id, :target-model}."
   [gold-plans {:keys [created-by silver-proposal-ids]}]
-  (log/info "Gold proposal apply deferred — modeling automation integration pending"
-            {:count (count gold-plans)})
-  (mapv (fn [plan]
-          {:proposal-id nil
-           :target-model (:target-model plan)
-           :status "planned"})
-        gold-plans))
+  (let [proposal-id-by-model (into {}
+                                  (keep (fn [proposal]
+                                          (when (:proposal_id proposal)
+                                            [(:target_model proposal) (:proposal_id proposal)])))
+                                  silver-proposal-ids)]
+    (mapv (fn [{:keys [target-model grain depends-on measures dimensions sql-template] :as plan}]
+            (let [source-proposal-id (or (some proposal-id-by-model depends-on)
+                                         (:proposal_id (first silver-proposal-ids)))]
+              (when-not source-proposal-id
+                (throw (ex-info "Gold proposal requires at least one applied Silver proposal"
+                                {:status 400
+                                 :target_model target-model
+                                 :depends_on depends-on})))
+              (let [base-result (modeling/propose-gold-schema!
+                                 {:silver_proposal_id source-proposal-id
+                                  :created_by created-by})
+                    patch       (cond-> {:target_model target-model}
+                                  grain (assoc :semantic_grain grain)
+                                  (seq depends-on) (assoc :depends_on (vec depends-on))
+                                  (seq measures) (assoc :measures (vec measures))
+                                  (seq dimensions) (assoc :dimensions (vec dimensions))
+                                  sql-template (assoc :sql_template sql-template))
+                    final-result (if (seq patch)
+                                   (modeling/update-gold-proposal!
+                                    (:proposal_id base-result)
+                                    {:proposal patch
+                                     :created_by created-by})
+                                   base-result)]
+                {:proposal_id (:proposal_id final-result)
+                 :target_model (:target_model final-result)
+                 :status (:status final-result)
+                 :layer (:layer final-result)
+                 :depends_on (vec depends-on)
+                 :source_proposal_id source-proposal-id})))
+          gold-plans)))
 
 ;; ---------------------------------------------------------------------------
 ;; Full pipeline apply
@@ -168,7 +219,7 @@
         gold-plans    (plan-gold-models spec)
         gold-result   (apply-gold-proposals! gold-plans
                                              (assoc opts :silver-proposal-ids
-                                                    (mapv :proposal-id silver-result)))]
+                                                    silver-result))]
     {:bronze      bronze-result
      :silver      silver-result
      :gold        gold-result

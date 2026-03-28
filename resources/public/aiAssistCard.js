@@ -209,7 +209,51 @@ export function renderAiCard(env, opts = {}) {
   const validationHtml = renderStringArray("Likely causes", env.likely_causes)
     + renderStringArray("Suggested actions", env.suggested_actions);
 
-  const taskSpecific = previewHtml + keysHtml + proposalHtml + validationHtml;
+  // P3-A: Business Shape — likely_entity_type, entity_type, grain_hint, downstream shapes/use cases
+  let businessShapeHtml = "";
+  const entityType = env.likely_entity_type || env.entity_type;
+  if (entityType) {
+    businessShapeHtml += `<div style="padding:3px 0;"><strong>Entity type:</strong> <code style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#f5f6f8;padding:2px 6px;border-radius:4px;">${escHtml(entityType)}</code></div>`;
+  }
+  businessShapeHtml += renderDetailSection("Grain hint", env.grain_hint)
+    + renderStringArray("Downstream Silver shapes", env.downstream_silver_shapes)
+    + renderStringArray("Downstream Gold use cases", env.downstream_gold_use_cases);
+
+  // P3-B: Target Strategy — write_mode_notes, tradeoffs, cost/performance/risk notes
+  let targetStrategyHtml = renderDetailSection("Write mode notes", env.write_mode_notes);
+  targetStrategyHtml += renderObjectArray("Tradeoffs", env.tradeoffs, t =>
+    `<strong>${escHtml(t.mode || "")}</strong>` +
+    (t.pros?.length ? `<br>Pros: ${t.pros.map(p => escHtml(p)).join(", ")}` : "") +
+    (t.cons?.length ? `<br>Cons: ${t.cons.map(c => escHtml(c)).join(", ")}` : ""));
+  targetStrategyHtml += renderStringArray("Cost notes", env.cost_notes)
+    + renderStringArray("Performance notes", env.performance_notes)
+    + renderStringArray("Operational risks", env.operational_risks);
+
+  // P3-C: Metric Glossary — metrics, definitions, assumptions, caveats
+  let metricGlossaryHtml = renderObjectArray("Metrics", env.metrics, m =>
+    `<strong>${escHtml(m.name || "")}</strong>: ${escHtml(m.definition || "")}` +
+    (m.source_columns?.length ? ` <em>(from: ${m.source_columns.map(c => escHtml(c)).join(", ")})</em>` : "") +
+    (m.assumptions?.length ? `<br>Assumptions: ${m.assumptions.map(a => escHtml(a)).join("; ")}` : "") +
+    (m.caveats?.length ? `<br>Caveats: ${m.caveats.map(c => escHtml(c)).join("; ")}` : ""));
+  metricGlossaryHtml += renderStringArray("Definitions", env.definitions)
+    + renderStringArray("Assumptions", env.assumptions)
+    + renderStringArray("Caveats", env.caveats);
+
+  // P3-D: Anomaly Explanation — likely_causes (objects), impacted_assets, next_checks
+  let anomalyHtml = "";
+  if (env.likely_causes?.length && typeof env.likely_causes[0] === "object") {
+    anomalyHtml += renderObjectArray("Likely causes", env.likely_causes, c =>
+      `<strong>${escHtml(c.cause || "")}</strong>` +
+      (c.evidence ? `: ${escHtml(c.evidence)}` : ""));
+  } else if (env.likely_causes?.length) {
+    // already handled by validationHtml's renderStringArray above
+    anomalyHtml += "";
+  }
+  anomalyHtml += renderStringArray("Impacted assets", env.impacted_assets)
+    + renderStringArray("Next checks", env.next_checks);
+
+  const taskSpecific = previewHtml + keysHtml + proposalHtml + validationHtml
+    + businessShapeHtml + targetStrategyHtml + metricGlossaryHtml + anomalyHtml;
 
   const source = env.debug?.source || "";
   const sourceBadge = source

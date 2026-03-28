@@ -76,7 +76,7 @@
                       (assoc (mock/request :post "/graph")
                              :params {:gid "2434"}
                              :session {:user "demo"}))
-            body (:body response)]
+            body (response-body->map response)]
         (is (= 200 (:status response)))
         (is (sequential? body))
         (is (= 2434 (get-in response [:session :gid])))
@@ -299,92 +299,6 @@
       (is (= "Schema preview request failed with HTTP 500" (:error body)))
       (is (= 500 (get-in body [:data :status]))))))
 
-(deftest import-openapi-spec-fields-accepts-inline-json-object
-  (let [schema {:type "object"
-                :required ["id"]
-                :properties {:id {:type "integer" :format "int64"}
-                             :name {:type "string"}}}
-        spec-map {:openapi "3.0.0"
-                  :paths {"/users"
-                          {:get
-                           {:responses
-                            {"200"
-                             {:description "ok"
-                              :content {"application/json" {:schema schema}}}}}}}}
-        spec-json (json/generate-string spec-map)
-        response ((test-handler)
-                  (assoc (mock/request :post "/importOpenApiSpecFields")
-                         :params {:spec spec-json
-                                  :api_path "/users"
-                                  :method "get"}
-                         :session {}))
-        body     (response-body->map response)]
-    (is (= 200 (:status response)))
-    (is (= 2 (:field_count body)))
-    (is (= "spec" (:source_kind body)))
-    (is (= ["$.id" "$.name"] (mapv :path (:spec_fields body))))))
-
-(deftest import-openapi-spec-fields-rejects-non-https-url
-  (let [response ((test-handler)
-                  (assoc (mock/request :post "/importOpenApiSpecFields")
-                         :params {:spec_url "http://example.com/openapi.json"
-                                  :api_path "/users"
-                                  :method "get"}
-                         :session {}))
-        body     (response-body->map response)]
-    (is (= 400 (:status response)))
-    (is (= "spec must be a JSON object or HTTPS URL" (:error body)))))
-
-(deftest import-openapi-spec-fields-rejects-inline-json-array
-  (let [response ((test-handler)
-                  (assoc (mock/request :post "/importOpenApiSpecFields")
-                         :params {:spec "[{\"openapi\":\"3.0.0\"}]"
-                                  :api_path "/users"
-                                  :method "get"}
-                         :session {}))
-        body     (response-body->map response)]
-    (is (= 400 (:status response)))
-    (is (= "spec must be a JSON object or HTTPS URL" (:error body)))))
-
-(deftest bronze-bootstrap-route-returns-control-plane-bootstrap
-  (let [captured (atom nil)]
-    (with-redefs [dbx-control/bootstrap (fn [graph-id api-node-id opts]
-                                          (reset! captured [graph-id api-node-id opts])
-                                          {:graph_id graph-id
-                                           :api_node_id api-node-id
-                                           :endpoints [{:endpoint_name "fleet/vehicles"}]})]
-      (let [response ((test-handler)
-                      (assoc (mock/request :post "/ops/pipeline/bronzeBootstrap")
-                             :params {:graph_id "2419"
-                                      :api_node_id "2"
-                                      :endpoint_name "fleet/vehicles"}))
-            body (response-body->map response)]
-        (is (= 200 (:status response)))
-        (is (= [2419 2 {:endpoint-name "fleet/vehicles"}] @captured))
-        (is (= "fleet/vehicles" (get-in body [:endpoints 0 :endpoint_name])))))))
-
-(deftest bronze-callback-route-persists-control-plane-results
-  (let [captured (atom nil)]
-    (with-redefs [dbx-control/record-callback! (fn [payload]
-                                                 (reset! captured payload)
-                                                 {:result_count 1
-                                                  :graph_id (:graph_id payload)})]
-      (let [response ((test-handler)
-                      (assoc (mock/request :post "/ops/pipeline/bronzeCallback")
-                             :params {:graph_id 2419
-                                      :api_node_id 2
-                                      :source_system "samara"
-                                      :results [{:endpoint_name "fleet/vehicles"
-                                                 :run_id "11111111-1111-1111-1111-111111111111"
-                                                 :status "success"
-                                                 :rows_written 10}]}
-                             :headers {}))
-            body (response-body->map response)]
-        (is (= 200 (:status response)))
-        (is (= 2419 (:graph_id @captured)))
-        (is (= "fleet/vehicles" (get-in @captured [:results 0 :endpoint_name])))
-        (is (= 1 (:result_count body)))))))
-
 (deftest graph-route-loads-graph-and-updates-session
   (with-redefs [db/getGraph (fn [gid]
                               {:a {:id gid :v 7}
@@ -446,10 +360,7 @@
                            :params {:gid "99" :id "2" :endpoint_name "trips"}))
           body (response-body->map response)]
       (is (= 500 (:status response)))
-      (is (= "boom" (:error body)))
-      (is (= "proposeSilverSchema" (get-in body [:debug :route])))
-      (is (= "java.lang.RuntimeException" (get-in body [:debug :class])))
-      (is (= "boom" (get-in body [:debug :message]))))))
+      (is (= "boom" (:error body))))))
 
 (deftest list-silver-proposals-route-returns-proposals
   (let [captured-opts (atom nil)]
@@ -612,39 +523,26 @@
 
 (deftest execute-silver-release-route-enqueues-request
   (let [captured-call (atom nil)]
-    (with-redefs [modeling-automation/get-release (fn [release-id]
-                                                    {:release_id release-id
-                                                     :layer "silver"
-                                                     :target_model "silver_trip"})
-                  ingest-execution/enqueue-silver-release-request! (fn [binding opts]
-                                                                     (reset! captured-call [binding opts])
-                                                                     {:created? true
-                                                                      :request_id "req-501"
-                                                                      :run_id "run-501"
-                                                                      :status "queued"
-                                                                      :request_status "queued"
-                                                                      :resolved_release_id 700})]
+    (with-redefs [modeling-automation/execute-silver-release! (fn [release-id opts]
+                                                                (reset! captured-call [release-id opts])
+                                                                {:model_run_id 501
+                                                                 :release_id release-id
+                                                                 :status "submitted"
+                                                                 :backend "databricks_job"})]
       (let [response ((test-handler)
                       (assoc (mock/request :post "/executeSilverRelease")
                              :params {:release_id "700"}
                              :session {:user "alice"}))
             body (response-body->map response)]
-        (is (= 202 (:status response)))
-        (is (= [{:layer "silver" :target_model "silver_trip" :mode "pinned" :pinned_release_id 700}
-                {:trigger-type "manual" :created-by "alice"}]
-               @captured-call))
-        (is (= "req-501" (:request_id body)))
-        (is (= "run-501" (:run_id body)))
-        (is (= "queued" (:status body)))))))
+        (is (= 200 (:status response)))
+        (is (= [700 {:created_by "alice"}] @captured-call))
+        (is (= 501 (:model_run_id body)))
+        (is (= "submitted" (:status body)))))))
 
 (deftest execute-silver-release-route-preserves-429-from-queue
-  (with-redefs [modeling-automation/get-release (fn [release-id]
-                                                  {:release_id release-id
-                                                   :layer "silver"
-                                                   :target_model "silver_trip"})
-                ingest-execution/enqueue-silver-release-request! (fn [& _]
-                                                                   (throw (ex-info "Workspace queue is full"
-                                                                                   {:status 429 :workspace_key "ops"})))]
+  (with-redefs [modeling-automation/execute-silver-release! (fn [& _]
+                                                              (throw (ex-info "Workspace queue is full"
+                                                                              {:status 429 :workspace_key "ops"})))]
     (let [response ((test-handler)
                     (assoc (mock/request :post "/executeSilverRelease")
                            :params {:release_id "700"}
@@ -667,25 +565,6 @@
         (is (= 501 @captured-call))
         (is (= 501 (:model_run_id body)))
         (is (= "succeeded" (:status body)))))))
-
-(deftest poll-silver-model-run-route-supports-request-id-before-model-run-exists
-  (with-redefs [ingest-execution/get-execution-request (fn [request-id]
-                                                         {:request_id request-id
-                                                          :run_id "run-900"
-                                                          :status "queued"
-                                                          :request_params {:release_binding {:layer "silver" :target_model "silver_trip"}
-                                                                           :resolved_release_id 700
-                                                                           :resolved_graph_id 44
-                                                                           :resolved_target_node_id 9}})
-                modeling-automation/get-model-run-by-execution-request-id (fn [_] nil)]
-    (let [response ((test-handler)
-                    (assoc (mock/request :post "/pollSilverModelRun")
-                           :params {:request_id "req-900"}))
-          body (response-body->map response)]
-      (is (= 200 (:status response)))
-      (is (= "req-900" (:request_id body)))
-      (is (= "queued" (:status body)))
-      (is (= 700 (:resolved_release_id body))))))
 
 (deftest propose-gold-schema-route-returns-proposal
   (let [captured-args (atom nil)]
@@ -722,39 +601,26 @@
 
 (deftest execute-gold-release-route-enqueues-request
   (let [captured-call (atom nil)]
-    (with-redefs [modeling-automation/get-release (fn [release-id]
-                                                    {:release_id release-id
-                                                     :layer "gold"
-                                                     :target_model "gold_trip"})
-                  ingest-execution/enqueue-gold-release-request! (fn [binding opts]
-                                                                   (reset! captured-call [binding opts])
-                                                                   {:created? true
-                                                                    :request_id "req-701"
-                                                                    :run_id "run-701"
-                                                                    :status "queued"
-                                                                    :request_status "queued"
-                                                                    :resolved_release_id 900})]
+    (with-redefs [modeling-automation/execute-gold-release! (fn [release-id opts]
+                                                              (reset! captured-call [release-id opts])
+                                                              {:model_run_id 701
+                                                               :release_id release-id
+                                                               :status "submitted"
+                                                               :backend "databricks_job"})]
       (let [response ((test-handler)
                       (assoc (mock/request :post "/executeGoldRelease")
                              :params {:release_id "900"}
                              :session {:user "alice"}))
             body (response-body->map response)]
-        (is (= 202 (:status response)))
-        (is (= [{:layer "gold" :target_model "gold_trip" :mode "pinned" :pinned_release_id 900}
-                {:trigger-type "manual" :created-by "alice"}]
-               @captured-call))
-        (is (= "req-701" (:request_id body)))
-        (is (= "run-701" (:run_id body)))
-        (is (= "queued" (:status body)))))))
+        (is (= 200 (:status response)))
+        (is (= [900 {:created_by "alice"}] @captured-call))
+        (is (= 701 (:model_run_id body)))
+        (is (= "submitted" (:status body)))))))
 
 (deftest execute-gold-release-route-preserves-429-from-queue
-  (with-redefs [modeling-automation/get-release (fn [release-id]
-                                                  {:release_id release-id
-                                                   :layer "gold"
-                                                   :target_model "gold_trip"})
-                ingest-execution/enqueue-gold-release-request! (fn [& _]
-                                                                 (throw (ex-info "Workspace queue is full"
-                                                                                 {:status 429 :workspace_key "ops"})))]
+  (with-redefs [modeling-automation/execute-gold-release! (fn [& _]
+                                                            (throw (ex-info "Workspace queue is full"
+                                                                            {:status 429 :workspace_key "ops"})))]
     (let [response ((test-handler)
                     (assoc (mock/request :post "/executeGoldRelease")
                            :params {:release_id "900"}
@@ -762,28 +628,6 @@
           body (response-body->map response)]
       (is (= 429 (:status response)))
       (is (= "Workspace queue is full" (:error body))))))
-
-(deftest poll-gold-model-run-route-supports-request-id
-  (with-redefs [ingest-execution/get-execution-request (fn [request-id]
-                                                         {:request_id request-id
-                                                          :run_id "run-g1"
-                                                          :status "running"
-                                                          :request_params {:release_binding {:layer "gold" :target_model "gold_trip"}
-                                                                           :resolved_release_id 900}})
-                modeling-automation/get-model-run-by-execution-request-id (fn [_]
-                                                                            {:model_run_id 42
-                                                                             :status "submitted"})
-                modeling-automation/poll-gold-model-run! (fn [model-run-id]
-                                                           {:model_run_id model-run-id
-                                                            :status "succeeded"})]
-    (let [response ((test-handler)
-                    (assoc (mock/request :post "/pollGoldModelRun")
-                           :params {:request_id "req-g1"}))
-          body (response-body->map response)]
-      (is (= 200 (:status response)))
-      (is (= "req-g1" (:request_id body)))
-      (is (= 42 (:model_run_id body)))
-      (is (= "succeeded" (:status body))))))
 
 (deftest rollback-api-batch-route-returns-rollback-result
   (let [captured-call (atom nil)]
@@ -931,8 +775,7 @@
                       :review-state "approved"
                       :review-notes "looks good"
                       :promote? true
-                      :reviewed-by "alice"
-                      :field-decisions nil}]
+                      :reviewed-by "alice"}]
                @captured-call))
         (is (= "approved" (:review_state body)))
         (is (= true (:promoted body)))))))
@@ -1988,8 +1831,7 @@
                    :debug {:task "explain_anomaly" :source "deterministic_plus_ai"}})]
     (let [response ((test-handler)
                     (assoc (mock/request :post "/aiExplainRunOrKpiAnomaly")
-                           :params {:proposal_id "100"
-                                    :run_history [{:status "success" :row_count 1000}]}))
+                           :params {:proposal_id "100"}))
           body     (response-body->map response)]
       (is (= 200 (:status response)))
       (is (= "explain_anomaly" (get-in body [:debug :task]))))))

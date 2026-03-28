@@ -2649,13 +2649,9 @@ class ModelingConsole extends HTMLElement {
     this.$aiExplainAnomalyBtn.disabled = true;
     this.$aiAnomalyResult.innerHTML = renderAiLoading("Analyzing anomalies...");
     try {
-      const result = await callAiEndpoint("/aiExplainRunOrKpiAnomaly", {
-        proposal_id: pid,
-        run_history: p.run_history || [],
-        validation_history: p.validation_history || [],
-        drift_events: p.drift_events || [],
-        kpi_delta: p.kpi_delta || null,
-      });
+      const payload = { proposal_id: pid };
+      if (p.kpi_delta) payload.kpi_delta = p.kpi_delta;
+      const result = await callAiEndpoint("/aiExplainRunOrKpiAnomaly", payload);
       this.$aiAnomalyResult.innerHTML = renderAiCard(result, { title: "Anomaly Explanation" });
     } catch (err) {
       this.$aiAnomalyResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;

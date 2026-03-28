@@ -3,7 +3,7 @@
             [bitool.db :as db]
             [next.jdbc :as jdbc]))
 
-(deftest insert-rows-databricks-inlines-literals-instead-of-binding-params
+(deftest insert-rows-databricks-uses-parameterized-insert
   (let [calls (atom [])]
     (with-redefs [db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
                   db/get-opts (fn [_ _] :fake-ds)
@@ -25,14 +25,15 @@
          ["2026-03-22"]
          #inst "2026-03-22T22:20:00.000-00:00"]])
       (let [[sqlvec] @calls
-            [sql] sqlvec]
-        (is (= 1 (count sqlvec)))
+            [sql batch-id status active partition-dates committed-at] sqlvec]
+        (is (= 6 (count sqlvec)))
         (is (.contains sql "INSERT INTO main.audit.run_batch_manifest"))
-        (is (.contains sql "'batch-1'"))
-        (is (.contains sql "'committed'"))
-        (is (.contains sql "TRUE"))
-        (is (.contains sql "'[\"2026-03-22\"]'"))
-        (is (.contains sql "'2026-03-22T22:20:00Z'"))))))
+        (is (.contains sql "VALUES (?, ?, ?, ?, ?)"))
+        (is (= "batch-1" batch-id))
+        (is (= "committed" status))
+        (is (= true active))
+        (is (= ["2026-03-22"] partition-dates))
+        (is (= #inst "2026-03-22T22:20:00.000-00:00" committed-at))))))
 
 (deftest insert-rows-databricks-escapes-single-quotes-and-nulls
   (let [calls (atom [])]
@@ -49,11 +50,12 @@
         {:column_name "rolled_back_by"}]
        [["driver's note" nil]])
       (let [[sqlvec] @calls
-            [sql] sqlvec]
-        (is (.contains sql "'driver''s note'"))
-        (is (.contains sql "NULL"))))))
+            [sql rollback-reason rolled-back-by] sqlvec]
+        (is (.contains sql "VALUES (?, ?)"))
+        (is (= "driver's note" rollback-reason))
+        (is (nil? rolled-back-by))))))
 
-(deftest insert-rows-databricks-inlines-small-non-audit-batches
+(deftest insert-rows-databricks-uses-parameterized-non-audit-batches
   (let [calls (atom [])]
     (with-redefs [db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
                   db/get-opts (fn [_ _] :fake-ds)
@@ -68,11 +70,12 @@
         {:column_name "load_date"}]
        [[{:id "1"} (java.sql.Date/valueOf "2026-03-22")]])
       (let [[sqlvec] @calls
-            [sql] sqlvec]
-        (is (= 1 (count sqlvec)))
+            [sql payload load-date] sqlvec]
+        (is (= 3 (count sqlvec)))
         (is (.contains sql "INSERT INTO main.bronze.fleet_vehicles"))
-        (is (.contains sql "'{\"id\":\"1\"}'"))
-        (is (.contains sql "'2026-03-22'"))))))
+        (is (.contains sql "VALUES (?, ?)"))
+        (is (= {:id "1"} payload))
+        (is (= (java.sql.Date/valueOf "2026-03-22") load-date))))))
 
 (deftest insert-rows-databricks-keeps-parameterized-path-for-large-non-audit-batches
   (let [calls (atom [])
@@ -92,8 +95,8 @@
       (let [[sqlvec] @calls
             [sql payload load-date] sqlvec]
         (is (.contains sql "VALUES (?, ?)"))
-        (is (= "{\"id\":\"1\"}" payload))
-        (is (= "2026-03-22" load-date))))))
+        (is (= {:id "1"} payload))
+        (is (= (java.sql.Date/valueOf "2026-03-22") load-date))))))
 
 (deftest load-rows-databricks-copy-into-emits-copy-sql
   (let [calls (atom [])]

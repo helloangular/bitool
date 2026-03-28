@@ -1017,6 +1017,7 @@
       ((case (:status (ex-data e))
          403 http-response/forbidden
          404 http-response/not-found
+         429 http-response/too-many-requests
          409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
@@ -1040,6 +1041,7 @@
       ((case (:status (ex-data e))
          403 http-response/forbidden
          404 http-response/not-found
+         429 http-response/too-many-requests
          409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
@@ -1063,6 +1065,7 @@
       ((case (:status (ex-data e))
          403 http-response/forbidden
          404 http-response/not-found
+         429 http-response/too-many-requests
          409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
@@ -1373,14 +1376,13 @@
           proposal-id (parse-required-int (:proposal_id params) :proposal_id)]
       (http-response/ok
        (ai-assistant/explain-run-or-kpi-anomaly!
-        {:proposal_id        proposal-id
-         :run_history        (:run_history params)
-         :validation_history (:validation_history params)
-         :drift_events       (:drift_events params)
-         :kpi_delta          (:kpi_delta params)})))
+        {:proposal_id   proposal-id
+         :workspace_key (:workspace_key params)
+         :kpi_delta     (:kpi_delta params)})))
     (catch clojure.lang.ExceptionInfo e
       ((case (:status (ex-data e))
          403 http-response/forbidden
+         404 http-response/not-found
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
     (catch Exception e
@@ -1461,6 +1463,7 @@
       ((case (:status (ex-data e))
          403 http-response/forbidden
          404 http-response/not-found
+         429 http-response/too-many-requests
          409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
@@ -1497,6 +1500,7 @@
       ((case (:status (ex-data e))
          403 http-response/forbidden
          404 http-response/not-found
+         429 http-response/too-many-requests
          409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
@@ -1540,6 +1544,7 @@
       ((case (:status (ex-data e))
          403 http-response/forbidden
          404 http-response/not-found
+         429 http-response/too-many-requests
          409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
@@ -1561,6 +1566,7 @@
       ((case (:status (ex-data e))
          403 http-response/forbidden
          404 http-response/not-found
+         429 http-response/too-many-requests
          409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))
@@ -1798,6 +1804,7 @@
       ((case (:status (ex-data e))
          403 http-response/forbidden
          404 http-response/not-found
+         429 http-response/too-many-requests
          409 http-response/conflict
          http-response/bad-request)
        {:error (ex-message e) :data (ex-data e)}))

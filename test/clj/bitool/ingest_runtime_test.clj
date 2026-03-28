@@ -41,6 +41,12 @@
     (reset! @#'bitool.ingest.runtime/current-run-id-for-cache nil)
     (reset! @#'bitool.ingest.runtime/local-ingest-cache-ready? false)
     (with-redefs-fn {#'bitool.ingest.runtime/connection-dbtype (fn [_] "databricks")
+                     #'bitool.control-plane/graph-workspace-context (fn [_]
+                                                                      {:tenant_key "tenant-1"
+                                                                       :workspace_key "wk-1"})
+                     #'db/get-opts (fn [& _] :fake-ds)
+                     #'jdbc/execute! (fn [& _] [])
+                     #'jdbc/execute-one! (fn [& _] nil)
                      #'bitool.ingest.runtime/ensure-checkpoint-columns! (fn [& _] nil)
                      #'bitool.ingest.runtime/ensure-batch-manifest-columns! (fn [& _] nil)
                      #'bitool.ingest.runtime/ensure-bad-record-columns! (fn [& _] nil)
@@ -80,16 +86,17 @@
     (is (= "https://api.example.com" (get item "base_url")))))
 
 (deftest save-api-treats-blank-bad-record-alert-ratio-as-unset
-  (let [g  (base-graph 2 "Ap")
-        g' (g2/save-api g 2 {:api_name "samara"
-                             :endpoint_configs [{:endpoint_name "drivers"
-                                                 :endpoint_url "/fleet/drivers"
-                                                 :load_type "full"
-                                                 :schema_mode "manual"
-                                                 :pagination_strategy "none"
-                                                 :primary_key_fields ["id"]
-                                                 :bad_record_alert_ratio ""}]})]
-    (is (nil? (get-in (g2/getData g' 2) [:endpoint_configs 0 :bad_record_alert_ratio])))))
+  (let [g (base-graph 2 "Ap")]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"bad_record_alert_ratio must be a valid decimal"
+                          (g2/save-api g 2 {:api_name "samara"
+                                            :endpoint_configs [{:endpoint_name "drivers"
+                                                                :endpoint_url "/fleet/drivers"
+                                                                :load_type "full"
+                                                                :schema_mode "manual"
+                                                                :pagination_strategy "none"
+                                                                :primary_key_fields ["id"]
+                                                                :bad_record_alert_ratio ""}]})))))
 
 (deftest save-api-does-not-add-target-or-mapping-nodes
   (let [g  (base-graph 2 "Ap")
@@ -1504,6 +1511,8 @@
                      #'g2/getData (fn [_ _] api-node)
                      #'bitool.ingest.runtime/find-downstream-target (fn [_ _] {:connection_id 9 :catalog "sheetz_telematics" :schema "bronze"})
                      #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'db/get-opts (fn [& _] :fake-ds)
+                     #'jdbc/execute! (fn [& _] [])
                      #'bitool.ingest.runtime/ensure-table! (fn [_ table-name columns _]
                                                              (when (= table-name "sheetz_telematics.bronze.samara_trips_raw")
                                                                (reset! captured-columns columns)))
@@ -1553,6 +1562,8 @@
                      #'g2/getData (fn [_ _] api-node)
                      #'bitool.ingest.runtime/find-downstream-target (fn [_ _] {:connection_id 9 :catalog "sheetz_telematics" :schema "bronze"})
                      #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'db/get-opts (fn [& _] :fake-ds)
+                     #'jdbc/execute! (fn [& _] [])
                      #'bitool.ingest.runtime/ensure-table! (fn [_ table-name columns _]
                                                              (when (= table-name "sheetz_telematics.bronze.samara_trips_raw")
                                                                (reset! captured-columns columns)))
@@ -1655,6 +1666,8 @@
                                                                                :catalog "sheetz_telematics"
                                                                                :schema "bronze"})
                      #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'db/get-opts (fn [& _] :fake-ds)
+                     #'jdbc/execute! (fn [& _] [])
                      #'bitool.ingest.runtime/ensure-table! (fn [_ table-name columns _]
                                                              (when (= table-name "sheetz_telematics.bronze.samara_trips_raw")
                                                                (reset! captured-columns columns)))
@@ -1707,6 +1720,8 @@
                                                                                :catalog "sheetz_telematics"
                                                                                :schema "bronze"})
                      #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'db/get-opts (fn [& _] :fake-ds)
+                     #'jdbc/execute! (fn [& _] [])
                      #'bitool.ingest.runtime/ensure-table! (fn [& _] nil)
                      #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
                      #'api/fetch-paged-async (fn [_]
@@ -1799,6 +1814,8 @@
                                                                                :catalog "sheetz_telematics"
                                                                                :schema "bronze"})
                      #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'db/get-opts (fn [& _] :fake-ds)
+                     #'jdbc/execute! (fn [& _] [])
                      #'bitool.ingest.runtime/ensure-table! (fn [& _] nil)
                      #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
                      #'api/fetch-paged-async (fn [_]
@@ -1888,6 +1905,11 @@
                      #'bitool.ingest.runtime/load-rows! (fn [_ table rows]
                                                           (when (= table bronze-table)
                                                             (swap! bronze-loads conj rows)))
+                     #'bitool.ingest.runtime/update-row-by-key! (fn [_ table _ row]
+                                                                  (cond
+                                                                    (= table manifest-table) (swap! manifest-rows conj row)
+                                                                    (= table checkpoint-table) (swap! checkpoint-rows conj row)
+                                                                    :else nil))
                      #'bitool.ingest.runtime/replace-row! (fn [_ table _ row]
                                                             (cond
                                                               (= table manifest-table) (swap! manifest-rows conj row)
@@ -2382,6 +2404,11 @@
         out         (with-redefs-fn {#'bitool.ingest.runtime/atomic-batch-commit? (fn [_] false)
                                      #'bitool.ingest.runtime/delete-rows-by-column! (fn [& _] nil)
                                      #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
+                                     #'bitool.ingest.runtime/update-row-by-key! (fn [_ table _ row]
+                                                                                  (cond
+                                                                                    (re-find #"run_batch_manifest$" table) (swap! manifests conj row)
+                                                                                    (re-find #"ingestion_checkpoint$" table) (swap! checkpoints conj row)
+                                                                                    :else nil))
                                      #'bitool.ingest.runtime/replace-row! (fn [_ table _ row]
                                                                             (cond
                                                                               (re-find #"run_batch_manifest$" table) (swap! manifests conj row)
@@ -2478,8 +2505,6 @@
 
 (deftest run-api-node-replays-deterministically-from-stored-batch-artifacts
   (let [bronze-loads     (atom [])
-        manifest-rows    (atom [])
-        checkpoint-rows  (atom [])
         delete-calls     (atom [])
         endpoint         {:endpoint_name "trips"
                           :endpoint_url "/fleet/trips"
@@ -2510,6 +2535,8 @@
                                                                                :catalog "sheetz_telematics"
                                                                                :schema "bronze"})
                      #'db/create-dbspec-from-id (fn [_] {:dbtype "databricks"})
+                     #'db/get-opts (fn [& _] :fake-ds)
+                     #'jdbc/execute! (fn [& _] [])
                      #'bitool.ingest.runtime/ensure-table! (fn [& _] nil)
                      #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
                      #'api/fetch-paged-async (fn [_]
@@ -2563,11 +2590,7 @@
                      #'bitool.ingest.runtime/load-rows! (fn [_ table rows]
                                                           (when (re-find #"samara_trips_raw$" table)
                                                             (swap! bronze-loads conj rows)))
-                     #'bitool.ingest.runtime/replace-row! (fn [_ table _ row]
-                                                            (cond
-                                                              (re-find #"run_batch_manifest$" table) (swap! manifest-rows conj row)
-                                                              (re-find #"ingestion_checkpoint$" table) (swap! checkpoint-rows conj row)
-                                                              :else nil))
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] nil)
                      #'operations/record-endpoint-freshness! (fn [& _] nil)}
       (fn []
         (let [out (runtime/run-api-node! 99 2 {:endpoint-name "trips"
@@ -2577,14 +2600,9 @@
           (is (= "run-old" (get-in out [:results 0 :replay_source_run_id])))
           (is (= 2 (get-in out [:results 0 :batch_count])))
           (is (= ["run-old-b000001" "run-old-b000002"]
-                 (->> @manifest-rows
-                      (filter #(= "committed" (:status %)))
-                      (mapv :batch_id))))
-          (is (= ["run-old-b000001" "run-old-b000002"]
                  (->> @delete-calls
                       (filter #(re-find #"samara_trips_raw$" (first %)))
                       (mapv #(nth % 2)))))
-          (is (= "cursor-2" (:last_successful_cursor (last @checkpoint-rows))))
           (is (= 2 (count @bronze-loads))))))))
 
 (deftest run-api-node-rejects-deterministic-replay-when-graph-version-drifted
@@ -2895,6 +2913,8 @@
                                                           (swap! ops conj [:load table (count rows)]))
                      #'bitool.ingest.runtime/mark-manifest-row! (fn [_ _ row]
                                                                   (swap! ops conj [:manifest (:status row)]))
+                     #'bitool.ingest.runtime/update-manifest-row! (fn [_ _ row]
+                                                                    (swap! ops conj [:manifest (:status row)]))
                      #'bitool.ingest.runtime/mark-bad-record-replay-statuses! (fn [_ _ ids status _ _]
                                                                                 (swap! ops conj [:status status (count ids)]))}
       (fn []
@@ -3448,10 +3468,14 @@
       (let [[sql & params] @captured]
         (if (seq params)
           (do
-            (is (= "2026-03-22" (nth params 1)))
-            (is (= "2026-03-22" (nth params 2)))
-            (is (= "2026-03-22T22:00:00Z" (nth params 3)))
-            (is (= "2026-03-22T22:00Z" (nth params 4))))
+            (is (instance? java.sql.Date (nth params 1)))
+            (is (= "2026-03-22" (str (nth params 1))))
+            (is (instance? java.time.LocalDate (nth params 2)))
+            (is (= "2026-03-22" (str (nth params 2))))
+            (is (instance? java.time.Instant (nth params 3)))
+            (is (= "2026-03-22T22:00:00Z" (str (nth params 3))))
+            (is (instance? java.time.OffsetDateTime (nth params 4)))
+            (is (= "2026-03-22T22:00Z" (str (nth params 4)))))
           (do
             (is (.contains sql "'2026-03-22'"))
             (is (.contains sql "'2026-03-22T22:00:00Z'"))

@@ -3,6 +3,8 @@
             [bitool.ai.assistant :as assistant]
             [bitool.ai.llm :as llm]
             [bitool.ingest.grain-planner :as grain]
+            [bitool.ingest.execution :as execution]
+            [bitool.modeling.automation :as modeling]
             [bitool.ops.schema-drift :as drift]
             [cheshire.core :as json]))
 
@@ -411,20 +413,24 @@
         (is (some? (:confidence result)))))))
 
 (deftest explain-endpoint-business-shape-with-llm
-  (testing "returns AI-enhanced entity classification"
+  (testing "returns AI-enhanced entity classification using prompt-defined keys"
     (let [ai-response (json/generate-string
                        {:summary "This endpoint delivers real-time vehicle GPS pings"
                         :confidence 0.92
-                        :entity_type "event"
-                        :grain_hint "one row per vehicle per GPS reading"
+                        :business_shape "Real-time GPS telemetry feed from fleet vehicles"
+                        :likely_entity_type "event"
+                        :downstream_silver_shapes ["silver_vehicle_locations"]
+                        :downstream_gold_use_cases ["Fleet utilization dashboard"]
                         :recommendations ["Consider partitioning by date"]})]
       (with-redefs [llm/call-llm-text (fn [& _] ai-response)]
         (let [result (assistant/explain-endpoint-business-shape!
                       {:endpoint_config sample-endpoint-config
                        :inferred_fields sample-inferred-fields})]
           (is (= "deterministic_plus_ai" (get-in result [:debug :source])))
-          (is (= "event" (:entity_type result)))
-          (is (some? (:grain_hint result))))))))
+          (is (= "event" (:likely_entity_type result)))
+          (is (= "Real-time GPS telemetry feed from fleet vehicles" (:business_shape result)))
+          (is (seq (:downstream_silver_shapes result)))
+          (is (seq (:downstream_gold_use_cases result))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; P3-B: Explain Target Strategy — deterministic fallback
@@ -449,19 +455,29 @@
         (is (some? (:confidence result)))))))
 
 (deftest explain-target-strategy-with-llm
-  (testing "returns AI-enhanced strategy explanation"
+  (testing "returns AI-enhanced strategy with prompt-defined structured keys"
     (let [ai-response (json/generate-string
                        {:summary "Merge mode with delta format is optimal for this SCD pattern"
                         :confidence 0.88
-                        :write_mode_notes "MERGE ensures idempotent upserts"
-                        :tradeoffs ["Higher compute cost vs append"
-                                    "Enables point lookups"]
+                        :tradeoffs [{:mode "merge"
+                                     :pros ["Idempotent upserts" "Handles late-arriving data"]
+                                     :cons ["Higher compute cost than append"]}
+                                    {:mode "append"
+                                     :pros ["Cheapest write mode"]
+                                     :cons ["Requires downstream dedup"]}]
+                        :cost_notes ["Merge is ~2x the cost of append for this table size"]
+                        :performance_notes ["Delta format enables Z-order for fast lookups"]
+                        :operational_risks ["Replace mode would cause downstream query failures during rebuild"]
                         :recommendations ["Add cluster_by for frequently filtered columns"]})]
       (with-redefs [llm/call-llm-text (fn [& _] ai-response)]
         (let [result (assistant/explain-target-strategy!
                       {:target_config sample-target-config})]
           (is (= "deterministic_plus_ai" (get-in result [:debug :source])))
-          (is (some? (:tradeoffs result))))))))
+          (is (= 2 (count (:tradeoffs result))))
+          (is (= "merge" (:mode (first (:tradeoffs result)))))
+          (is (seq (:cost_notes result)))
+          (is (seq (:performance_notes result)))
+          (is (seq (:operational_risks result))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; P3-C: Generate Metric Glossary — deterministic fallback
@@ -485,50 +501,101 @@
         (is (some? (:confidence result)))))))
 
 (deftest generate-metric-glossary-with-llm
-  (testing "returns AI-enhanced metric glossary"
+  (testing "returns AI-enhanced metric glossary using prompt-defined keys"
     (let [ai-response (json/generate-string
                        {:summary "Generated definitions for 2 metrics"
                         :confidence 0.85
-                        :glossary [{:metric "total_trips" :definition "Count of unique trips per vehicle"}
-                                   {:metric "avg_speed" :definition "Average speed across all readings"}]
+                        :metrics [{:name "total_trips"
+                                   :definition "Count of unique trips per vehicle"
+                                   :source_columns ["trip_id"]
+                                   :assumptions ["Each trip_id is globally unique"]
+                                   :caveats ["Does not deduplicate cross-day trips"]}
+                                  {:name "avg_speed"
+                                   :definition "Average speed across all readings"
+                                   :source_columns ["speed"]
+                                   :assumptions ["Speed is in km/h"]
+                                   :caveats ["Outliers not removed"]}]
+                        :definitions ["Metrics are computed per vehicle_id grain"]
+                        :assumptions ["Source data arrives within 24h SLA"]
+                        :caveats ["Backfilled data may shift historical metrics"]
                         :recommendations ["Consider adding median_speed for outlier resistance"]})]
       (with-redefs [llm/call-llm-text (fn [& _] ai-response)]
         (let [result (assistant/generate-metric-glossary!
                       {:proposal_id 100
                        :proposal    sample-gold-proposal})]
           (is (= "deterministic_plus_ai" (get-in result [:debug :source])))
-          (is (= 2 (count (:glossary result)))))))))
+          (is (= 2 (count (:metrics result))))
+          (is (= "total_trips" (:name (first (:metrics result)))))
+          (is (seq (:definitions result)))
+          (is (seq (:assumptions result)))
+          (is (seq (:caveats result))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; P3-D: Explain Run/KPI Anomaly — deterministic fallback
 ;; ---------------------------------------------------------------------------
 
+(def ^:private mock-proposal
+  {:proposal_id 100
+   :layer "silver"
+   :source_graph_id 42
+   :source_endpoint_name "vehicles"
+   :latest_validation {:validation_id 1 :status "passed"}})
+
 (deftest explain-run-or-kpi-anomaly-deterministic-fallback
-  (testing "returns deterministic anomaly analysis when LLM is unavailable"
-    (with-redefs [llm/call-llm-text (fn [& _] (throw (ex-info "LLM down" {})))]
+  (testing "fetches context server-side and returns deterministic analysis when LLM unavailable"
+    (with-redefs [llm/call-llm-text       (fn [& _] (throw (ex-info "LLM down" {})))
+                  modeling/get-silver-proposal (fn [_] mock-proposal)
+                  execution/list-execution-runs
+                  (fn [_] [{:status "success" :row_count 1000}
+                           {:status "success" :row_count 500}
+                           {:status "failed"  :row_count 0}])
+                  drift/list-drift-events (fn [_] [{:event_type "new_field"}])]
       (let [result (assistant/explain-run-or-kpi-anomaly!
-                    {:proposal_id 100
-                     :run_history [{:status "success" :row_count 1000 :started_at "2026-03-27T10:00:00Z"}
-                                   {:status "success" :row_count 500  :started_at "2026-03-26T10:00:00Z"}
-                                   {:status "failed"  :row_count 0    :started_at "2026-03-25T10:00:00Z"}]
-                     :validation_history [{:status "passed"} {:status "failed"}]
-                     :drift_events [{:event_type "new_field"}]
-                     :kpi_delta {:metric "row_count" :previous 500 :current 1000 :pct_change 100.0}})]
+                    {:proposal_id 100 :workspace_key "ws1"})]
         (is (string? (:summary result)))
         (is (= "deterministic_only" (get-in result [:debug :source])))
-        (is (some? (:confidence result)))))))
+        (is (some? (:confidence result)))
+        (is (seq (:recommendations result)))
+        (is (some #(re-find #"drift" %) (:recommendations result)))
+        (is (some #(re-find #"run" %) (:recommendations result)))))))
 
 (deftest explain-run-or-kpi-anomaly-with-llm
-  (testing "returns AI-enhanced anomaly explanation"
+  (testing "fetches context server-side and returns AI-enhanced explanation"
     (let [ai-response (json/generate-string
-                       {:summary "Row count doubled due to upstream schema change adding new records"
+                       {:summary "Row count doubled due to upstream schema change"
                         :confidence 0.82
-                        :likely_causes ["Schema drift event added new field, broadening ingestion"]
-                        :recommendations ["Verify the additional rows are valid, not duplicates"]})]
-      (with-redefs [llm/call-llm-text (fn [& _] ai-response)]
+                        :likely_causes [{:cause "Schema drift" :evidence "new_field event detected"}]
+                        :impacted_assets ["silver_vehicles"]
+                        :next_checks ["Verify rows are not duplicates"]
+                        :recommendations ["Revalidate after drift acknowledgement"]})]
+      (with-redefs [llm/call-llm-text       (fn [& _] ai-response)
+                    modeling/get-silver-proposal (fn [_] mock-proposal)
+                    execution/list-execution-runs
+                    (fn [_] [{:status "success" :row_count 1000}])
+                    drift/list-drift-events (fn [_] [{:event_type "new_field"}])]
         (let [result (assistant/explain-run-or-kpi-anomaly!
-                      {:proposal_id 100
-                       :run_history [{:status "success" :row_count 1000}]
-                       :kpi_delta {:metric "row_count" :previous 500 :current 1000 :pct_change 100.0}})]
+                      {:proposal_id 100 :workspace_key "ws1"})]
           (is (= "deterministic_plus_ai" (get-in result [:debug :source])))
-          (is (seq (:likely_causes result))))))))
+          (is (seq (:likely_causes result)))
+          (is (seq (:impacted_assets result)))
+          (is (seq (:next_checks result))))))))
+
+(deftest explain-run-or-kpi-anomaly-throws-404-when-proposal-not-found
+  (testing "throws 404 when proposal does not exist"
+    (with-redefs [modeling/get-silver-proposal (fn [_] nil)
+                  modeling/get-gold-proposal   (fn [_] nil)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not found"
+            (assistant/explain-run-or-kpi-anomaly! {:proposal_id 999}))))))
+
+(deftest explain-run-or-kpi-anomaly-includes-kpi-delta
+  (testing "includes KPI delta in deterministic fallback when provided"
+    (with-redefs [llm/call-llm-text       (fn [& _] (throw (ex-info "LLM down" {})))
+                  modeling/get-silver-proposal (fn [_] mock-proposal)
+                  execution/list-execution-runs (fn [_] [])
+                  drift/list-drift-events (fn [_] [])]
+      (let [result (assistant/explain-run-or-kpi-anomaly!
+                    {:proposal_id 100
+                     :workspace_key "ws1"
+                     :kpi_delta {:metric "row_count" :previous 500 :current 1000 :pct_change 100.0}})]
+        (is (some #(re-find #"KPI delta" %) (:recommendations result)))
+        (is (some #(re-find #"row_count" %) (:recommendations result)))))))
