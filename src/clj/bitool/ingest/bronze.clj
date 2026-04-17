@@ -258,8 +258,8 @@
   (let [payload-json      (json/generate-string raw-record)
         source-id         (source-record-id source-row (:primary_key_fields endpoint-config))
         event-time-utc    (event-time source-row (:watermark_column endpoint-config))
-        partition-date     (java.sql.Date/valueOf (java.time.LocalDate/ofInstant now (java.time.ZoneOffset/UTC)))
-        load-date          partition-date
+        partition-date    (java.sql.Date/valueOf (.toLocalDate (.atZone now java.time.ZoneOffset/UTC)))
+        load-date         partition-date
         base-row          {:ingestion_id     run-id
                            :run_id           run-id
                            :source_system    source-system

@@ -1,5 +1,6 @@
 (ns bitool.graph2
 	(:require [bitool.db :as db]
+                  [bitool.logic :as logic]
                   [bitool.exceptions :as ex]
                   [bitool.utils :refer :all]
                   [bitool.macros :refer :all]
@@ -30,6 +31,7 @@
 	    "Ep" ["Au" "Vd" "Rl" "Cr" "Lg" "Ci" "Cq" "Dx"
 	          "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "C" "Rb" "O"]
 	    "Rb" ["O"]
+	    "O"  ["Tg"]
 	    "Vd" ["Au" "Dx" "Rl" "Cr" "Lg" "Ci" "Cq" "Ev"
 	          "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "Rb" "O"]
 	    "Au" ["Vd" "Dx" "Rl" "Cr" "Lg" "Ci" "Cq" "Ev"
@@ -46,7 +48,7 @@
 	          "J" "U" "P" "A" "S" "Fi" "Fu" "Rb" "O"]
 	    "Dx" ["J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "Rb" "Lg" "O"]
 	    "Ev" ["Rb" "O"]
-	    "Sc" ["Au" "Vd" "Rl" "Lg" "Dx"
+	    "Sc" ["Ap" "Au" "Vd" "Rl" "Lg" "Dx"
 	          "J" "U" "P" "A" "S" "Fi" "Fu" "Tg" "O"]
 	    "Wh" ["Au" "Vd" "Rl" "Lg" "Dx"
 	          "J" "U" "P" "A" "S" "Fi" "Fu" "Rb" "O"]
@@ -211,7 +213,7 @@
                            :silver_job_id :gold_job_id :silver_job_params :gold_job_params :trigger_gold_on_success
                            :sf_load_method :sf_stage_name :sf_warehouse :sf_file_format :sf_on_error :sf_purge]
                  "webhook"   [:webhook_path :secret_header :secret_value :payload_format]
-                 "conditionals" [:cond_type :branches :default_branch]
+                 "conditionals" [:cond_type :branches :default_branch :headers]
                  "function" [:fn_name :fn_params :fn_lets :fn_return :fn_outputs]})
 
 (defn add-keys-with-empty-values [m keys]
@@ -428,7 +430,7 @@
 (defn successors [ g node ] (if (= node (getFinalNode g)) [] (tail  (top-sort g) (parent g node))))
 
 (defn getTcols[g id]
-        (let [tid (first (filter #(not (some #{(btype % g)} ["filter" "sorter" "lookup" "association" "conditionals"] )) (predecessors g id)))]
+        (let [tid (first (filter #(not (some #{(btype % g)} ["filter" "sorter" "lookup" "association"] )) (predecessors g id)))]
              (tcols g tid)))
 
 (defn remove-by-value [v elem]
@@ -789,6 +791,7 @@
         pagination-strategy    (non-blank-str (:pagination_strategy cfg) "none")
         pagination-location    (non-blank-str (:pagination_location cfg) "query")
         schema-mode            (non-blank-str (:schema_mode cfg) "manual")
+        bronze-projection-mode (non-blank-str (:bronze_projection_mode cfg) "lean")
         schema-evolution-mode  (non-blank-str (:schema_evolution_mode cfg) "advisory")
         schema-enforcement-mode (default-schema-enforcement-mode (:schema_evolution_mode cfg)
                                                                  (:schema_enforcement_mode cfg))
@@ -814,16 +817,23 @@
         checkpoint-alert-seconds (safe-int-default (:checkpoint_alert_seconds cfg) nil)
         retry-volume-alert-24h (safe-int-default (:retry_volume_alert_24h cfg) nil)
         replay-failure-alert-7d (safe-int-default (:replay_failure_alert_7d cfg) nil)
+        raw-bad-record-alert-ratio (:bad_record_alert_ratio cfg)
         bad-record-alert-ratio (when (contains? cfg :bad_record_alert_ratio)
-                                 (try
-                                   (Double/parseDouble (str (:bad_record_alert_ratio cfg)))
-                                   (catch Exception _
-                                     ::invalid-double)))]
+                                 (let [raw-value (cond
+                                                   (string? raw-bad-record-alert-ratio) (string/trim raw-bad-record-alert-ratio)
+                                                   :else raw-bad-record-alert-ratio)]
+                                   (when-not (or (nil? raw-value)
+                                                 (and (string? raw-value) (string/blank? raw-value)))
+                                     (try
+                                       (Double/parseDouble (str raw-value))
+                                       (catch Exception _
+                                         ::invalid-double)))))]
     {:endpoint_name endpoint-name
      :endpoint_url endpoint-url
      :http_method (-> (non-blank-str (:http_method cfg) "GET") string/upper-case)
      :selected_nodes selected-nodes
      :schema_mode schema-mode
+     :bronze_projection_mode bronze-projection-mode
      :sample_records sample-records
      :max_inferred_columns max-inferred-columns
      :type_inference_enabled (if (contains? cfg :type_inference_enabled) (parse-bool (:type_inference_enabled cfg)) true)
@@ -833,6 +843,8 @@
      :require_schema_approval (parse-bool (:require_schema_approval cfg))
      :inferred_fields inferred-fields
      :load_type load-type
+     :load_type_auto (if (contains? cfg :load_type_auto) (parse-bool (:load_type_auto cfg)) false)
+     :bronze_projection_auto (if (contains? cfg :bronze_projection_auto) (parse-bool (:bronze_projection_auto cfg)) false)
      :pagination_strategy pagination-strategy
      :pagination_location pagination-location
      :cursor_field cursor-field
@@ -912,6 +924,10 @@
     (when-not (contains? api-schema-modes (:schema_mode cfg))
       (throw (ex-info (str "Unsupported schema_mode '" (:schema_mode cfg) "'")
                       {:field :schema_mode :value (:schema_mode cfg)})))
+    (when-not (#{"lean" "wide"} (:bronze_projection_mode cfg))
+      (throw (ex-info (str "Unsupported bronze_projection_mode '" (:bronze_projection_mode cfg) "'")
+                      {:field :bronze_projection_mode
+                       :value (:bronze_projection_mode cfg)})))
     (when-not (contains? api-schema-evolution-modes (:schema_evolution_mode cfg))
       (throw (ex-info (str "Unsupported schema_evolution_mode '" (:schema_evolution_mode cfg) "'")
                       {:field :schema_evolution_mode :value (:schema_evolution_mode cfg)})))
@@ -1309,34 +1325,43 @@
       (update-in g [:n id :na] merge params))
 
 (defn- normalize-target-params [params]
-  (let [params (kw-map params)]
+  (let [params       (kw-map params)
+        target-kind  (-> (non-blank-str (:target_kind params) "databricks")
+                         string/lower-case)
+        databricks?  (= "databricks" target-kind)
+        snowflake?   (= "snowflake" target-kind)
+        catalog      (if (contains? #{"databricks" "snowflake" "bigquery"} target-kind)
+                       (non-blank-str (:catalog params) "")
+                       "")]
     {:connection_id (when-let [conn-id (some-> (:connection_id params) str trim-str not-empty)]
                       (safe-int-default conn-id nil))
      :connection (non-blank-str (:connection params) "")
-     :target_kind (non-blank-str (:target_kind params) "databricks")
-     :catalog (non-blank-str (:catalog params) "")
+     :target_kind target-kind
+     :catalog catalog
      :schema (non-blank-str (:schema params) "")
      :table_name (non-blank-str (:table_name params) "")
      :write_mode (let [write-mode (non-blank-str (:write_mode params) "append")]
                    (if (= "overwrite" write-mode) "replace" write-mode))
-     :table_format (non-blank-str (:table_format params) "delta")
-     :partition_columns (split-csv (:partition_columns params))
+     :table_format (if databricks?
+                     (non-blank-str (:table_format params) "delta")
+                     "table")
+     :partition_columns (if databricks? (split-csv (:partition_columns params)) [])
      :merge_keys (split-csv (:merge_keys params))
-     :cluster_by (split-csv (:cluster_by params))
+     :cluster_by (if databricks? (split-csv (:cluster_by params)) [])
      :options (parse-jsonish-map (:options params))
-     :silver_job_id (non-blank-str (:silver_job_id params) "")
-     :gold_job_id (non-blank-str (:gold_job_id params) "")
-     :silver_job_params (parse-jsonish-map (:silver_job_params params))
-     :gold_job_params (parse-jsonish-map (:gold_job_params params))
-     :trigger_gold_on_success (parse-bool (:trigger_gold_on_success params))
+     :silver_job_id (if databricks? (non-blank-str (:silver_job_id params) "") "")
+     :gold_job_id (if databricks? (non-blank-str (:gold_job_id params) "") "")
+     :silver_job_params (if databricks? (parse-jsonish-map (:silver_job_params params)) {})
+     :gold_job_params (if databricks? (parse-jsonish-map (:gold_job_params params)) {})
+     :trigger_gold_on_success (if databricks? (parse-bool (:trigger_gold_on_success params)) false)
      :create_table (parse-bool (:create_table params))
      :truncate (parse-bool (:truncate params))
-     :sf_load_method (non-blank-str (:sf_load_method params) "jdbc")
-     :sf_stage_name (non-blank-str (:sf_stage_name params) "")
-     :sf_warehouse (non-blank-str (:sf_warehouse params) "")
-     :sf_file_format (non-blank-str (:sf_file_format params) "")
-     :sf_on_error (non-blank-str (:sf_on_error params) "ABORT_STATEMENT")
-     :sf_purge (parse-bool (:sf_purge params))
+     :sf_load_method (if snowflake? (non-blank-str (:sf_load_method params) "jdbc") "jdbc")
+     :sf_stage_name (if snowflake? (non-blank-str (:sf_stage_name params) "") "")
+     :sf_warehouse (if snowflake? (non-blank-str (:sf_warehouse params) "") "")
+     :sf_file_format (if snowflake? (non-blank-str (:sf_file_format params) "") "")
+     :sf_on_error (if snowflake? (non-blank-str (:sf_on_error params) "ABORT_STATEMENT") "ABORT_STATEMENT")
+     :sf_purge (if snowflake? (parse-bool (:sf_purge params)) false)
      :c (or (when-let [conn-id (some-> (:connection_id params) str trim-str not-empty)]
               (safe-int-default conn-id nil))
             (:c params))}))
@@ -1562,7 +1587,7 @@
 		 "Ci" (merge item (select-keys tmap [:failure_threshold :reset_timeout :fallback_response]))
 		 "Sc" (merge item (select-keys tmap [:cron_expression :timezone :params]))
 		 "Wh" (merge item (select-keys tmap [:webhook_path :secret_header :payload_format]))
-		 "C"  (merge item (select-keys tmap [:cond_type :branches :default_branch]))
+		 "C"  (merge item (select-keys tmap [:cond_type :branches :default_branch :headers]))
 		 "Fu" (merge item (select-keys tmap [:fn_name :fn_params :fn_lets :fn_return :fn_outputs]))
  		 item)))
 
@@ -1989,10 +2014,20 @@ mapping node 7
    :branches is a vector of branch maps (structure varies by cond_type)
    :default_branch is the default/else group name."
   [g id params]
-  (let [node-params {:cond_type      (or (:cond_type params) "if-else")
-                     :branches       (or (:branches params) [])
-                     :default_branch (or (:default_branch params) "")}]
-    (update-node g id node-params)))
+  (let [params          (walk/keywordize-keys (or params {}))
+        normalized      (logic/validate-conditional-config!
+                         {:id             id
+                          :cond_type      (or (:cond_type params) "if-else")
+                          :branches       (or (:branches params) [])
+                          :default_branch (or (:default_branch params) "")
+                          :headers        (or (:headers params) [])})
+        parent-cols     (vec (for [[_ v] (find-upstream-tcols g id), item v] item))
+        output-cols     (get (logic/conditional-outputs->tcols id) id)
+        merged-cols     {id (vec (concat parent-cols output-cols))}
+        node-params     (assoc (dissoc normalized :id) :tcols merged-cols)
+        g               (update-node g id node-params)
+        child-ids       (map second (find-edges g id))]
+    (reduce (fn [acc cid] (assoc-in acc [:n cid :na :tcols] (getTcols acc cid))) g child-ids)))
 
 (defn get-conditional-item
   "Retrieve conditional node data for UI display.
@@ -2001,11 +2036,12 @@ mapping node 7
   (let [tmap    (getData g id)
         name    (:name tmap)
         btype   (:btype tmap)
-        columns (or (:tcols tmap) (getTcols g id))]
+        columns (find-upstream-tcols g id)]
     (assoc (item_master id name btype tmap)
            "cond_type"      (or (:cond_type tmap) "if-else")
            "branches"       (or (:branches tmap) [])
            "default_branch" (or (:default_branch tmap) "")
+           "headers"        (or (:headers tmap) [])
            "items"          (item_columns g columns))))
 
 ;; --- Logic / Function (Fu) ---
@@ -2015,11 +2051,13 @@ mapping node 7
    Each output is {:output_name \"x\" :data_type \"int\"}.
    Produces {node-id [{:column_name \"x\" :data_type \"int\" :is_nullable \"YES\"} ...]}."
   [node-id outputs]
-  {node-id (mapv (fn [o]
-                   {:column_name (:output_name o)
-                    :data_type   (or (:data_type o) "varchar")
-                    :is_nullable "YES"})
-                 (or outputs []))})
+  {node-id (->> (or outputs [])
+                (keep (fn [o]
+                        (when-let [name (some-> (:output_name o) str string/trim not-empty)]
+                          {:column_name name
+                           :data_type   (or (:data_type o) "varchar")
+                           :is_nullable "YES"})))
+                vec)})
 
 (defn save-logic
   "Save logic/function node configuration.
@@ -2033,6 +2071,11 @@ mapping node 7
         fn-params  (kw-maps (or (:fn_params params) []))
         fn-lets    (kw-maps (or (:fn_lets params) []))
         fn-outputs (kw-maps (or (:fn_outputs params) []))
+        _          (logic/validate-logic-config!
+                    {:fn_params fn-params
+                     :fn_lets fn-lets
+                     :fn_return (or (:fn_return params) "")
+                     :fn_outputs fn-outputs})
         tcols      (logic-outputs->tcols id fn-outputs)
         node-params {:fn_name    (or (:fn_name params) "MyFunction")
                      :fn_params  fn-params
@@ -2405,22 +2448,34 @@ mapping node 7
 
 ;; ---------------------- Start Tree --------------------------------
 
+(defn- root-database-names
+  [conn-id]
+  (let [dbtype (db/get-dbtype conn-id)
+        names  (try
+                 (case dbtype
+                   :postgresql (or (seq (db/get-databases conn-id))
+                                   (db/get-database conn-id))
+                   (db/get-database conn-id))
+                 (catch Exception _
+                   (db/get-database conn-id)))]
+    (->> names
+         (remove nil?)
+         (map str)
+         (remove string/blank?)
+         vec)))
+
 (defn build-tree
   [current-tree levels conn-id path]
   (if (empty? levels)
     current-tree
     (let [current-level (first levels)
-          _ (println (str "level : " current-level))
-          _ (println (str "path : " path))
           ;; Fetch node names dynamically based on the current level and path
           node-names (case current-level
-                       :databases (db/get-database conn-id)
+                       :databases (root-database-names conn-id)
                        :schemas (db/get-schemas conn-id (last path))
                        :tables (db/get-tables conn-id (nth path 0) (last path))
                        :columns (map #(db/join-column %) (db/get-columns conn-id (nth path 0) (nth path 1) (last path)))
                        [])]
-      ;; Debugging - Log fetched node names at each level
-      (println "Level:" current-level "Path:" path "Node Names:" node-names)
       (reduce (fn [tree node]
                 (assoc tree node (build-tree (get tree node {})
                                              (rest levels)
@@ -2443,19 +2498,17 @@ mapping node 7
 ;; (println tree)
 
 (defn transform-tree [tree]
-  (map (fn [[key value]]
-         {:label key
-          :items (when (seq value)
-                   (transform-tree value))})
-       tree))
+  (->> tree
+       (map (fn [[key value]]
+              {:label key
+               :items (when (seq value)
+                        (transform-tree value))}))
+       vec))
 
 (defn getDBTree[conn-id]
-   (let [ tree (first (transform-tree (build-tree {} levels conn-id [])))
-          _ (println "CLASS TREE")
-          _ (println (class tree))
-          _ (pp/pprint tree)
-        ]
-        tree))
+   (let [items (transform-tree (build-tree {} levels conn-id []))
+         tree  {:items items}]
+     tree))
 
  ;; (json/generate-string (transform-tree (build-tree {} levels conn-id [])) {:pretty true}))
 
@@ -2484,12 +2537,15 @@ mapping node 7
  							(join-table g t1 c2 t2-map jtype)))))
 
 (defn save-conn [ args ]
-    (let [params  (:json-params args)
+    (let [params  (walk/keywordize-keys (:params args))
           conn-id (:connection/id
                    (db/insert-data :connection
                                    (sp/transform :port #(Integer/parseInt %)
-                                                 (walk/keywordize-keys (:params args)))))]
-    {:conn-id conn-id :tree-data (getDBTree conn-id)}))
+                                                 params)))
+          tree-data (getDBTree conn-id)]
+    {:conn-id conn-id
+     :tree-data (assoc tree-data :label (or (:connection_name params)
+                                            (str "Connection " conn-id)))}))
      ;; {(getDBTree conn-id)}))
 
 

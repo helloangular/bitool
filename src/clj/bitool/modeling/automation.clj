@@ -289,16 +289,17 @@
   (boolean (and (string? value)
                 (re-matches qualified-table-name-pattern value))))
 
-(def ^:private source-reference-pattern #"^(?:bronze|silver)\.(?:[A-Za-z_][A-Za-z0-9_]*|\"(?:[^\"]|\"\")+\")$")
-(def ^:private json-extraction-pattern #"^(?:bronze\.payload_json::jsonb|item\.value)\s*#>>\s*'\{[A-Za-z0-9_,]+\}'$")
-(def ^:private source-reference-finder-pattern #"(?:bronze|silver)\.(?:[A-Za-z_][A-Za-z0-9_]*|\"(?:[^\"]|\"\")+\")")
-(def ^:private json-extraction-finder-pattern #"(?:bronze\.payload_json::jsonb|item\.value)\s*#>>\s*'\{[A-Za-z0-9_,]+\}'")
+(def ^:private source-reference-pattern #"^(?:bronze|silver)\.(?:[A-Za-z_][A-Za-z0-9_]*|\"(?:[^\"]|\"\")+\"|`[^`]+`)$")
+(def ^:private json-extraction-pattern #"^(?:bronze\.payload_json::jsonb|item\.value)\s*#>>\s*'\{[A-Za-z0-9_,\[\]]+\}'$")
+(def ^:private databricks-json-extraction-pattern #"^get_json_object\(bronze\.payload_json,\s*'\$\.[A-Za-z0-9_.]+'\)$")
+(def ^:private source-reference-finder-pattern #"(?:bronze|silver)\.(?:[A-Za-z_][A-Za-z0-9_]*|\"(?:[^\"]|\"\")+\"|`[^`]+`)")
+(def ^:private json-extraction-finder-pattern #"(?:bronze\.payload_json::jsonb|item\.value)\s*#>>\s*'\{[A-Za-z0-9_,\[\]]+\}'|get_json_object\(bronze\.payload_json,\s*'\$\.[A-Za-z0-9_.]+'\)")
 (def ^:private allowed-cast-types
   #{"DATE" "VARCHAR" "STRING" "BOOLEAN" "INT" "INTEGER" "BIGINT" "DOUBLE" "DOUBLE PRECISION" "NUMERIC" "TIMESTAMP" "TIMESTAMPTZ"})
 (def ^:private unsafe-expression-pattern #"(?:--|/\*|\*/|;)")
 (def ^:private unsafe-expression-keyword-pattern #"(?i)\b(insert|update|delete|drop|alter|merge|copy|put|grant|revoke|truncate|create|replace|execute|call)\b")
-(def ^:private general-expression-pattern #"(?is)^[A-Za-z0-9_.'\"()\[\]{}=<>!%+\-*/,:\s|&]+$")
-(def ^:private databricks-expression-pattern #"(?is)^[A-Za-z0-9_.'\"`()\[\]{}=<>!%+\-*/,:\s|&]+$")
+(def ^:private general-expression-pattern #"(?is)^[A-Za-z0-9_.'\"()\[\]{}=<>!%+\-*/,:\s|&$]+$")
+(def ^:private databricks-expression-pattern #"(?is)^[A-Za-z0-9_.'\"`()\[\]{}=<>!%+\-*/,:\s|&$]+$")
 (def ^:private databricks-disallowed-keyword-pattern
   #"(?is)\b(SELECT|FROM|JOIN|QUALIFY|UNION|WITH|MERGE|INSERT|UPDATE|DELETE|COPY|OPTIMIZE|VACUUM|REORG|ALTER|DROP|CREATE|CALL)\b")
 (def ^:private databricks-comment-pattern #"(?s)(--|/\*|\*/|;)")
@@ -365,6 +366,7 @@
      (when expr
        (or (re-matches source-reference-pattern expr)
            (re-matches json-extraction-pattern expr)
+           (re-matches databricks-json-extraction-pattern expr)
            (= "COUNT(*)" expr)
            (when-let [body (function-call-body expr "CAST")]
              (when-let [[_ inner cast-type] (re-matches #"(?is)^(.*)\s+AS\s+([A-Z ]+)\s*$" body)]
@@ -421,6 +423,74 @@
                #{"merge" "table_replace" "append"})
              mode))
 
+(defn- clean-str-vec
+  [values]
+  (->> (or values [])
+       (keep non-blank-str)
+       vec))
+
+(defn- warehouse-physical-options-from-materialization
+  [proposal-json]
+  (let [materialization (or (:materialization proposal-json) {})
+        partition-by    (some-> (:partition_by materialization) non-blank-str)
+        cluster-by      (clean-str-vec (:cluster_by materialization))
+        sf-load-method  (some-> (:sf_load_method materialization) non-blank-str)
+        sf-stage-name   (some-> (:sf_stage_name materialization) non-blank-str)
+        sf-warehouse    (some-> (:sf_warehouse materialization) non-blank-str)
+        sf-file-format  (some-> (:sf_file_format materialization) non-blank-str)
+        sf-on-error     (some-> (:sf_on_error materialization) non-blank-str)
+        sf-purge?       (when (contains? materialization :sf_purge)
+                          (boolean (:sf_purge materialization)))]
+    (cond-> {}
+      partition-by (assoc :partition_by partition-by)
+      (seq cluster-by) (assoc :cluster_by cluster-by)
+      sf-load-method (assoc :sf_load_method sf-load-method)
+      sf-stage-name (assoc :sf_stage_name sf-stage-name)
+      sf-warehouse (assoc :sf_warehouse sf-warehouse)
+      sf-file-format (assoc :sf_file_format sf-file-format)
+      sf-on-error (assoc :sf_on_error sf-on-error)
+      (some? sf-purge?) (assoc :sf_purge sf-purge?))))
+
+(defn- target-physical-config
+  [target proposal-json]
+  (let [materialization      (or (:materialization proposal-json) {})
+        target-kind          (some-> (or (:target_kind target) (:target_warehouse proposal-json) "databricks")
+                                     str
+                                     string/lower-case)
+        target-partitions    (clean-str-vec (:partition_columns target))
+        target-cluster       (clean-str-vec (:cluster_by target))
+        materialized-cluster (clean-str-vec (:cluster_by materialization))
+        partition-by         (some-> (:partition_by materialization) non-blank-str)
+        effective-partitions (cond
+                               (seq target-partitions) target-partitions
+                               partition-by [partition-by]
+                               :else [])
+        effective-cluster    (if (seq materialized-cluster)
+                               materialized-cluster
+                               target-cluster)]
+    (cond-> {}
+      (seq effective-partitions) (assoc :partition_columns effective-partitions)
+      (seq effective-cluster) (assoc :cluster_by effective-cluster)
+      (= "snowflake" target-kind)
+      (merge {:sf_load_method (or (some-> (:sf_load_method materialization) non-blank-str)
+                                  (some-> (:sf_load_method target) non-blank-str)
+                                  "jdbc")
+              :sf_stage_name  (or (some-> (:sf_stage_name materialization) non-blank-str)
+                                  (some-> (:sf_stage_name target) non-blank-str)
+                                  "")
+              :sf_warehouse   (or (some-> (:sf_warehouse materialization) non-blank-str)
+                                  (some-> (:sf_warehouse target) non-blank-str)
+                                  "")
+              :sf_file_format (or (some-> (:sf_file_format materialization) non-blank-str)
+                                  (some-> (:sf_file_format target) non-blank-str)
+                                  "")
+              :sf_on_error    (or (some-> (:sf_on_error materialization) non-blank-str)
+                                  (some-> (:sf_on_error target) non-blank-str)
+                                  "ABORT_STATEMENT")
+              :sf_purge       (if (contains? materialization :sf_purge)
+                                (boolean (:sf_purge materialization))
+                                (boolean (:sf_purge target)))}))))
+
 (defn- materialization-extra-options
   [proposal-json]
   (let [materialization (:materialization proposal-json)
@@ -439,13 +509,22 @@
                          (seq (or (:update_assignments materialization) []))
                          (assoc :update_assignments (vec (:update_assignments materialization)))
                          (map? when-not-matched-by-source)
-                         (assoc :when_not_matched_by_source when-not-matched-by-source))]
-    (cond-> {}
-      (seq databricks-sql) (assoc :databricks_sql databricks-sql))))
+                         (assoc :when_not_matched_by_source when-not-matched-by-source))
+        physical-options (warehouse-physical-options-from-materialization proposal-json)]
+    (merge
+     (when (seq databricks-sql)
+       {:databricks_sql databricks-sql})
+     physical-options)))
 
 (defn- materialization-from-target-config
   [target-config]
-  (let [databricks-sql (get-in target-config [:options :databricks_sql])]
+  (let [databricks-sql (get-in target-config [:options :databricks_sql])
+        target-kind    (some-> (or (:target_kind target-config) "databricks")
+                               str
+                               string/lower-case)
+        partition-by   (some-> (first (clean-str-vec (:partition_columns target-config)))
+                               non-blank-str)
+        cluster-by     (clean-str-vec (:cluster_by target-config))]
     (cond-> {:mode (case (:write_mode target-config)
                      "replace" "table_replace"
                      "overwrite" "table_replace"
@@ -469,7 +548,18 @@
                (seq (or (:update_assignments databricks-sql) []))
                (assoc :update_assignments (vec (:update_assignments databricks-sql)))
                (map? (:when_not_matched_by_source databricks-sql))
-               (assoc :when_not_matched_by_source (:when_not_matched_by_source databricks-sql)))))))
+               (assoc :when_not_matched_by_source (:when_not_matched_by_source databricks-sql))))
+      partition-by
+      (assoc :partition_by partition-by)
+      (seq cluster-by)
+      (assoc :cluster_by cluster-by)
+      (= "snowflake" target-kind)
+      (merge {:sf_load_method (or (some-> (:sf_load_method target-config) non-blank-str) "jdbc")
+              :sf_stage_name  (or (some-> (:sf_stage_name target-config) non-blank-str) "")
+              :sf_warehouse   (or (some-> (:sf_warehouse target-config) non-blank-str) "")
+              :sf_file_format (or (some-> (:sf_file_format target-config) non-blank-str) "")
+              :sf_on_error    (or (some-> (:sf_on_error target-config) non-blank-str) "ABORT_STATEMENT")
+              :sf_purge       (boolean (:sf_purge target-config))}))))
 
 (def ^:private allowed-review-states
   #{"reviewed" "approved" "rejected" "changes_requested"})
@@ -653,15 +743,32 @@
   [target]
   (or (:connection_id target) (:c target)))
 
+(declare last-table-segment)
+
 (defn- target-warehouse
   [target conn-id]
   (or (some-> (:target_kind target) non-blank-str string/lower-case)
       (some-> (connection-dbtype conn-id) non-blank-str string/lower-case)
       "databricks"))
 
+(defn- target-reference-spec
+  [target conn-id]
+  (let [warehouse (target-warehouse target conn-id)]
+    {:catalog (:catalog target)
+     :schema (or (:schema target) "")
+     :dbtype warehouse
+     :target_kind warehouse}))
+
+(defn- retarget-qualified-table-name
+  [target conn-id table-name]
+  (when-let [base-name (some-> table-name last-table-segment non-blank-str)]
+    (db/fully-qualified-table-name (target-reference-spec target conn-id) base-name)))
+
 (defn- proposal-target-warehouse
   [{:keys [proposal-json target target-connection-id]}]
-  (or (some-> (:target_warehouse proposal-json) non-blank-str string/lower-case)
+  (or (when target
+        (target-warehouse target target-connection-id))
+      (some-> (:target_warehouse proposal-json) non-blank-str string/lower-case)
       (target-warehouse target target-connection-id)))
 
 (defn- find-downstream-target
@@ -938,12 +1045,18 @@
   (->> (string/split (or (non-blank-str path) "") #"\.")
        (map #(string/replace % #"^\$" ""))
        (remove string/blank?)
-       (map (fn [segment]
-              (let [array? (string/ends-with? segment "[]")
-                    key    (if array?
-                             (subs segment 0 (- (count segment) 2))
-                             segment)]
-                {:key key :array? array?})))
+       (mapcat (fn [segment]
+                 (let [array? (string/ends-with? segment "[]")
+                       key    (if array?
+                                (subs segment 0 (- (count segment) 2))
+                                segment)]
+                   ;; Split indexed segments like "engineStates[0]" into
+                   ;; ["engineStates" "0"] so PostgreSQL #>> path gets
+                   ;; {engineStates,0} instead of {engineStates[0]}.
+                   (if-let [[_ base idx] (re-matches #"^([A-Za-z_][A-Za-z0-9_]*)\[(\d+)\]$" key)]
+                     [{:key base :array? false}
+                      {:key idx  :array? false}]
+                     [{:key key :array? array?}]))))
        vec))
 
 (defn- common-json-array-root
@@ -981,26 +1094,55 @@
 
 (defn- postgres-source-expression
   [field array-root]
+  ;; Bronze payload_json already holds one record (post-explode), so we always
+  ;; read from bronze.payload_json::jsonb — never from item.value.  The
+  ;; array-root segments (e.g. ["data"]) are stripped because the ingestion
+  ;; layer already exploded that array into individual rows.
   (let [segments      (parse-json-source-path (:path field))
         root-len      (count array-root)
-        uses-array?   (and (seq array-root)
+        past-root?    (and (seq array-root)
                            (<= root-len (count segments))
                            (= array-root (mapv :key (take root-len segments))))
-        relative-path (mapv :key (if uses-array?
+        relative-path (mapv :key (if past-root?
                                    (drop root-len segments)
                                    segments))
-        base-expr     (if uses-array?
-                        "item.value"
-                        "bronze.payload_json::jsonb")]
+        base-expr     "bronze.payload_json::jsonb"]
     (some-> (json-extract-text-sql base-expr relative-path)
             (cast-json-text-sql (source-field-type field)))))
 
+(defn- databricks-source-expression
+  [field array-root]
+  ;; Bronze payload_json holds one record per row.  Strip the array-root
+  ;; segments (e.g. ["data"]) and build a get_json_object path.
+  (let [segments      (parse-json-source-path (:path field))
+        root-len      (count array-root)
+        past-root?    (and (seq array-root)
+                           (<= root-len (count segments))
+                           (= array-root (mapv :key (take root-len segments))))
+        relative-path (mapv :key (if past-root?
+                                   (drop root-len segments)
+                                   segments))
+        json-path     (str "$." (string/join "." relative-path))
+        base-expr     (str "get_json_object(bronze.payload_json, '" json-path "')")]
+    (when (seq relative-path)
+      (case (source-field-type field)
+        "BOOLEAN"   (str "CAST(" base-expr " AS BOOLEAN)")
+        "DATE"      (str "CAST(" base-expr " AS DATE)")
+        "TIMESTAMP" (str "CAST(" base-expr " AS TIMESTAMP)")
+        "INT"       (str "CAST(" base-expr " AS INT)")
+        "BIGINT"    (str "CAST(" base-expr " AS BIGINT)")
+        "DOUBLE"    (str "CAST(" base-expr " AS DOUBLE)")
+        base-expr))))
+
 (defn- inferred-field-expression
   [field target array-root]
-  (if (= "postgresql" (target-warehouse target (target-connection-id target)))
-    (or (postgres-source-expression field array-root)
-        (str "bronze." (:column_name field)))
-    (str "bronze." (:column_name field))))
+  (let [warehouse (target-warehouse target (target-connection-id target))]
+    (case warehouse
+      "postgresql" (or (postgres-source-expression field array-root)
+                       (str "bronze." (:column_name field)))
+      "databricks" (or (databricks-source-expression field array-root)
+                       (str "bronze." (:column_name field)))
+      (str "bronze." (:column_name field)))))
 
 (defn- model-source-reference
   [warehouse source-alias column-name]
@@ -1077,12 +1219,10 @@
                      :source_node_id api-node-id
                      :source_system source-system
                      :endpoint_name (:endpoint_name endpoint)
-                     :source_expansion (when (and (= "postgresql" warehouse)
-                                                  (seq array-root))
-                                         {:kind "jsonb_array"
-                                          :alias "item"
-                                          :json_column "payload_json"
-                                          :path array-root})
+                     ;; Bronze payload_json is already one record per row
+                     ;; (ingestion layer explodes the API data array), so no
+                     ;; CROSS JOIN LATERAL source_expansion is needed.
+                     :source_expansion nil
                      :profile_summary {:sample_record_count (:sample_record_count profile)
                                        :field_count (:field_count profile)}
                      :columns columns
@@ -1422,6 +1562,19 @@
                       (string/join ", " (map #(str (name %) " = ?") columns))
                       " WHERE proposal_id = ?")]
                 (concat values [proposal-id]))))))))
+
+(defn- sync-proposal-row-bindings!
+  [proposal-id proposal-row proposal-json & {:keys [compiled-sql status]
+                                             :or {compiled-sql ::no-change
+                                                  status ::no-change}}]
+  (let [stored-json (parse-json-safe (:proposal_json proposal-row))
+        attrs       (cond-> {}
+                      (and (contains? proposal-row :proposal_json)
+                           (not= stored-json proposal-json)) (assoc :proposal_json proposal-json)
+                      (not= compiled-sql ::no-change) (assoc :compiled_sql compiled-sql)
+                      (not= status ::no-change) (assoc :status status))]
+    (when (seq attrs)
+      (update-model-proposal! proposal-id attrs))))
 
 (defn- persist-model-validation!
   ([payload]
@@ -1916,19 +2069,102 @@
   (vec (or (:mappings proposal-json) [])))
 
 (defn- source-table-for-endpoint
-  [target endpoint]
-  (or (non-blank-str (:bronze_table_name endpoint))
-      (non-blank-str (:table_name endpoint))
-      (when-let [target-table (non-blank-str (:table_name target))]
-        (db/fully-qualified-table-name target target-table))
-      (db/fully-qualified-table-name
-       target
-       (sanitize-ident
-        (or (non-blank-str (:endpoint_name endpoint))
-            (non-blank-str (:endpoint_url endpoint))
-            (non-blank-str (:topic_name endpoint))
-            (non-blank-str (:path endpoint))
-            "bronze_auto")))))
+  ([target endpoint]
+   (source-table-for-endpoint target nil endpoint))
+  ([target target-connection-id endpoint]
+   (or (when-let [table-name (non-blank-str (:bronze_table_name endpoint))]
+         (some-> (retarget-qualified-table-name target target-connection-id table-name)
+                 non-blank-str))
+       (when-let [table-name (non-blank-str (:table_name endpoint))]
+         (some-> (retarget-qualified-table-name target target-connection-id table-name)
+                 non-blank-str))
+       (when-let [target-table (non-blank-str (:table_name target))]
+         (db/fully-qualified-table-name (target-reference-spec target target-connection-id) target-table))
+       (db/fully-qualified-table-name
+        (target-reference-spec target target-connection-id)
+        (sanitize-ident
+         (or (non-blank-str (:endpoint_name endpoint))
+             (non-blank-str (:endpoint_url endpoint))
+             (non-blank-str (:topic_name endpoint))
+             (non-blank-str (:path endpoint))
+             "bronze_auto"))))))
+
+(defn- effective-target-table
+  [proposal-row proposal-json target target-connection-id]
+  (let [layer-schema (case (:layer proposal-row)
+                       "silver" "silver"
+                       "gold"   "gold"
+                       nil)
+        effective-target (if layer-schema
+                           (assoc target :schema layer-schema)
+                           target)]
+    (retarget-qualified-table-name effective-target
+                                   target-connection-id
+                                   (or (:target_model proposal-row)
+                                       (:target_model proposal-json)
+                                       (:target_table proposal-json)))))
+
+(defn- effective-gold-source-table
+  [proposal-json target target-connection-id]
+  (retarget-qualified-table-name (assoc target :schema "silver")
+                                 target-connection-id
+                                 (or (:source_model proposal-json)
+                                     (:source_table proposal-json))))
+
+(defn- normalize-expression-for-warehouse
+  [warehouse expr]
+  (let [expr (some-> expr str)]
+    (cond
+      (string/blank? expr) expr
+      (= "databricks" warehouse) (string/replace expr #"\"([^\"]+)\"" "`$1`")
+      (contains? #{"postgresql" "snowflake"} warehouse) (string/replace expr #"`([^`]+)`" "\"$1\"")
+      :else expr)))
+
+(defn- effective-silver-expression
+  [item field target array-root warehouse]
+  (or (when field
+        (inferred-field-expression field target array-root))
+      (normalize-expression-for-warehouse warehouse (:expression item))))
+
+(defn- retarget-silver-proposal-json
+  [proposal-json endpoint target warehouse]
+  (let [source-fields (->> (or (:inferred_fields endpoint) [])
+                           (filter #(not= false (:enabled %)))
+                           vec)
+        array-root    (common-json-array-root source-fields)
+        field-by-name (into {}
+                            (map (juxt :column_name identity))
+                            source-fields)
+        retarget-item (fn [item]
+                        (let [field-key (or (first (vec (or (:source_columns item) [])))
+                                            (:target_column item))
+                              field     (get field-by-name field-key)]
+                          (assoc item :expression (effective-silver-expression item field target array-root warehouse))))]
+    (-> proposal-json
+        (assoc :columns (mapv retarget-item (vec (or (:columns proposal-json) []))))
+        (assoc :mappings (mapv retarget-item (vec (or (:mappings proposal-json) []))))
+        ;; Bronze payload_json is already one record per row — no source_expansion
+        (assoc :source_expansion nil))))
+
+(defn- effective-proposal-json
+  [{:keys [proposal-row proposal-json target target-connection-id endpoint]}]
+  (let [warehouse    (proposal-target-warehouse {:proposal-json proposal-json
+                                                 :target target
+                                                 :target-connection-id target-connection-id})
+        target-table (effective-target-table proposal-row proposal-json target target-connection-id)
+        normalize-expr-item (fn [item]
+                              (update item :expression #(normalize-expression-for-warehouse warehouse %)))]
+    (cond-> (-> (assoc proposal-json
+                       :target_warehouse warehouse
+                       :target_table target-table)
+                ((fn [next-json]
+                   (if (= "silver" (:layer proposal-row))
+                     (retarget-silver-proposal-json next-json endpoint target warehouse)
+                     (assoc next-json
+                            :columns (mapv normalize-expr-item (vec (or (:columns next-json) [])))
+                            :mappings (mapv normalize-expr-item (vec (or (:mappings next-json) []))))))))
+      (= "gold" (:layer proposal-row))
+      (assoc :source_table (effective-gold-source-table proposal-json target target-connection-id)))))
 
 (defn- sample-limit
   [value]
@@ -1969,7 +2205,14 @@
                                            :node_id source-node-id
                                            :btype (:btype source-node)})))
           endpoint      (select-source-endpoint! source-node (:source_endpoint_name proposal-row))
-          target        (find-downstream-target graph source-node-id)]
+          target        (find-downstream-target graph source-node-id)
+          target-conn-id (target-connection-id target)
+          source-table  (source-table-for-endpoint target target-conn-id endpoint)
+          proposal-json (effective-proposal-json {:proposal-row proposal-row
+                                                  :proposal-json proposal-json
+                                                  :endpoint endpoint
+                                                  :target target
+                                                  :target-connection-id target-conn-id})]
       {:proposal-row proposal-row
        :proposal-json proposal-json
        :profile-row profile-row
@@ -1983,8 +2226,8 @@
        :endpoint endpoint
        :target target
        :source-system (or (:source_system source-node) "samara")
-       :source-table (source-table-for-endpoint target endpoint)
-       :target-connection-id (target-connection-id target)})))
+       :source-table source-table
+       :target-connection-id target-conn-id})))
 
 (defn- resolve-gold-proposal-context
   [proposal-id]
@@ -2003,6 +2246,11 @@
           graph         (db/getGraph graph-id)
           source-node   (g2/getData graph source-node-id)
           target        (find-downstream-target graph source-node-id)
+          target-conn-id (target-connection-id target)
+          proposal-json (effective-proposal-json {:proposal-row proposal-row
+                                                  :proposal-json proposal-json
+                                                  :target target
+                                                  :target-connection-id target-conn-id})
           source-table  (or (:source_table proposal-json)
                             (throw (ex-info "Gold proposal does not declare a Silver source table"
                                             {:proposal_id proposal-id :status 409})))]
@@ -2019,7 +2267,7 @@
                           (:source_system source-node)
                           "medallion")
        :source-table source-table
-       :target-connection-id (target-connection-id target)})))
+       :target-connection-id target-conn-id})))
 
 (defn- available-source-columns
   [proposal-json profile-json]
@@ -2359,38 +2607,39 @@
         table-parts     (split-qualified-table (:target_table proposal-json))
         processing-policy (normalize-processing-policy (:processing_policy proposal-json))
         target-kind     (or (:target_kind target) "databricks")
-        target-config   {:target_kind target-kind
-                         :connection_id (target-connection-id target)
-                         :catalog (or (:catalog target) (:catalog table-parts) "")
-                         :schema (or (:schema target) (:schema table-parts) "")
-                         :table_name (:table table-parts)
-                         :write_mode (case (get-in proposal-json [:materialization :mode])
-                                       "table_replace" "replace"
-                                       "append" "append"
-                                       "update" "update"
-                                       "delete" "delete"
-                                       "merge")
-                         :table_format (if (= "bigquery" (some-> target-kind str string/lower-case))
-                                         "table"
-                                         "delta")
-                         :merge_keys (vec (or (get-in proposal-json [:materialization :keys]) []))
-                         :options (merge (or (:options target) {})
-                                         (materialization-extra-options proposal-json))
-                         :silver_job_id (or (:silver_job_id target) "")
-                         :silver_job_params (merge {:target_model (:target_model proposal-row)
-                                                    :proposal_id (:proposal_id proposal-row)}
-                                                   (or (:silver_job_params target) {}))
-                         :model_layer "silver"
-                         :managed_release true
-                         :processing_policy processing-policy
-                         :business_keys (vec (or (:business_keys processing-policy) []))
-                         :event_time_column (:event_time_column processing-policy)
-                         :sequence_column (:sequence_column processing-policy)
-                         :ordering_strategy (:ordering_strategy processing-policy)
-                         :late_data_tolerance (:late_data_tolerance processing-policy)
-                         :late_data_mode (:late_data_mode processing-policy)
-                         :too_late_behavior (:too_late_behavior processing-policy)
-                         :reprocess_window (:reprocess_window processing-policy)}
+        target-config   (merge {:target_kind target-kind
+                                :connection_id (target-connection-id target)
+                                :catalog (or (:catalog target) (:catalog table-parts) "")
+                                :schema "silver"
+                                :table_name (:table table-parts)
+                                :write_mode (case (get-in proposal-json [:materialization :mode])
+                                              "table_replace" "replace"
+                                              "append" "append"
+                                              "update" "update"
+                                              "delete" "delete"
+                                              "merge")
+                                :table_format (if (= "bigquery" (some-> target-kind str string/lower-case))
+                                                "table"
+                                                "delta")
+                                :merge_keys (vec (or (get-in proposal-json [:materialization :keys]) []))
+                                :options (merge (or (:options target) {})
+                                                (materialization-extra-options proposal-json))
+                                :silver_job_id (or (:silver_job_id target) "")
+                                :silver_job_params (merge {:target_model (:target_model proposal-row)
+                                                           :proposal_id (:proposal_id proposal-row)}
+                                                          (or (:silver_job_params target) {}))
+                                :model_layer "silver"
+                                :managed_release true
+                                :processing_policy processing-policy
+                                :business_keys (vec (or (:business_keys processing-policy) []))
+                                :event_time_column (:event_time_column processing-policy)
+                                :sequence_column (:sequence_column processing-policy)
+                                :ordering_strategy (:ordering_strategy processing-policy)
+                                :late_data_tolerance (:late_data_tolerance processing-policy)
+                                :late_data_mode (:late_data_mode processing-policy)
+                                :too_late_behavior (:too_late_behavior processing-policy)
+                                :reprocess_window (:reprocess_window processing-policy)}
+                               (target-physical-config target proposal-json))
         nodes          (cond-> [{:node-ref source-ref
                                  :type "table"
                                  :alias (last-table-segment source-table)
@@ -2446,38 +2695,39 @@
         table-parts     (split-qualified-table (:target_table proposal-json))
         processing-policy (normalize-processing-policy (:processing_policy proposal-json))
         target-kind     (or (:target_kind target) "databricks")
-        target-config   {:target_kind target-kind
-                         :connection_id (target-connection-id target)
-                         :catalog (or (:catalog target) (:catalog table-parts) "")
-                         :schema (or (:schema target) (:schema table-parts) "")
-                         :table_name (:table table-parts)
-                         :write_mode (case (get-in proposal-json [:materialization :mode])
-                                       "table_replace" "replace"
-                                       "append" "append"
-                                       "update" "update"
-                                       "delete" "delete"
-                                       "merge")
-                         :table_format (if (= "bigquery" (some-> target-kind str string/lower-case))
-                                         "table"
-                                         "delta")
-                         :merge_keys (vec (or (get-in proposal-json [:materialization :keys]) []))
-                         :options (merge (or (:options target) {})
-                                         (materialization-extra-options proposal-json))
-                         :gold_job_id (or (:gold_job_id target) "")
-                         :gold_job_params (merge {:target_model (:target_model proposal-row)
-                                                  :proposal_id (:proposal_id proposal-row)}
-                                                 (or (:gold_job_params target) {}))
-                         :model_layer "gold"
-                         :managed_release true
-                         :processing_policy processing-policy
-                         :business_keys (vec (or (:business_keys processing-policy) []))
-                         :event_time_column (:event_time_column processing-policy)
-                         :sequence_column (:sequence_column processing-policy)
-                         :ordering_strategy (:ordering_strategy processing-policy)
-                         :late_data_tolerance (:late_data_tolerance processing-policy)
-                         :late_data_mode (:late_data_mode processing-policy)
-                         :too_late_behavior (:too_late_behavior processing-policy)
-                         :reprocess_window (:reprocess_window processing-policy)}
+        target-config   (merge {:target_kind target-kind
+                                :connection_id (target-connection-id target)
+                                :catalog (or (:catalog target) (:catalog table-parts) "")
+                                :schema "gold"
+                                :table_name (:table table-parts)
+                                :write_mode (case (get-in proposal-json [:materialization :mode])
+                                              "table_replace" "replace"
+                                              "append" "append"
+                                              "update" "update"
+                                              "delete" "delete"
+                                              "merge")
+                                :table_format (if (= "bigquery" (some-> target-kind str string/lower-case))
+                                                "table"
+                                                "delta")
+                                :merge_keys (vec (or (get-in proposal-json [:materialization :keys]) []))
+                                :options (merge (or (:options target) {})
+                                                (materialization-extra-options proposal-json))
+                                :gold_job_id (or (:gold_job_id target) "")
+                                :gold_job_params (merge {:target_model (:target_model proposal-row)
+                                                         :proposal_id (:proposal_id proposal-row)}
+                                                        (or (:gold_job_params target) {}))
+                                :model_layer "gold"
+                                :managed_release true
+                                :processing_policy processing-policy
+                                :business_keys (vec (or (:business_keys processing-policy) []))
+                                :event_time_column (:event_time_column processing-policy)
+                                :sequence_column (:sequence_column processing-policy)
+                                :ordering_strategy (:ordering_strategy processing-policy)
+                                :late_data_tolerance (:late_data_tolerance processing-policy)
+                                :late_data_mode (:late_data_mode processing-policy)
+                                :too_late_behavior (:too_late_behavior processing-policy)
+                                :reprocess_window (:reprocess_window processing-policy)}
+                               (target-physical-config target proposal-json))
         nodes           (cond-> [{:node-ref source-ref
                                   :type "table"
                                   :alias (last-table-segment source-table)
@@ -2529,11 +2779,12 @@
 
 (defn- target-config->qualified-table
   [target-config]
-  (string/join "."
-               (remove string/blank?
-                       [(or (:catalog target-config) "")
-                        (or (:schema target-config) "")
-                        (or (:table_name target-config) "")])))
+  (when-let [table-name (some-> (:table_name target-config) last-table-segment non-blank-str)]
+    (db/fully-qualified-table-name {:catalog (:catalog target-config)
+                                    :schema (:schema target-config)
+                                    :dbtype (or (:target_kind target-config) "databricks")
+                                    :target_kind (or (:target_kind target-config) "databricks")}
+                                   table-name)))
 
 (defn- proposal-json-from-silver-gil
   [gil]
@@ -2900,7 +3151,7 @@
                            " WHERE layer = 'silver'"
                            (when graph-id " AND source_graph_id = ?")
                            (when status " AND status = ?")
-                           " ORDER BY created_at_utc DESC, proposal_id DESC LIMIT ?")]
+                           " ORDER BY proposal_id ASC LIMIT ?")]
                      (concat
                       (when graph-id [graph-id])
                       (when status [status])
@@ -2918,7 +3169,7 @@
                            " WHERE layer = 'gold'"
                            (when graph-id " AND source_graph_id = ?")
                            (when status " AND status = ?")
-                           " ORDER BY created_at_utc DESC, proposal_id DESC LIMIT ?")]
+                           " ORDER BY proposal_id ASC LIMIT ?")]
                      (concat
                       (when graph-id [graph-id])
                       (when status [status])
@@ -3037,6 +3288,7 @@
                  :or {created_by "system"}}]
    (ensure-modeling-tables!)
    (let [{:keys [proposal-row proposal-json graph-id target source-system source-table]} (resolve-proposal-context proposal-id)
+         _              (sync-proposal-row-bindings! proposal-id proposal-row proposal-json)
          latest-artifact (latest-graph-artifact-for-proposal proposal-id)
          desired-gil     (build-silver-gil {:proposal-row proposal-row
                                             :proposal-json proposal-json
@@ -3080,6 +3332,7 @@
                  :or {created_by "system"}}]
    (ensure-modeling-tables!)
    (let [{:keys [proposal-row proposal-json graph-id target source-system source-table]} (resolve-gold-proposal-context proposal-id)
+         _              (sync-proposal-row-bindings! proposal-id proposal-row proposal-json)
          latest-artifact (latest-graph-artifact-for-proposal proposal-id)
          desired-gil     (build-gold-gil {:proposal-row proposal-row
                                           :proposal-json proposal-json
@@ -3122,8 +3375,9 @@
   (ensure-modeling-tables!)
   (let [{:keys [proposal-row] :as context} (resolve-proposal-context proposal-id)
         {:keys [sql_ir select_sql compiled_sql]} (compile-proposal* context)]
-    (update-model-proposal! proposal-id {:compiled_sql compiled_sql
-                                         :status (compile-result-status proposal-row)})
+    (sync-proposal-row-bindings! proposal-id proposal-row (:proposal-json context)
+                                 :compiled-sql compiled_sql
+                                 :status (compile-result-status proposal-row))
     {:proposal_id proposal-id
      :target_model (:target_model proposal-row)
      :layer (:layer proposal-row)
@@ -3136,8 +3390,9 @@
   (ensure-modeling-tables!)
   (let [{:keys [proposal-row] :as context} (resolve-gold-proposal-context proposal-id)
         {:keys [sql_ir select_sql compiled_sql]} (compile-proposal* context)]
-    (update-model-proposal! proposal-id {:compiled_sql compiled_sql
-                                         :status (compile-result-status proposal-row)})
+    (sync-proposal-row-bindings! proposal-id proposal-row (:proposal-json context)
+                                 :compiled-sql compiled_sql
+                                 :status (compile-result-status proposal-row))
     {:proposal_id proposal-id
      :target_model (:target_model proposal-row)
      :layer (:layer proposal-row)
@@ -3190,9 +3445,10 @@
                                                     :validation-json validation-json
                                                     :compiled-sql (:compiled_sql compile-result)
                                                     :created-by created_by})]
-     (update-model-proposal! proposal-id {:compiled_sql (when (= "valid" status)
-                                                          (:compiled_sql compile-result))
-                                          :status (if (= "valid" status) "validated" "draft")})
+     (sync-proposal-row-bindings! proposal-id proposal-row proposal-json
+                                  :compiled-sql (when (= "valid" status)
+                                                  (:compiled_sql compile-result))
+                                  :status (if (= "valid" status) "validated" "draft"))
      {:validation_id (:validation_id validation-row)
       :proposal_id proposal-id
       :status status
@@ -3246,16 +3502,55 @@
                                                     :validation-json validation-json
                                                     :compiled-sql (:compiled_sql compile-result)
                                                     :created-by created_by})]
-     (update-model-proposal! proposal-id {:compiled_sql (when (= "valid" status)
-                                                          (:compiled_sql compile-result))
-                                          :status (if (= "valid" status) "validated" "draft")})
+     (sync-proposal-row-bindings! proposal-id proposal-row proposal-json
+                                  :compiled-sql (when (= "valid" status)
+                                                  (:compiled_sql compile-result))
+                                  :status (if (= "valid" status) "validated" "draft"))
      {:validation_id (:validation_id validation-row)
       :proposal_id proposal-id
       :status status
       :compiled_sql (:compiled_sql compile-result)
       :select_sql (:select_sql compile-result)
-      :sql_ir (:sql_ir compile-result)
-      :validation validation-json})))
+     :sql_ir (:sql_ir compile-result)
+     :validation validation-json})))
+
+(defn- proposal-rows-for-graph
+  [graph-id]
+  (jdbc/execute!
+   (db-opts db/ds)
+   [(str "SELECT * FROM " model-proposal-table
+         " WHERE source_graph_id = ? AND layer IN ('silver', 'gold')"
+         " ORDER BY proposal_id ASC")
+    graph-id]))
+
+(defn refresh-proposals-for-graph-target!
+  ([graph-id] (refresh-proposals-for-graph-target! graph-id {}))
+  ([graph-id {:keys [updated_by]
+              :or {updated_by "system"}}]
+   (ensure-modeling-tables!)
+   (let [proposal-rows (proposal-rows-for-graph graph-id)]
+     {:graph_id graph-id
+      :updated_by updated_by
+      :refreshed
+      (reduce (fn [acc proposal-row]
+                (let [proposal-id    (:proposal_id proposal-row)
+                      context        (if (= "gold" (:layer proposal-row))
+                                       (resolve-gold-proposal-context proposal-id)
+                                       (resolve-proposal-context proposal-id))
+                      effective-json (:proposal-json context)
+                      stored-json    (parse-json-safe (:proposal_json proposal-row))
+                  changed?       (not= stored-json effective-json)]
+                  (when changed?
+                    (apply sync-proposal-row-bindings! proposal-id proposal-row effective-json
+                           (cond-> [:compiled-sql nil]
+                             (not= "published" (:status proposal-row))
+                             (conj :status "draft"))))
+                  (cond-> acc
+                    changed? (conj {:proposal_id proposal-id
+                                    :layer (:layer proposal-row)
+                                    :target_model (:target_model proposal-row)}))))
+              []
+              proposal-rows)})))
 
 (defn publish-silver-proposal!
   ([proposal-id] (publish-silver-proposal! proposal-id {}))
@@ -3329,12 +3624,14 @@
                  node-id)))))
 
 (defn- qualified-target-table
-  [target-node]
-  (string/join "."
-               (remove string/blank?
-                       [(or (:catalog target-node) "")
-                        (or (:schema target-node) "")
-                        (or (:table_name target-node) "")])))
+  ([target-node]
+   (qualified-target-table target-node nil))
+  ([target-node layer-override]
+   (string/join "."
+                (remove string/blank?
+                        [(or (:catalog target-node) "")
+                         (or layer-override (:schema target-node) "")
+                         (or (:table_name target-node) "")]))))
 
 (defn- target-execution-backend
   [target-node]
@@ -3463,7 +3760,7 @@
         target-node     (g2/getData graph target-node-id)
         conn-id         (or (:connection_id target-node) (:c target-node))
         warehouse       (target-warehouse target-node conn-id)
-        target-table    (qualified-target-table target-node)]
+        target-table    (qualified-target-table target-node "silver")]
     (case warehouse
       "bigquery"
       (persist-bigquery-warehouse-validation! {:conn-id conn-id
@@ -3585,7 +3882,7 @@
         target-node     (g2/getData graph target-node-id)
         conn-id         (or (:connection_id target-node) (:c target-node))
         warehouse       (target-warehouse target-node conn-id)
-        target-table    (qualified-target-table target-node)]
+        target-table    (qualified-target-table target-node "gold")]
     (case warehouse
       "bigquery"
       (persist-bigquery-warehouse-validation! {:conn-id conn-id
@@ -3725,12 +4022,13 @@
                                              :graph_id (:graph_id graph-artifact)
                                              :target_node_id target-node-id
                                              :status 400})))
+        silver-target-table (qualified-target-table target-node "silver")
         request-json      {:release_id (:release_id release-row)
                            :graph_artifact_id (:graph_artifact_id graph-artifact)
                            :graph_id (:graph_id graph-artifact)
                            :graph_version (:graph_version graph-artifact)
                            :target_model (:target_model release-row)
-                           :target_table (qualified-target-table target-node)
+                           :target_table silver-target-table
                            :compiled_artifact_id (:artifact_id compiled-artifact)
                            :sql_checksum (:checksum compiled-artifact)
                            :target_warehouse warehouse}
@@ -3738,9 +4036,10 @@
                                   :graph_id (str (:graph_id graph-artifact))
                                   :graph_version (str (:graph_version graph-artifact))
                                   :target_model (:target_model release-row)
-                                  :target_table (qualified-target-table target-node)
+                                  :target_table silver-target-table
                                   :compiled_artifact_id (str (:artifact_id compiled-artifact))
-                                  :sql_checksum (:checksum compiled-artifact)}
+                                  :sql_checksum (:checksum compiled-artifact)
+                                  :compiled_sql (:sql_text compiled-artifact)}
                                  (or (:silver_job_params target-node) {}))
         run-row           (persist-compiled-model-run! tx {:release-id (:release_id release-row)
                                                            :graph-artifact-id (:graph_artifact_id graph-artifact)
@@ -3838,12 +4137,13 @@
                                              :graph_id (:graph_id graph-artifact)
                                              :target_node_id target-node-id
                                              :status 400})))
+        gold-target-table (qualified-target-table target-node "gold")
         request-json      {:release_id (:release_id release-row)
                            :graph_artifact_id (:graph_artifact_id graph-artifact)
                            :graph_id (:graph_id graph-artifact)
                            :graph_version (:graph_version graph-artifact)
                            :target_model (:target_model release-row)
-                           :target_table (qualified-target-table target-node)
+                           :target_table gold-target-table
                            :compiled_artifact_id (:artifact_id compiled-artifact)
                            :sql_checksum (:checksum compiled-artifact)
                            :target_warehouse warehouse}
@@ -3851,9 +4151,10 @@
                                   :graph_id (str (:graph_id graph-artifact))
                                   :graph_version (str (:graph_version graph-artifact))
                                   :target_model (:target_model release-row)
-                                  :target_table (qualified-target-table target-node)
+                                  :target_table gold-target-table
                                   :compiled_artifact_id (str (:artifact_id compiled-artifact))
-                                  :sql_checksum (:checksum compiled-artifact)}
+                                  :sql_checksum (:checksum compiled-artifact)
+                                  :compiled_sql (:sql_text compiled-artifact)}
                                  (or (:gold_job_params target-node) {}))
         run-row           (persist-compiled-model-run! tx {:release-id (:release_id release-row)
                                                            :graph-artifact-id (:graph_artifact_id graph-artifact)
@@ -3967,17 +4268,22 @@
   (poll-silver-model-run! model-run-id))
 
 (defn preview-target-data
-  "Query the proposal's target table for a small sample of rows."
+  "Query the proposal's target table for a small sample of rows.
+   Uses the target_table from the proposal JSON (the silver/gold model table)
+   and the connection from the graph's target node."
   [proposal-id {:keys [limit] :or {limit 10}}]
   (ensure-modeling-tables!)
   (let [proposal-row (proposal-by-id proposal-id)]
     (when-not proposal-row
       (throw (ex-info "Proposal not found" {:proposal_id proposal-id :status 404})))
     (let [proposal-json  (parse-json-safe (:proposal_json proposal-row))
-          target-table   (:target_table proposal-json)
+          target-table   (or (:target_table proposal-json)
+                             (:target_model proposal-row))
           _              (when-not (valid-qualified-table-name? target-table)
                            (throw (ex-info "No valid target table on proposal"
-                                           {:proposal_id proposal-id :status 400})))
+                                           {:proposal_id proposal-id
+                                            :target_table target-table
+                                            :status 400})))
           graph-id       (:source_graph_id proposal-row)
           source-node-id (:source_node_id proposal-row)
           graph          (db/getGraph graph-id)

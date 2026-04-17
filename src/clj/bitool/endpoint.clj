@@ -1,5 +1,6 @@
 (ns bitool.endpoint
   (:require [bitool.db :as db]
+            [bitool.logic :as logic]
             [clojure.string :as string]
             [cheshire.core :as json]
             [next.jdbc :as jdbc]
@@ -156,6 +157,30 @@
             (recur (concat (rest queue) unvisited)
                    (conj visited nid))))))))
 
+(defn- find-nodes-by-btypes
+  "BFS from start-id to collect all downstream nodes whose btype is in btypes, in visit order."
+  [g start-id btypes]
+  (loop [queue [start-id]
+         idx 0
+         visited #{}
+         matches []]
+    (if (>= idx (count queue))
+      matches
+      (let [nid      (nth queue idx)
+            na       (get-in g [:n nid :na])
+            children (keys (get-in g [:n nid :e]))
+            visited' (conj visited nid)
+            queue'   (reduce (fn [acc child]
+                               (if (contains? visited' child)
+                                 acc
+                                 (conj acc child)))
+                             queue
+                             children)
+            matches' (if (contains? btypes (:btype na))
+                       (conj matches (assoc na :id nid))
+                       matches)]
+        (recur queue' (inc idx) visited' matches')))))
+
 (defn find-rb-node
   "BFS from ep-node-id to find the first downstream Rb node.
    Returns its data map or nil."
@@ -265,6 +290,17 @@
         (catch Exception e
           (tel/log! :warn (str "execute-dx-node: SQL failed — " (.getMessage e)))
           flat)))))
+
+(defn- execute-transform-nodes
+  [g start-id flat]
+  (reduce (fn [acc node]
+            (case (:btype node)
+              "Dx" (or (execute-dx-node node acc) acc)
+              "C"  (logic/execute-conditional-node node acc)
+              "Fu" (logic/execute-logic-node node acc)
+              acc))
+          flat
+          (find-nodes-by-btypes g start-id #{"Dx" "C" "Fu"})))
 
 (defn- validate-vd-node
   "Run Vd rules against flat params. Returns nil on success.
@@ -399,9 +435,7 @@
                                    :error   "Rate limit exceeded"})))
         vd-node (find-node-by-btype g node-id "Vd")
         _       (validate-vd-node vd-node (flat-params params))
-        dx-node (find-node-by-btype g node-id "Dx")
-        flat    (let [f (flat-params params)]
-                  (or (when dx-node (execute-dx-node dx-node f)) f))
+        flat    (execute-transform-nodes g node-id (flat-params params))
         ev-node (find-node-by-btype g node-id "Ev")
         _       (publish-ev-node! ev-node flat)
         cr-node (find-node-by-btype g node-id "Cr")

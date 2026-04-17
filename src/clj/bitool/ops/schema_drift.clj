@@ -8,13 +8,14 @@
      - schema_notification    (in-app notification feed)
      - schema_ddl_history     (audit trail of ALTER TABLE executions)"
   (:require [bitool.config :refer [env]]
-    [bitool.db :as db]
+            [bitool.db :as db]
             [bitool.ingest.runtime :as ingest-runtime]
-    [cheshire.core :as json]
-    [clojure.string :as string]
-    [clojure.tools.logging :as log]
-    [next.jdbc :as jdbc]
-    [next.jdbc.result-set :as rs])
+            [bitool.ops.alerts :as ops-alerts]
+            [cheshire.core :as json]
+            [clojure.string :as string]
+            [clojure.tools.logging :as log]
+            [next.jdbc :as jdbc]
+            [next.jdbc.result-set :as rs])
   (:import [java.security MessageDigest]
            [java.util HexFormat]))
 
@@ -31,6 +32,48 @@
     (.formatHex (HexFormat/of) digest)))
 
 (defn- now-utc [] (java.time.Instant/now))
+
+(defn- drift-alert-title
+  [endpoint-name severity]
+  (case severity
+    "breaking" (format "Breaking schema drift on %s" endpoint-name)
+    "warning" (format "Schema drift warning on %s" endpoint-name)
+    (format "Schema drift detected on %s" endpoint-name)))
+
+(defn- fire-drift-alert!
+  [{:keys [workspace-key graph-id api-node-id endpoint-name source-system run-id
+           schema-hash-before schema-hash-after drift severity event-id]}]
+  (try
+    (ops-alerts/fire!
+     {:alert-type "schema_drift"
+      :severity severity
+      :workspace-key workspace-key
+      :source-key (format "schema_drift:%s:%s:%s:%s:%s"
+                          (or workspace-key "")
+                          (or graph-id "")
+                          (or api-node-id "")
+                          (or endpoint-name "")
+                          (or event-id ""))
+      :title (drift-alert-title endpoint-name severity)
+      :detail {:event_id event-id
+               :graph_id graph-id
+               :api_node_id api-node-id
+               :endpoint_name endpoint-name
+               :source_system source-system
+               :run_id run-id
+               :schema_hash_before schema-hash-before
+               :schema_hash_after schema-hash-after
+               :new_field_count (count (:new_fields drift))
+               :missing_field_count (count (:missing_fields drift))
+               :type_change_count (count (:type_changes drift))
+               :drift_severity severity}})
+    (catch Exception e
+      (log/warn e "Failed to fire schema drift ops alert"
+                {:workspace_key workspace-key
+                 :graph_id graph-id
+                 :api_node_id api-node-id
+                 :endpoint_name endpoint-name
+                 :event_id event-id}))))
 
 (defn- parse-json-safe [value]
   (cond
@@ -395,6 +438,18 @@
                          (or schema-hash-before "") (or schema-hash-after "")
                          (or enforcement-mode "")])]
         (when-let [event-id (:event_id result)]
+          ;; Create ops alert
+          (fire-drift-alert! {:workspace-key ws
+                              :graph-id graph-id
+                              :api-node-id api-node-id
+                              :endpoint-name endpoint-name
+                              :source-system source-system
+                              :run-id run-id
+                              :schema-hash-before (or schema-hash-before "")
+                              :schema-hash-after (or schema-hash-after "")
+                              :drift drift
+                              :severity severity
+                              :event-id event-id})
           ;; Create in-app notification
           (create-drift-notification! ds ws event-id
                                      {:endpoint-name endpoint-name

@@ -169,6 +169,14 @@
       <button onclick="toggleLogic()" style="width: fit-content;padding: 0 5px;">Logic</button>
     </div>
     <div class="tooltip">
+      <button onclick="toggleTransformChat()" style="width:fit-content; padding:0 5px;">AI Graph</button>
+      <span class="tooltiptext">Generate Transform Graph</span>
+    </div>
+    <div class="tooltip">
+      <button onclick="toggleSessionControl()" style="width:fit-content; padding:0 5px;">Session</button>
+      <span class="tooltiptext">Sign in and switch workspace</span>
+    </div>
+    <div class="tooltip">
       <button onclick="toggleWfDialog()" style="width:fit-content; padding:0 5px;">WorFlow</button>
       <span class="tooltiptext">New Workflow</span>
     </div>
@@ -247,14 +255,14 @@
   <mapping-editor class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </mapping-editor>
 
-  <lambda-function-builder
-    style="height: 90%;width: 80%;position: absolute;top: 50%;left: 50%;transform: translate(-50%, -50%);background-color: white;">
-  </lambda-function-builder>
+  <lambda-function-builder></lambda-function-builder>
+  <transform-chat></transform-chat>
+  <session-control class="toolbar-offset-panel" style="display:none; height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;"></session-control>
 
   <control-flow-component class="toolbar-offset-panel" style="height: 100vh; width: 30%; position: fixed; top: 0;right: 0;background-color: white;">
   </control-flow-component>
 
-  <api-component class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
+  <api-component class="toolbar-offset-panel" style="height: 100vh; width: 82%; position: fixed; top: 0;right: 0;background-color: white;">
   </api-component>
   
   <api-connection-component class="toolbar-offset-panel" style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
@@ -326,6 +334,7 @@
 
   <workflow-dialog id="wfDialog"></workflow-dialog>
   <db-config-form-modal></db-config-form-modal>
+  <connector-config-modal></connector-config-modal>
   
   <script type="module" src="customWebComponent.js"></script>
   <script type="module" src="workflowDialog.js"></script>
@@ -352,6 +361,9 @@
   <script type="module" src="graphqlQueryBuilderComponent.js"></script>
   <script type="module" src="scheduler-wizard.js"></script>
   <script type="module" src="functionBuilder.js"></script>
+  <script type="module" src="transformChatComponent.js"></script>
+  <script type="module" src="sessionControl.js"></script>
+  <script type="module" src="connectorConfigModal.js"></script>
   <script type="module" src="targetComponent.js"></script>
   <script type="module" src="database_forms/index.js"></script>
   <script type="module" src="gitlabPipelineBuilder.js"></script>

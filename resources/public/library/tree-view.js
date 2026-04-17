@@ -28,7 +28,7 @@ export function renderTree(treeEl, treeItems, options = {}) {
 export function populateAttributes(iterable, treeItems, findItemData) {
   if (!Array.isArray(treeItems)) return;
   iterable.forEach((element) => {
-    const itemData = findItemData(element.label, treeItems);
+    const itemData = findItemData(element, treeItems);
     if (itemData) {
       Object.keys(itemData).forEach((key) => {
         if (key !== "label" && key !== "items") {

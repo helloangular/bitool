@@ -11,6 +11,28 @@ const template = document.createElement("template");
 template.innerHTML = `
     <link rel="stylesheet" href="./app.css" />
     <link rel="stylesheet" href="./source/styles/smart.default.css" />
+    <style>
+      :host {
+        display: block;
+        height: 100%;
+      }
+
+      .container {
+        box-sizing: border-box;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: white;
+      }
+
+      #content {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        padding: 0 10px 16px;
+      }
+    </style>
     <div class="container padding">
       <div style="display:flex;justify-content:flex-end">
           <smart-button content="&#9747;" id="closeButton" class="smart-button" style="margin-right:10px;"></smart-button>
@@ -108,10 +130,7 @@ class ControlFlowComponent extends HTMLElement {
     // If we have saved branches, populate the sub-component after it renders
     if (rect && this.component && typeof this.component.loadData === "function") {
       setTimeout(() => {
-        this.component.loadData({
-          branches: rect.branches || [],
-          default_branch: rect.default_branch || "",
-        });
+        this.component.loadData(rect);
       }, 50);
     }
   }
@@ -163,13 +182,10 @@ class ControlFlowComponent extends HTMLElement {
     }
 
     // Collect data from sub-component
-    let branches = [];
-    let defaultBranch = "";
+    let payload = {};
 
     if (typeof this.component.collectData === "function") {
-      const d = this.component.collectData();
-      branches = d.branches || [];
-      defaultBranch = d.default_branch || "";
+      payload = this.component.collectData() || {};
     } else if (typeof this.component.save === "function") {
       // Fallback: call legacy save (which calls storeData internally)
       this.component.save();
@@ -179,12 +195,7 @@ class ControlFlowComponent extends HTMLElement {
     try {
       const data = await request("/saveConditional", {
         method: "POST",
-        body: {
-          id,
-          cond_type: this.select.value,
-          branches,
-          default_branch: defaultBranch,
-        },
+        body: { id, cond_type: this.select.value, ...payload },
       });
       console.log("Conditional saved:", data);
     } catch (err) {

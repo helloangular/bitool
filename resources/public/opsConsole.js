@@ -200,6 +200,10 @@
     if (s === 'retrying' || s === 'throttled' || s === 'cooldown') return 'retrying';
     if (s === 'queued' || s === 'idle' || s === 'pending' || s === 'low') return 'queued';
     if (s === 'dlq') return 'dlq';
+    if (s === 'schema_mismatch' || s === 'parse_error') return 'failed';
+    if (s === 'type_coercion' || s === 'null_violation' || s === 'encoding_error') return 'warning';
+    if (s === 'replayed') return 'completed';
+    if (s === 'ignored') return 'archived';
     if (s === 'preparing') return 'preparing';
     if (s === 'rolled_back' || s === 'rolled back') return 'rolled_back';
     if (s === 'pending_checkpoint' || s === 'pending ckp') return 'pending_checkpoint';
@@ -1050,23 +1054,38 @@
         e.drift_severity
       );
 
-      var actions = '<button class="ops-btn sm" onclick="window._opsViewDriftDetail(' + e.event_id + ')">View</button>';
-      if (!e.acknowledged) {
-        actions += ' <button class="ops-btn sm success" onclick="window._opsAckDrift(' + e.event_id + ', this)">Ack</button>';
-      }
-      actions += ' <button class="ops-btn sm" onclick="window._opsViewDriftTimeline(' + e.graph_id + ', \'' + escAttr(e.endpoint_name) + '\')">Timeline</button>';
+      var ackLink = e.acknowledged ? '' : ' &middot; <a href="#" class="drift-action" data-action="ack" data-eid="' + e.event_id + '">Ack</a>';
 
-      html += '<tr data-event-id="' + e.event_id + '">'
+      html += '<tr class="drift-row clickable" data-event-id="' + e.event_id + '" data-graph-id="' + e.graph_id + '" data-endpoint="' + escAttr(e.endpoint_name) + '">'
         + '<td class="primary" title="Graph ' + e.graph_id + '">' + esc(e.endpoint_name) + '</td>'
         + '<td>' + severityBadge + '</td>'
         + '<td>' + (e.new_field_count || 0) + '</td>'
         + '<td>' + (e.missing_field_count || 0) + '</td>'
         + '<td>' + (e.type_change_count || 0) + '</td>'
         + '<td class="mono">' + timeAgo(e.detected_at_utc) + '</td>'
-        + '<td>' + actions + '</td>'
+        + '<td><a href="#" class="drift-action" data-action="view" data-eid="' + e.event_id + '">View</a>' + ackLink + '</td>'
         + '</tr>';
     }
     tbody.innerHTML = html;
+
+    // Event delegation for row clicks and action links
+    tbody.onclick = function(evt) {
+      var link = evt.target.closest('.drift-action');
+      if (link) {
+        evt.preventDefault();
+        var action = link.getAttribute('data-action');
+        var eid = parseInt(link.getAttribute('data-eid'), 10);
+        if (action === 'view') window._opsViewDriftDetail(eid);
+        else if (action === 'ack') window._opsAckDrift(eid, link);
+        return;
+      }
+      var row = evt.target.closest('.drift-row');
+      if (row) {
+        var eventId = parseInt(row.getAttribute('data-event-id'), 10);
+        window._opsViewDriftDetail(eventId);
+      }
+    };
+
     setText('driftUnackedCount', unacked);
     setText('driftBreakingCount', breaking);
   }
@@ -2193,18 +2212,139 @@
   // ─── Correlation / Inspect Actions ─────────────────────────────────
 
   async function inspectCorrelation(requestId) {
+    var overlay = el('correlationOverlay');
+    var content = el('correlationContent');
+    var title = el('correlationTitle');
+    if (!overlay || !content) return;
+
+    overlay.style.display = '';
+    if (title) title.textContent = 'Request ' + requestId;
+    content.innerHTML = '<div style="color:var(--text-secondary);padding:16px">Loading correlation data...</div>';
+
     try {
       var data = await opsApi('/correlation/request/' + requestId);
-      var detail = JSON.stringify(data, null, 2);
-      var w = window.open('', '_blank', 'width=700,height=500');
-      if (w) {
-        w.document.write('<html><head><title>Request ' + requestId + '</title><style>body{background:#1a1b2e;color:#e0e0e0;font:13px/1.6 "JetBrains Mono",monospace;padding:20px;}</style></head><body><pre>' + esc(detail) + '</pre></body></html>');
-        w.document.close();
-      } else {
-        alert(detail);
-      }
+      renderCorrelationPanel(data, requestId);
     } catch (e) {
-      alert('Error fetching correlation data: ' + e.message);
+      content.innerHTML = '<div style="color:var(--red);padding:16px">Error: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderCorrelationPanel(data, requestId) {
+    var content = el('correlationContent');
+    if (!content || !data) return;
+
+    var html = '';
+
+    // Breadcrumb: Request → Run → Batch → Checkpoint
+    html += '<div class="corr-breadcrumb">';
+    html += '<span class="crumb active">Request</span>';
+    if (data.run_id) html += '<span class="arrow">&rarr;</span><span class="crumb" onclick="window._opsCorrelationDrillRun(\'' + escAttr(data.run_id) + '\')">' + esc('Run ' + data.run_id) + '</span>';
+    if (data.batch_id) html += '<span class="arrow">&rarr;</span><span class="crumb" onclick="window._opsCorrelationDrillBatch(\'' + escAttr(data.batch_id) + '\')">' + esc('Batch ' + data.batch_id) + '</span>';
+    html += '</div>';
+
+    // Request section
+    html += '<div class="corr-section"><div class="corr-section-title">Request</div><div class="corr-kv">';
+    html += corrKv('Request ID', data.request_id || requestId);
+    html += corrKv('Source', data.source || data.source_key);
+    html += corrKv('Status', data.status);
+    html += corrKv('Requested', fmtTime(data.requested_at || data.created_at));
+    html += corrKv('Attempts', data.attempts);
+    html += corrKv('Worker', data.worker_id);
+    if (data.last_error) html += corrKv('Last Error', data.last_error);
+    html += '</div></div>';
+
+    // Run section
+    if (data.run || data.run_id) {
+      var run = data.run || data;
+      html += '<div class="corr-section"><div class="corr-section-title">Execution Run</div><div class="corr-kv">';
+      html += corrKv('Run ID', run.run_id || data.run_id);
+      html += corrKv('Status', run.run_status || run.status);
+      html += corrKv('Started', fmtTime(run.started_at || run.started_at_utc));
+      html += corrKv('Finished', fmtTime(run.finished_at || run.finished_at_utc));
+      html += corrKv('Duration', fmtDuration(run.duration_seconds));
+      html += corrKv('Rows Written', fmtNumber(run.rows_written));
+      html += corrKv('Pages Fetched', fmtNumber(run.pages_fetched));
+      html += '</div></div>';
+    }
+
+    // Batches section
+    if (data.batches && data.batches.length) {
+      html += '<div class="corr-section"><div class="corr-section-title">Batches (' + data.batches.length + ')</div>';
+      html += '<table class="ops-table"><thead><tr><th>Batch</th><th>Status</th><th>Rows</th><th>Bad</th><th>Created</th></tr></thead><tbody>';
+      for (var i = 0; i < data.batches.length; i++) {
+        var b = data.batches[i];
+        html += '<tr><td class="mono">' + esc(b.batch_id || b.id) + '</td>'
+          + '<td>' + badge(statusColor(b.status), b.status) + '</td>'
+          + '<td>' + fmtNumber(b.rows || b.row_count) + '</td>'
+          + '<td>' + fmtNumber(b.bad || b.bad_records) + '</td>'
+          + '<td class="mono">' + fmtTime(b.created_at) + '</td></tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+
+    // Checkpoints section
+    if (data.checkpoints && data.checkpoints.length) {
+      html += '<div class="corr-section"><div class="corr-section-title">Checkpoint Progression</div>';
+      html += '<table class="ops-table"><thead><tr><th>Key</th><th>Before</th><th>After</th></tr></thead><tbody>';
+      for (var j = 0; j < data.checkpoints.length; j++) {
+        var c = data.checkpoints[j];
+        html += '<tr><td class="mono">' + esc(c.checkpoint_key || c.key) + '</td>'
+          + '<td class="mono">' + esc(c.before || c.old_value) + '</td>'
+          + '<td class="mono">' + esc(c.after || c.new_value) + '</td></tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+
+    // Bad records section
+    if (data.bad_records && data.bad_records.length) {
+      html += '<div class="corr-section"><div class="corr-section-title">Bad Records (' + data.bad_records.length + ')</div>';
+      html += '<table class="ops-table"><thead><tr><th>ID</th><th>Class</th><th>Reason</th></tr></thead><tbody>';
+      for (var k = 0; k < Math.min(data.bad_records.length, 20); k++) {
+        var br = data.bad_records[k];
+        html += '<tr><td class="mono">' + esc(br.record_id || br.id) + '</td>'
+          + '<td>' + badge(statusColor(br.failure_class), br.failure_class) + '</td>'
+          + '<td style="font-size:11px">' + esc(br.reason || br.message) + '</td></tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+
+    // Raw JSON fallback for any extra fields
+    html += '<div class="corr-section"><div class="corr-section-title">Raw Data</div>'
+      + '<details><summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">Show JSON</summary>'
+      + '<pre class="ops-json" style="margin-top:8px;max-height:300px;overflow:auto;font-size:11px">'
+      + esc(JSON.stringify(data, null, 2))
+      + '</pre></details></div>';
+
+    content.innerHTML = html;
+  }
+
+  function corrKv(label, value) {
+    return '<div class="corr-kv-label">' + esc(label) + '</div><div class="corr-kv-value">' + esc(value) + '</div>';
+  }
+
+  async function correlationDrillRun(runId) {
+    var content = el('correlationContent');
+    var title = el('correlationTitle');
+    if (title) title.textContent = 'Run ' + runId;
+    if (content) content.innerHTML = '<div style="color:var(--text-secondary);padding:16px">Loading...</div>';
+    try {
+      var data = await opsApi('/correlation/run/' + runId);
+      renderCorrelationPanel(data, runId);
+    } catch (e) {
+      if (content) content.innerHTML = '<div style="color:var(--red);padding:16px">Error: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  async function correlationDrillBatch(batchId) {
+    var content = el('correlationContent');
+    var title = el('correlationTitle');
+    if (title) title.textContent = 'Batch ' + batchId;
+    if (content) content.innerHTML = '<div style="color:var(--text-secondary);padding:16px">Loading...</div>';
+    try {
+      var data = await opsApi('/correlation/batch/' + batchId);
+      renderCorrelationPanel(data, batchId);
+    } catch (e) {
+      if (content) content.innerHTML = '<div style="color:var(--red);padding:16px">Error: ' + esc(e.message) + '</div>';
     }
   }
 
@@ -2238,6 +2378,8 @@
   window._opsRetryRequest = function (id, btn) { singleQueueAction('Retry', id, btn); };
   window._opsRequeueRequest = function (id, btn) { singleQueueAction('Requeue', id, btn); };
   window._opsInspectCorrelation = inspectCorrelation;
+  window._opsCorrelationDrillRun = correlationDrillRun;
+  window._opsCorrelationDrillBatch = correlationDrillBatch;
   window._opsDrainWorker = drainWorker;
   window._opsUndrainWorker = undrainWorker;
   window._opsForceReleaseWorker = forceReleaseWorker;
@@ -2517,11 +2659,14 @@
     clearStaticRows('medallionReleaseBody');
     clearStaticRows('sourceConcurrencyBody');
 
+    // ── Load available pipelines dynamically ──
+    loadPipelineOptions();
+
     // ── Initial load ──
     setText('lastRefresh', new Date().toLocaleTimeString());
     switchScreen('pipeline-overview');
 
-    console.log('Bitool Operations Console loaded (live mode). Use Alt+1..8 to switch screens, Alt+R to refresh.');
+    console.log('Bitool Operations Console loaded (live mode). Use Alt+1..9 to switch screens, Alt+R to refresh.');
   });
 
   // ─── Binding Helpers ──────────────────────────────────────────────
@@ -2539,6 +2684,36 @@
   function clearStaticRows(tbodyId) {
     var tbody = el(tbodyId);
     if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--text-secondary);padding:24px">Loading...</td></tr>';
+  }
+
+  // ─── Dynamic Pipeline Discovery ───────────────────────────────────
+
+  async function loadPipelineOptions() {
+    var select = el('pipelineSelect');
+    if (!select) return;
+    try {
+      // Try to discover available sources from the source status endpoint
+      var sources = await opsApi('/pipeline/sourceStatus', { params: {} });
+      if (!Array.isArray(sources) || sources.length === 0) return;
+
+      // Keep the "All Pipelines" option and add discovered sources
+      var existing = select.querySelector('option');
+      select.innerHTML = '';
+      if (existing) select.appendChild(existing);
+
+      var seen = {};
+      for (var i = 0; i < sources.length; i++) {
+        var key = sources[i].workspace_key || sources[i].source_key || sources[i].name;
+        if (!key || seen[key]) continue;
+        seen[key] = true;
+        var opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = key;
+        select.appendChild(opt);
+      }
+    } catch (_) {
+      // Fail silently — "All Pipelines" still works
+    }
   }
 
 })();

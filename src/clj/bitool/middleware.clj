@@ -1,9 +1,11 @@
 (ns bitool.middleware
   (:require
     [bitool.env :refer [defaults]]
+    [bitool.lifecycle :as lifecycle]
     [bitool.layout :refer [error-page]]
     [bitool.middleware.formats :as formats]
     [bitool.config :refer [env]]
+    [cheshire.core :as json]
     [taoensso.telemere :as tel]
     [ring.middleware.reload :refer [wrap-reload]]
     [bitool.exception_handler :as exc]
@@ -78,7 +80,7 @@
                                            ;; Replace the body stream after reading
                                            {:body-str body-str
                                             :new-body (io/input-stream (.getBytes body-str "UTF-8"))})
-    (map? body) (cheshire.core/generate-string body)
+    (map? body) (json/generate-string body)
     :else (str body)))
 
 (defn wrap-merge-params
@@ -196,7 +198,7 @@
              (not (same-origin? request)))
       {:status 403
        :headers {"Content-Type" "application/json"}
-       :body (cheshire.core/generate-string
+       :body (json/generate-string
               {:error "Invalid anti-forgery context"})}
       (handler request))))
 
@@ -219,6 +221,20 @@
           (println ">>> SESSION-DOCTOR: outgoing Set-Cookie keys:"
                    (when (map? out-cookies) (keys out-cookies)))
           resp)))))
+
+(defn wrap-readiness-gate
+  [handler]
+  (fn [request]
+    (if (and (lifecycle/draining?)
+             (not (lifecycle/drain-exempt-path? (:uri request))))
+      {:status 503
+       :headers {"Content-Type" "application/json; charset=utf-8"}
+       :body (json/generate-string
+              {:error "Service is draining for shutdown"
+               :status "draining"
+               :ready false
+               :draining_since (some-> (lifecycle/draining-since) str)})}
+      (handler request))))
 
 (comment
 (defn wrap-base [handler]
@@ -329,6 +345,7 @@
       ;; Exception handling
       exc/wrap-exception-info
       wrap-internal-error
+      wrap-readiness-gate
       wrap-same-origin-csrf
       
       ;; Session & flash

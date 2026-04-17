@@ -16,7 +16,9 @@
          [java.util UUID]
          [java.util.zip GZIPOutputStream GZIPInputStream]
            [java.io ByteArrayOutputStream ByteArrayInputStream]
-           [java.util Base64]))
+         [java.util Base64]))
+
+(declare get-dbspec get-opts default-introspection-schema)
        
 (comment 
 (defn load-edn
@@ -62,6 +64,14 @@
 (def ds-user (jdbc/get-datasource user-db-spec))
 
 (def ^:private ds-pool-cache (atom {}))
+(def ^:private schema-cache (atom {}))
+(def ^:private join-cache (atom {}))
+
+(defn- ds-fingerprint
+  [db-spec]
+  (-> db-spec
+      (dissoc :password :token)
+      pr-str))
 
 (defn compress [s]
   (let [baos (ByteArrayOutputStream.)]
@@ -197,6 +207,203 @@
 (defn get-connection-detail
   [conn-id]
   (sql/get-by-id ds :connection conn-id {:builder-fn rs/as-unqualified-lower-maps}))
+
+(def ^:private reporting-ready? (atom false))
+(def ^:private saved-report-table "saved_report")
+
+(defn ensure-reporting-tables!
+  []
+  (locking reporting-ready?
+    (when-not @reporting-ready?
+      (doseq [sql-str
+              [(str "CREATE TABLE IF NOT EXISTS " saved-report-table " ("
+                    "report_id BIGSERIAL PRIMARY KEY, "
+                    "conn_id INTEGER NULL REFERENCES connection(id), "
+                    "schema_name TEXT NULL, "
+                    "name TEXT NOT NULL, "
+                    "description TEXT NULL, "
+                    "scope_tables_json TEXT NULL, "
+                    "isl_json TEXT NOT NULL, "
+                    "created_by TEXT NULL, "
+                    "created_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                    "updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT now())")
+               (str "CREATE INDEX IF NOT EXISTS idx_saved_report_conn_created "
+                    "ON " saved-report-table " (conn_id, created_at_utc DESC)")
+               ;; Phase 4: semantic context columns (safe ADD COLUMN IF NOT EXISTS)
+               (str "ALTER TABLE " saved-report-table
+                    " ADD COLUMN IF NOT EXISTS semantic_model_id BIGINT NULL")
+               (str "ALTER TABLE " saved-report-table
+                    " ADD COLUMN IF NOT EXISTS perspective_name TEXT NULL")
+               (str "CREATE INDEX IF NOT EXISTS idx_saved_report_model "
+                    "ON " saved-report-table " (semantic_model_id)")]]
+        (jdbc/execute! ds [sql-str]))
+      (reset! reporting-ready? true))))
+
+;; ── Schema Context / Training ──────────────────────────────────────────────
+;; Stores human or AI-generated descriptions for tables and columns so
+;; the ISL prompt has business-level context (the "Train" button).
+
+(def ^:private schema-context-ready? (atom false))
+
+(defn ensure-schema-context-tables!
+  []
+  (locking schema-context-ready?
+    (when-not @schema-context-ready?
+      (doseq [ddl
+              [(str "CREATE TABLE IF NOT EXISTS schema_context ("
+                    "context_id BIGSERIAL PRIMARY KEY, "
+                    "conn_id INTEGER NOT NULL REFERENCES connection(id), "
+                    "schema_name TEXT NOT NULL DEFAULT 'public', "
+                    "table_name TEXT NOT NULL, "
+                    "column_name TEXT NULL, "
+                    "description TEXT NOT NULL, "
+                    "sample_values_json TEXT NULL, "
+                    "source TEXT NOT NULL DEFAULT 'manual', "
+                    "created_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                    "updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT now())")
+               "CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_context_uniq ON schema_context (conn_id, schema_name, table_name, COALESCE(column_name, ''))"
+               "CREATE INDEX IF NOT EXISTS idx_schema_context_conn ON schema_context (conn_id, schema_name)"]]
+        (jdbc/execute! ds [ddl]))
+      (reset! schema-context-ready? true))))
+
+(defn upsert-schema-context!
+  "Insert or update a table/column description. column_name nil = table-level."
+  [{:keys [conn_id schema_name table_name column_name description sample_values source]}]
+  (ensure-schema-context-tables!)
+  (let [schema-name (or schema_name "public")
+        col-val     (or column_name "")
+        samples-json (when (seq sample_values) (json/generate-string sample_values))
+        src         (or source "manual")]
+    (jdbc/execute!
+     ds
+     [(str "INSERT INTO schema_context (conn_id, schema_name, table_name, column_name, description, sample_values_json, source) "
+           "VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?) "
+           "ON CONFLICT (conn_id, schema_name, table_name, COALESCE(column_name, '')) "
+           "DO UPDATE SET description = EXCLUDED.description, "
+           "sample_values_json = EXCLUDED.sample_values_json, "
+           "source = EXCLUDED.source, "
+           "updated_at_utc = now()")
+      conn_id schema-name table_name col-val description samples-json src])))
+
+(defn get-schema-context
+  "Return all context entries for a connection+schema, optionally filtered to tables."
+  [conn-id & {:keys [schema table-filter]}]
+  (ensure-schema-context-tables!)
+  (let [schema-name (or schema "public")
+        rows (jdbc/execute!
+              ds
+              [(str "SELECT context_id, conn_id, schema_name, table_name, column_name, "
+                    "description, sample_values_json, source, created_at_utc, updated_at_utc "
+                    "FROM schema_context "
+                    "WHERE conn_id = ? AND schema_name = ? "
+                    "ORDER BY table_name, column_name NULLS FIRST")
+               conn-id schema-name]
+              {:builder-fn rs/as-unqualified-lower-maps})]
+    (->> rows
+         (filter (fn [row]
+                   (or (nil? table-filter)
+                       (contains? table-filter (:table_name row)))))
+         (mapv (fn [row]
+                 (cond-> row
+                   (:sample_values_json row)
+                   (assoc :sample_values
+                          (try (json/parse-string (:sample_values_json row) true)
+                               (catch Exception _ nil)))))))))
+
+(defn delete-schema-context!
+  [context-id]
+  (ensure-schema-context-tables!)
+  (sql/delete! ds :schema_context {:context_id context-id}))
+
+(defn sample-table-data
+  "Fetch a small sample of rows from a table for the LLM to learn from.
+   Returns up to n rows as maps."
+  [conn-id table-name & {:keys [schema n] :or {n 5}}]
+  (let [db-spec     (get-dbspec conn-id false)
+        dbtype      (:dbtype db-spec)
+        schema-name (or schema (:schema db-spec) (default-introspection-schema dbtype))
+        qualified   (str (when schema-name (str schema-name ".")) table-name)
+        limit-sql   (str "SELECT * FROM " qualified " LIMIT " n)]
+    (jdbc/execute!
+     (get-opts conn-id false)
+     [limit-sql])))
+
+(defn table-stats
+  "Get row count and basic column stats for a single table (with timeout protection)."
+  [conn-id table-name & {:keys [schema]}]
+  (let [db-spec     (get-dbspec conn-id false)
+        dbtype      (:dbtype db-spec)
+        schema-name (or schema (:schema db-spec) (default-introspection-schema dbtype))
+        qualified   (str (when schema-name (str schema-name ".")) table-name)
+        count-sql   (str "SELECT COUNT(*) AS row_count FROM " qualified)]
+    (try
+      (let [result (jdbc/execute-one!
+                    (get-opts conn-id false)
+                    [count-sql]
+                    {:timeout 5})]
+        {:table_name table-name
+         :row_count  (:row_count result)})
+      (catch Exception e
+        {:table_name table-name
+         :row_count  nil
+         :error      (.getMessage e)}))))
+
+(defn save-report!
+  [{:keys [conn_id schema_name name description scope_tables isl created_by
+           semantic_model_id perspective_name]}]
+  (ensure-reporting-tables!)
+  (let [row (cond-> {:conn_id conn_id
+                     :schema_name schema_name
+                     :name name
+                     :description description
+                     :scope_tables_json (when (seq scope_tables) (json/generate-string (vec scope_tables)))
+                     :isl_json (json/generate-string isl)
+                     :created_by created_by}
+              semantic_model_id  (assoc :semantic_model_id semantic_model_id)
+              perspective_name   (assoc :perspective_name perspective_name))]
+    (sql/insert! ds :saved_report row {:builder-fn rs/as-unqualified-lower-maps})))
+
+(defn list-saved-reports
+  [conn-id]
+  (ensure-reporting-tables!)
+  (let [rows (jdbc/execute!
+              ds
+              (if (some? conn-id)
+                [(str "SELECT report_id, conn_id, schema_name, name, description, "
+                      "scope_tables_json, isl_json, semantic_model_id, perspective_name, "
+                      "created_by, created_at_utc, updated_at_utc "
+                      "FROM " saved-report-table " WHERE conn_id = ? ORDER BY created_at_utc DESC")
+                 conn-id]
+                [(str "SELECT report_id, conn_id, schema_name, name, description, "
+                      "scope_tables_json, isl_json, semantic_model_id, perspective_name, "
+                      "created_by, created_at_utc, updated_at_utc "
+                      "FROM " saved-report-table " WHERE conn_id IS NULL ORDER BY created_at_utc DESC")])
+              {:builder-fn rs/as-unqualified-lower-maps})]
+    (mapv (fn [row]
+            (assoc row
+                   :scope_tables (when-let [raw (:scope_tables_json row)]
+                                   (try
+                                     (json/parse-string raw true)
+                                     (catch Exception _ nil)))))
+          rows)))
+
+(defn get-saved-report
+  [report-id]
+  (ensure-reporting-tables!)
+  (when-let [row (sql/get-by-id ds :saved_report report-id {:builder-fn rs/as-unqualified-lower-maps})]
+    (assoc row
+           :scope_tables (when-let [raw (:scope_tables_json row)]
+                           (try
+                             (json/parse-string raw true)
+                             (catch Exception _ nil)))
+           :isl (try
+                  (json/parse-string (:isl_json row) true)
+                  (catch Exception _ {})))))
+
+(defn delete-saved-report!
+  [report-id]
+  (ensure-reporting-tables!)
+  (sql/delete! ds :saved_report {:report_id report-id}))
 
 (defn update-connection!
   [conn-id attrs]
@@ -352,24 +559,185 @@
   [conn-id db-name]
   (let [cache-key [conn-id db-name]]
     (when-let [existing (get @ds-pool-cache cache-key)]
-      (when (instance? HikariDataSource existing)
-        (.close ^HikariDataSource existing)))
+      (when-let [ds (:ds existing)]
+        (when (instance? HikariDataSource ds)
+          (.close ^HikariDataSource ds))))
     (swap! ds-pool-cache dissoc cache-key)))
 
 (defn get-ds[conn-id db-name]
-   (let [cache-key [conn-id db-name]]
-     (or (get @ds-pool-cache cache-key)
-         (let [db-spec (get-dbspec conn-id db-name)
-               _       (when (= "bigquery" (:dbtype db-spec))
-                         (throw (ex-info "BigQuery connections use native API execution, not JDBC datasources"
-                                         {:dbtype "bigquery"
-                                          :conn_id conn-id})))
-               ds*     (make-hikari-ds db-spec)]
-           (get (swap! ds-pool-cache #(if (contains? % cache-key) % (assoc % cache-key ds*)))
-                cache-key)))))
+   (let [cache-key    [conn-id db-name]
+         db-spec      (get-dbspec conn-id db-name)
+         fingerprint  (ds-fingerprint db-spec)]
+     (when (= "bigquery" (:dbtype db-spec))
+       (throw (ex-info "BigQuery connections use native API execution, not JDBC datasources"
+                       {:dbtype "bigquery"
+                        :conn_id conn-id})))
+     (let [cached (get @ds-pool-cache cache-key)]
+       (if (= fingerprint (:fingerprint cached))
+         (:ds cached)
+         (let [ds* (make-hikari-ds db-spec)]
+           (when-let [old-ds (:ds cached)]
+             (when (instance? HikariDataSource old-ds)
+               (.close ^HikariDataSource old-ds)))
+           (:ds (get (swap! ds-pool-cache assoc cache-key {:fingerprint fingerprint
+                                                           :ds ds*})
+                     cache-key)))))))
 
 (defn get-opts[conn-id db-name]
       	(jdbc/with-options (get-ds conn-id db-name) {:builder-fn rs/as-unqualified-lower-maps}))
+
+(defn invalidate-schema-cache!
+  [conn-id schema]
+  (swap! schema-cache dissoc [conn-id schema]))
+
+(defn invalidate-join-cache!
+  [conn-id schema]
+  (swap! join-cache dissoc [conn-id schema]))
+
+(defn- default-introspection-schema
+  [dbtype]
+  (case dbtype
+    "postgresql" "public"
+    "snowflake" "PUBLIC"
+    "databricks" "default"
+    "sqlserver" "dbo"
+    "public"))
+
+(defn- normalize-schema-type
+  [raw]
+  (let [t (str/lower-case (str (or raw "text")))]
+    (cond
+      (or (str/includes? t "int")
+          (str/includes? t "long")
+          (str/includes? t "bigint")) "int8"
+      (or (str/includes? t "float")
+          (str/includes? t "double")
+          (str/includes? t "numeric")
+          (str/includes? t "decimal")
+          (str/includes? t "real")) "float8"
+      (str/includes? t "bool") "boolean"
+      (and (str/includes? t "timestamp")
+           (not (str/includes? t "with time zone"))) "timestamp"
+      (str/includes? t "time") "timestamp"
+      (str/includes? t "date") "date"
+      :else "text")))
+
+(defn introspect-schema
+  "Query information_schema to build a runtime schema registry.
+   Returns {\"table_name\" [{:col \"col_name\" :type \"varchar\" :quoted? bool} ...]}."
+  [conn-id & {:keys [schema table-filter]}]
+  (let [db-spec      (get-dbspec conn-id false)
+        dbtype       (:dbtype db-spec)
+        schema-name  (or schema (:schema db-spec) (default-introspection-schema dbtype))
+        raw-cols     (jdbc/execute!
+                      (get-opts conn-id false)
+                      ["SELECT table_name, column_name, data_type, is_nullable
+                        FROM information_schema.columns
+                        WHERE table_schema = ?
+                        ORDER BY table_name, ordinal_position"
+                       schema-name])]
+    (->> raw-cols
+         (filter (fn [row]
+                   (or (nil? table-filter)
+                       (contains? table-filter (:table_name row)))))
+         (group-by :table_name)
+         (reduce-kv
+          (fn [acc tbl cols]
+            (assoc acc tbl
+                   (mapv (fn [col]
+                           (cond-> {:col (:column_name col)
+                                    :type (normalize-schema-type (:data_type col))}
+                             (or (re-find #"[A-Z]" (str (:column_name col)))
+                                 (re-find #"[^A-Za-z0-9_]" (str (:column_name col))))
+                             (assoc :quoted? true)))
+                         cols)))
+          {}))))
+
+(defn get-schema-registry
+  "Return schema registry for a connection, optionally filtered to a table subset.
+   Caches the full schema per [conn-id, schema]."
+  [conn-id & {:keys [schema table-filter force-refresh]}]
+  (let [db-spec     (get-dbspec conn-id false)
+        schema-name (or schema (:schema db-spec) (default-introspection-schema (:dbtype db-spec)))
+        cache-key   [conn-id schema-name]
+        cached      (get @schema-cache cache-key)
+        ttl-ms      600000
+        stale?      (or force-refresh
+                        (nil? cached)
+                        (> (- (System/currentTimeMillis) (:ts cached 0)) ttl-ms))
+        full-registry
+        (if stale?
+          (let [registry (introspect-schema conn-id :schema schema-name)]
+            (swap! schema-cache assoc cache-key {:registry registry
+                                                 :ts (System/currentTimeMillis)})
+            registry)
+          (:registry cached))]
+    (if (seq table-filter)
+      (select-keys full-registry table-filter)
+      full-registry)))
+
+(defn discover-joins
+  "Return FK-backed join metadata for a connection schema."
+  [conn-id & {:keys [schema force-refresh]}]
+  (let [db-spec     (get-dbspec conn-id false)
+        dbtype      (:dbtype db-spec)
+        schema-name (or schema (:schema db-spec) (default-introspection-schema dbtype))
+        cache-key   [conn-id schema-name]
+        cached      (get @join-cache cache-key)
+        ttl-ms      600000
+        stale?      (or force-refresh
+                        (nil? cached)
+                        (> (- (System/currentTimeMillis) (:ts cached 0)) ttl-ms))
+        joins       (if stale?
+                      (let [rows (case dbtype
+                                   ("postgresql" "sqlserver")
+                                   (jdbc/execute!
+                                    (get-opts conn-id false)
+                                    ["SELECT
+                                        tc.table_name AS from_table,
+                                        kcu.column_name AS from_column,
+                                        ccu.table_name AS to_table,
+                                        ccu.column_name AS to_column
+                                      FROM information_schema.table_constraints tc
+                                      JOIN information_schema.key_column_usage kcu
+                                        ON tc.constraint_name = kcu.constraint_name
+                                       AND tc.table_schema = kcu.table_schema
+                                      JOIN information_schema.constraint_column_usage ccu
+                                        ON ccu.constraint_name = tc.constraint_name
+                                       AND ccu.table_schema = tc.table_schema
+                                      WHERE tc.constraint_type = 'FOREIGN KEY'
+                                        AND tc.table_schema = ?
+                                      ORDER BY tc.table_name, kcu.column_name"
+                                     schema-name])
+
+                                   "mysql"
+                                   (jdbc/execute!
+                                    (get-opts conn-id false)
+                                    ["SELECT
+                                        table_name AS from_table,
+                                        column_name AS from_column,
+                                        referenced_table_name AS to_table,
+                                        referenced_column_name AS to_column
+                                      FROM information_schema.key_column_usage
+                                      WHERE table_schema = ?
+                                        AND referenced_table_name IS NOT NULL
+                                      ORDER BY table_name, ordinal_position"
+                                     schema-name])
+
+                                   ;; Snowflake, Databricks, Oracle, and DB2 often do not expose
+                                   ;; reliable FK metadata through a portable query path.
+                                   [])
+                            normalized (mapv (fn [row]
+                                               {:from_table (:from_table row)
+                                                :from_column (:from_column row)
+                                                :to_table (:to_table row)
+                                                :to_column (:to_column row)})
+                                             rows)]
+                        (swap! join-cache assoc cache-key {:joins normalized
+                                                           :ts (System/currentTimeMillis)})
+                        normalized)
+                      (:joins cached))]
+    joins))
 
 (defn test-connection [conn-id]
   (let [db-spec (create-dbspec-from-id conn-id)
@@ -464,10 +832,16 @@
        (map first (get-metadata conn-id db-name :tables schema-name)))
 
 (defn join-column [ coldetails ]
-  (->> coldetails
-       (remove nil?)               
-       (map #(if (number? %) (str %) %)) 
-       (clojure.string/join "-"))) 
+  (cond
+    (map? coldetails) (or (:column_name coldetails)
+                          (:name coldetails)
+                          (some-> coldetails vals first str)
+                          "")
+    :else
+    (->> coldetails
+         (remove nil?)
+         (map #(if (number? %) (str %) %))
+         (clojure.string/join "-")))) 
 
 
 (defn get-columns [conn-id db-name schema-name table-name]
@@ -546,6 +920,26 @@
                          :values  (count row)
                          :row      row}))))))
 
+(defn- databricks-coerce-param-literal
+  "Convert a value to a SQL literal string safe for Databricks INSERT."
+  [value]
+  (cond
+    (nil? value)                          "NULL"
+    (instance? java.sql.Date value)       (str "'" (.toLocalDate ^java.sql.Date value) "'")
+    (instance? java.sql.Timestamp value)  (str "'" (.toInstant ^java.sql.Timestamp value) "'")
+    (instance? java.util.Date value)      (str "'" (.toInstant ^java.util.Date value) "'")
+    (instance? java.time.Instant value)   (str "'" value "'")
+    (instance? java.time.OffsetDateTime value) (str "'" value "'")
+    (instance? java.time.ZonedDateTime value)  (str "'" value "'")
+    (instance? java.time.LocalDate value)      (str "'" value "'")
+    (instance? java.time.LocalDateTime value)  (str "'" value "'")
+    (instance? java.util.UUID value)      (str "'" value "'")
+    (string? value)                       (str "'" (str/replace value "'" "''") "'")
+    (instance? java.lang.Boolean value)   (if value "TRUE" "FALSE")
+    (number? value)                       (str value)
+    (map? value)                          (str "'" (str/replace (json/generate-string value) "'" "''") "'")
+    (vector? value)                       (str "'" (str/replace (json/generate-string value) "'" "''") "'")
+    :else                                 (str "'" (str/replace (str value) "'" "''") "'")))
 
 (defn insert-rows!
   "Insert one or many rows.
@@ -571,20 +965,35 @@
         ]
 	(assert-row-shape! columns rows')
 
-    	(let [n-rows      (count rows')
-        	  sql         (make-insert-sql-for-dbtype dbtype table-name columns n-rows)
-                  _ (when (backend-debug-logging-enabled?) (prn-v sql))
-          	flat-params (vec (mapcat (fn [row]
-                                        (map (fn [column value]
-                                               (if (and (= "snowflake" dbtype)
-                                                        (snowflake-variant-column? column)
-                                                        (or (map? value) (vector? value)))
-                                                 (json/generate-string value)
-                                                 value))
-                                             columns
-                                             row))
-                                      rows'))]
-      	(jdbc/execute! opts (into [sql] flat-params)))))
+    	(if (= "databricks" dbtype)
+          ;; Databricks: use literal SQL to avoid JDBC param type errors
+          (let [col-names (mapv #(str "`" (:column_name %) "`") columns)
+                row-literal (fn [row]
+                              (str "(" (str/join ", "
+                                         (map (fn [v]
+                                                (databricks-coerce-param-literal v))
+                                              row))
+                                   ")"))
+                sql (str "INSERT INTO " table-name
+                         " (" (str/join ", " col-names) ") VALUES "
+                         (str/join ", " (map row-literal rows')))]
+            (when (backend-debug-logging-enabled?) (prn-v sql))
+            (jdbc/execute! opts [sql]))
+          ;; Other warehouses: parameterized insert
+          (let [n-rows      (count rows')
+                sql         (make-insert-sql-for-dbtype dbtype table-name columns n-rows)
+                _ (when (backend-debug-logging-enabled?) (prn-v sql))
+                flat-params (vec (mapcat (fn [row]
+                                          (map (fn [column value]
+                                                 (if (and (= "snowflake" dbtype)
+                                                          (snowflake-variant-column? column)
+                                                          (or (map? value) (vector? value)))
+                                                   (json/generate-string value)
+                                                   value))
+                                               columns
+                                               row))
+                                        rows'))]
+            (jdbc/execute! opts (into [sql] flat-params))))))
 
 (defn insert-row!
   "Convenience: insert a single row."
@@ -758,15 +1167,36 @@
       (str/upper-case (str data_type)))))
 
 (defn fully-qualified-table-name
-  [{:keys [catalog schema]} table-name]
+  [{:keys [catalog schema dbtype target_kind]} table-name]
   (let [table-name (cond
                      (keyword? table-name) (name table-name)
-                     :else (str table-name))]
+                     :else (str table-name))
+        dbtype     (some-> (or dbtype target_kind) str str/lower-case)]
     (cond
       (re-find #"\." table-name) table-name
+      (contains? #{"postgresql" "mysql" "oracle" "sqlserver"} dbtype)
+      (if (seq schema) (str schema "." table-name) table-name)
       (and (seq catalog) (seq schema)) (str catalog "." schema "." table-name)
       (seq schema) (str schema "." table-name)
       :else table-name)))
+
+(defn- qualified-table-parts
+  [table-name]
+  (let [table-name (cond
+                     (keyword? table-name) (name table-name)
+                     :else (some-> table-name str str/trim))]
+    (when (seq table-name)
+      (let [parts (->> (str/split table-name #"\.")
+                       (remove str/blank?)
+                       vec)]
+        (case (count parts)
+          1 {:table (nth parts 0)}
+          2 {:schema (nth parts 0)
+             :table  (nth parts 1)}
+          3 {:catalog (nth parts 0)
+             :schema  (nth parts 1)
+             :table   (nth parts 2)}
+          nil)))))
 
 (defn make-create-table-sql-databricks
   [table-name columns {:keys [partition-columns]}]
@@ -844,20 +1274,25 @@
     (jdbc/execute! opts [ddl-sql])))
 
 (defn ensure-schema-exists!
-  [conn-id db-name]
-  (let [db-spec (create-dbspec-from-id conn-id)
-        schema  (:schema db-spec)]
-    (when (seq schema)
-      (case (:dbtype db-spec)
-        "databricks" (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s.%s"
-                                                       (:catalog db-spec)
-                                                       schema))
-        "snowflake"  (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s.%s"
-                                                       (:dbname db-spec)
-                                                       schema))
-        "postgresql" (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s"
-                                                       (pg-ident schema)))
-        nil))))
+  ([conn-id db-name]
+   (ensure-schema-exists! conn-id db-name nil))
+  ([conn-id db-name table-name]
+   (let [db-spec        (create-dbspec-from-id conn-id)
+         table-parts    (qualified-table-parts table-name)
+         default-catalog (or (:catalog db-spec) (:dbname db-spec))
+         target-catalog  (or (:catalog table-parts) default-catalog)
+         target-schema   (or (:schema table-parts) (:schema db-spec))]
+     (when (seq target-schema)
+       (case (:dbtype db-spec)
+         "databricks" (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s.%s"
+                                                        target-catalog
+                                                        target-schema))
+         "snowflake"  (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s.%s"
+                                                        target-catalog
+                                                        target-schema))
+         "postgresql" (run-ddl! conn-id db-name (format "CREATE SCHEMA IF NOT EXISTS %s"
+                                                        (pg-ident target-schema)))
+         nil)))))
 
 ;; ---------------------------
 ;; Convenience wrapper
@@ -868,7 +1303,7 @@
    (create-table! conn-id db-name table-name columns {}))
   ([conn-id db-name table-name columns opts]
    (let [db-spec (create-dbspec-from-id conn-id)
-         _       (ensure-schema-exists! conn-id db-name)
+         _       (ensure-schema-exists! conn-id db-name table-name)
          ddl     (case (:dbtype db-spec)
                    "databricks" (make-create-table-sql-databricks
                                   (fully-qualified-table-name db-spec table-name)
@@ -878,7 +1313,53 @@
                                  (fully-qualified-table-name db-spec table-name)
                                  columns)
                    (make-create-table-sql-postgres table-name columns))]
-     (run-ddl! conn-id db-name ddl))))
+     (run-ddl! conn-id db-name ddl)
+     (let [table-parts      (qualified-table-parts table-name)
+           default-catalog  (or (:catalog db-spec) (:dbname db-spec))
+           target-catalog   (or (:catalog table-parts) default-catalog)
+           target-schema    (or (:schema table-parts) (:schema db-spec) "public")
+           target-table     (:table table-parts)
+           existing-columns (->> (jdbc/execute!
+                                  (get-opts conn-id db-name)
+                                  (into [(str "SELECT column_name FROM information_schema.columns "
+                                              "WHERE table_schema = ? AND table_name = ?"
+                                              (when (contains? #{"databricks" "snowflake"} (:dbtype db-spec))
+                                                " AND table_catalog = ?"))]
+                                        (cond-> [target-schema target-table]
+                                          (contains? #{"databricks" "snowflake"} (:dbtype db-spec))
+                                          (conj target-catalog)))
+                                  {:builder-fn rs/as-unqualified-lower-maps})
+                                 (map :column_name)
+                                 (remove nil?)
+                                 set)
+           missing-columns  (->> columns
+                                 (remove #(contains? existing-columns (:column_name %)))
+                                 vec)]
+       (when (seq missing-columns)
+         (case (:dbtype db-spec)
+           "databricks"
+           (run-ddl! conn-id db-name
+                     (str "ALTER TABLE " (fully-qualified-table-name db-spec table-name)
+                          " ADD COLUMNS ("
+                          (str/join ", "
+                                    (map (fn [{:keys [column_name data_type]}]
+                                           (str (dbx-ident column_name) " "
+                                                (databricks-col-type {:column_name column_name
+                                                                      :data_type data_type})))
+                                         missing-columns))
+                          ")"))
+           "snowflake"
+           (doseq [{:keys [column_name] :as col} missing-columns]
+             (run-ddl! conn-id db-name
+                       (str "ALTER TABLE " (snowflake-qualified-ident (fully-qualified-table-name db-spec table-name))
+                            " ADD COLUMN IF NOT EXISTS "
+                            (snowflake-ident column_name) " "
+                            (snowflake-column-type col))))
+           (doseq [col missing-columns]
+             (run-ddl! conn-id db-name
+                       (str "ALTER TABLE " (pg-qualified-ident table-name)
+                            " ADD COLUMN IF NOT EXISTS "
+                            (make-column-ddl col))))))))))
 
 ;; ... all your existing code ...
 

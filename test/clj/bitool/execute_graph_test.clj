@@ -4,6 +4,7 @@
   (:require [clojure.test :refer :all]
             [cheshire.core :as json]
             [bitool.db :as db]
+            [bitool.logic :as logic]
             [bitool.endpoint :as ep]))
 
 ;; ---------------------------------------------------------------------------
@@ -107,6 +108,165 @@
          (is (= 200 (:status resp)))
          (let [body (json/parse-string (:body resp))]
            (is (contains? body "echo")))))))
+
+(defn- graph-with-fu
+  [fu-attrs rb-attrs]
+  (let [nodes {1 (node "O")
+               2 (node "Ep" :route_path "/test" :http_method "GET")
+               8 (node "Fu" fu-attrs)
+               3 (node "Rb" rb-attrs)}]
+    (graph nodes [[2 8] [8 3] [3 1]])))
+
+(defn- graph-with-c
+  [c-attrs rb-attrs]
+  (let [nodes {1 (node "O")
+               2 (node "Ep" :route_path "/test" :http_method "GET")
+               8 (node "C" c-attrs)
+               3 (node "Rb" rb-attrs)}]
+    (graph nodes [[2 8] [8 3] [3 1]])))
+
+(defn- graph-with-c-and-fu
+  [c-attrs fu-attrs rb-attrs]
+  (let [nodes {1 (node "O")
+               2 (node "Ep" :route_path "/test" :http_method "GET")
+               8 (node "C" c-attrs)
+               9 (node "Fu" fu-attrs)
+               3 (node "Rb" rb-attrs)}]
+    (graph nodes [[2 8] [8 9] [9 3] [3 1]])))
+
+(defn- graph-with-two-fu
+  [fu1-attrs fu2-attrs rb-attrs]
+  (let [nodes {1 (node "O")
+               2 (node "Ep" :route_path "/test" :http_method "GET")
+               8 (node "Fu" fu1-attrs)
+               9 (node "Fu" fu2-attrs)
+               3 (node "Rb" rb-attrs)}]
+    (graph nodes [[2 8] [8 9] [9 3] [3 1]])))
+
+(deftest execute-graph-logic-node-single-output
+  (with-graph
+    (graph-with-fu
+      {:fn_name "DoubleQty"
+       :fn_params [{:param_name "qty" :source_column "qty"}]
+       :fn_lets [{:variable "double_qty" :expression "toNumber(qty) * 2"}]
+       :fn_return "double_qty"
+       :fn_outputs [{:output_name "total" :data_type "double"}]}
+      {:status_code "200" :response_type "json" :template [] :headers ""})
+    #(let [resp (run 1 2 {:path {} :query {:qty "5"} :body {}} empty-request)
+           body (json/parse-string (:body resp))]
+       (is (= 200 (:status resp)))
+       (is (= "5" (get body "qty")))
+       (is (= 10.0 (double (get body "total")))))))
+
+(deftest execute-graph-logic-node-multi-output
+  (with-graph
+    (graph-with-fu
+      {:fn_name "NameBuilder"
+       :fn_params [{:param_name "first" :source_column "first"}
+                   {:param_name "last" :source_column "last"}]
+       :fn_lets [{:variable "full_name" :expression "concat(trim(first), ' ', trim(last))"}]
+       :fn_return ""
+       :fn_outputs [{:output_name "display_name" :data_type "varchar" :expression "full_name"}
+                    {:output_name "name_size" :data_type "int" :expression "length(full_name)"}]}
+      {:status_code "200" :response_type "json" :template [] :headers ""})
+    #(let [resp (run 1 2 {:path {} :query {:first "Ada" :last "Lovelace"} :body {}} empty-request)
+           body (json/parse-string (:body resp))]
+       (is (= 200 (:status resp)))
+       (is (= "Ada Lovelace" (get body "display_name")))
+       (is (= 12 (get body "name_size"))))))
+
+(deftest logic-expression-supports-sql-style-equality-and-short-circuiting
+  (is (= true (logic/evaluate-expression "upper(country) = 'INDIA'" {"country" "india"})))
+  (is (= false (logic/evaluate-expression "false && missingValue" {})))
+  (is (= true (logic/evaluate-expression "true || missingValue" {}))))
+
+(deftest validate-conditional-config-rejects-empty-branches
+  (is (thrown-with-msg?
+       clojure.lang.ExceptionInfo
+       #"at least one branch"
+       (logic/validate-conditional-config!
+        {:cond_type "if-else"
+         :branches [{}]
+         :default_branch ""}))))
+
+(deftest execute-graph-conditional-node-if-else
+  (with-graph
+    (graph-with-c
+      {:id 8
+       :cond_type "if-else"
+       :branches [{:condition "upper(country) = 'INDIA'" :group "domestic"}]
+       :default_branch "international"}
+      {:status_code "200" :response_type "json" :template [] :headers ""})
+    #(let [resp (run 1 2 {:path {} :query {:country "india"} :body {}} empty-request)
+           body (json/parse-string (:body resp))]
+       (is (= 200 (:status resp)))
+       (is (= "domestic" (get body "cond_8_group")))
+       (is (= true (get body "cond_8_matched")))
+       (is (= false (get body "cond_8_used_default")))
+       (is (= 0 (get body "cond_8_branch_index"))))))
+
+(deftest execute-graph-conditional-case-can-feed-logic-node
+  (with-graph
+    (graph-with-c-and-fu
+      {:id 8
+       :cond_type "case"
+       :branches [{:condition "status" :value "OPEN" :group "todo"}
+                  {:condition "status" :value "CLOSED" :group "done"}]
+       :default_branch "other"}
+      {:fn_name "BucketLabel"
+       :fn_params [{:param_name "bucket" :source_column "cond_8_group"}]
+       :fn_lets []
+       :fn_return ""
+       :fn_outputs [{:output_name "bucket_upper" :data_type "varchar" :expression "upper(bucket)"}]}
+      {:status_code "200" :response_type "json" :template [] :headers ""})
+    #(let [resp (run 1 2 {:path {} :query {:status "CLOSED"} :body {}} empty-request)
+           body (json/parse-string (:body resp))]
+       (is (= 200 (:status resp)))
+       (is (= "done" (get body "cond_8_group")))
+       (is (= "DONE" (get body "bucket_upper"))))))
+
+(deftest execute-graph-conditional-stage-qualified-output-can-feed-logic-node
+  (with-graph
+    (graph-with-c-and-fu
+      {:id 8
+       :name "customer_segment"
+       :cond_type "if-else"
+       :branches [{:condition "upper(country) = 'INDIA'" :group "priority_india"}]
+       :default_branch "standard"}
+      {:name "offer_logic"
+       :fn_name "OfferLogic"
+       :fn_params [{:param_name "segment" :source_column "customer_segment.group"}]
+       :fn_lets []
+       :fn_return ""
+       :fn_outputs [{:output_name "segment_upper" :data_type "varchar" :expression "upper(segment)"}]}
+      {:status_code "200" :response_type "json" :template [] :headers ""})
+    #(let [resp (run 1 2 {:path {} :query {:country "india"} :body {}} empty-request)
+           body (json/parse-string (:body resp))]
+       (is (= 200 (:status resp)))
+       (is (= "priority_india" (get body "customer_segment.group")))
+       (is (= "PRIORITY_INDIA" (get body "segment_upper"))))))
+
+(deftest execute-graph-function-stage-qualified-output-can-feed-downstream-node
+  (with-graph
+    (graph-with-two-fu
+      {:name "normalize_input"
+       :fn_name "NormalizeInput"
+       :fn_params [{:param_name "amount_raw" :source_column "amount"}]
+       :fn_lets [{:variable "amount_num" :expression "tonumber(amount_raw)"}]
+       :fn_return ""
+       :fn_outputs [{:output_name "amount_num" :data_type "double" :expression "amount_num"}]}
+      {:name "decision_logic"
+       :fn_name "DecisionLogic"
+       :fn_params [{:param_name "amount_num" :source_column "normalize_input.amount_num"}]
+       :fn_lets []
+       :fn_return ""
+       :fn_outputs [{:output_name "double_amount" :data_type "double" :expression "amount_num * 2"}]}
+      {:status_code "200" :response_type "json" :template [] :headers ""})
+    #(let [resp (run 1 2 {:path {} :query {:amount "12"} :body {}} empty-request)
+           body (json/parse-string (:body resp))]
+       (is (= 200 (:status resp)))
+       (is (= 12.0 (double (get body "normalize_input.amount_num"))))
+       (is (= 24.0 (double (get body "double_amount")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Auth (Au) node

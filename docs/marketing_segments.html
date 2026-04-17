@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitool — Marketing Plan by Company Size</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-card: #f8f9fb;
+    --bg-card-hover: #f1f3f6;
+    --bg-accent: #eef2ff;
+    --border: #e2e5eb;
+    --border-accent: #6366f1;
+    --text: #1e293b;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-bright: #4f46e5;
+    --accent-glow: rgba(99, 102, 241, 0.08);
+    --green: #059669;
+    --green-bg: rgba(5, 150, 105, 0.06);
+    --red: #dc2626;
+    --red-bg: rgba(220, 38, 38, 0.05);
+    --yellow: #b45309;
+    --yellow-bg: rgba(180, 83, 9, 0.05);
+    --blue: #2563eb;
+    --gradient-1: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    --gradient-2: linear-gradient(135deg, #059669 0%, #2563eb 100%);
+    --gradient-3: linear-gradient(135deg, #d97706 0%, #dc2626 100%);
+    --gradient-4: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Anchored section targets clear the fixed nav */
+  section[id], .segment { scroll-margin-top: 88px; }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    font-weight: 800; font-size: 20px;
+    background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-links { display: flex; gap: 28px; }
+  .nav-links a {
+    color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--text); }
+
+  .nav-jump {
+    display: none;
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+  }
+  .nav-jump:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .hero {
+    min-height: 80vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+    padding: 120px 40px 80px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 50% 30%, rgba(99, 102, 241, 0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 30% 70%, rgba(168, 85, 247, 0.04) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero-badge {
+    display: inline-block; padding: 6px 16px;
+    border: 1px solid var(--border-accent); border-radius: 100px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.5px;
+    color: var(--accent-bright); background: var(--accent-glow);
+    margin-bottom: 32px; text-transform: uppercase;
+  }
+  .hero h1 {
+    font-size: clamp(40px, 5.5vw, 72px);
+    font-weight: 900; line-height: 1.05; letter-spacing: -2px;
+    margin-bottom: 24px; max-width: 900px;
+    position: relative;
+  }
+  .hero h1 .gradient {
+    background: var(--gradient-1);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero .subtitle {
+    font-size: clamp(18px, 2vw, 22px);
+    color: var(--text-secondary); max-width: 740px;
+    line-height: 1.6; margin-bottom: 40px;
+    position: relative;
+  }
+
+  section {
+    max-width: 1200px; margin: 0 auto;
+    padding: 100px 40px;
+  }
+  .section-label {
+    font-size: 13px; font-weight: 700; letter-spacing: 1.5px;
+    color: var(--accent-bright); text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .section-title {
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 800; line-height: 1.15; letter-spacing: -1px;
+    margin-bottom: 20px; max-width: 820px;
+  }
+  .section-subtitle {
+    font-size: 18px; color: var(--text-secondary);
+    max-width: 720px; margin-bottom: 56px;
+  }
+
+  /* Segment Matrix Overview */
+  .segment-matrix {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+    margin-top: 32px;
+  }
+  .matrix-cell {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 24px;
+    transition: all 0.2s;
+  }
+  .matrix-cell:hover { transform: translateY(-2px); border-color: var(--border-accent); }
+  .matrix-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px;
+  }
+  .matrix-size { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+  .matrix-employees { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
+  .matrix-message {
+    font-size: 14px; font-weight: 600; color: var(--accent-bright);
+    padding-top: 12px; border-top: 1px solid var(--border);
+  }
+
+  /* Segment Detail Card */
+  .segment {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 48px;
+    margin-bottom: 32px;
+    position: relative; overflow: hidden;
+  }
+  .segment::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+  }
+  .segment.solo::before { background: var(--gradient-3); }
+  .segment.smb::before { background: var(--gradient-2); }
+  .segment.mid::before { background: var(--gradient-4); }
+  .segment.ent::before { background: var(--gradient-1); }
+
+  .segment-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 32px; flex-wrap: wrap;
+    margin-bottom: 32px; padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .segment-id {
+    font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px;
+  }
+  .segment-name {
+    font-size: 32px; font-weight: 800; letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+  .segment-size { font-size: 15px; color: var(--text-secondary); }
+  .segment-tag {
+    display: inline-block; padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    background: var(--bg-accent); color: var(--accent-bright);
+  }
+
+  .pitch-block {
+    background: #fff; border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 12px; padding: 24px 28px;
+    margin-bottom: 28px;
+  }
+  .pitch-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent-bright); margin-bottom: 10px;
+  }
+  .pitch-headline {
+    font-size: 24px; font-weight: 800; line-height: 1.3;
+    letter-spacing: -0.5px; margin-bottom: 12px;
+  }
+  .pitch-body { font-size: 16px; color: var(--text-secondary); line-height: 1.7; }
+
+  .segment-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;
+    margin-top: 28px;
+  }
+  .detail-card {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px;
+  }
+  .detail-title {
+    font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 14px;
+  }
+  .detail-card ul { list-style: none; }
+  .detail-card li {
+    font-size: 14px; color: var(--text-secondary); padding: 6px 0 6px 20px;
+    position: relative; line-height: 1.5;
+  }
+  .detail-card li::before {
+    content: '→'; position: absolute; left: 0; color: var(--accent);
+    font-weight: 700;
+  }
+  .detail-card.pain li::before { content: '✕'; color: var(--red); }
+  .detail-card.wins li::before { content: '✓'; color: var(--green); }
+
+  .channels {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    margin-top: 16px;
+  }
+  .channel-chip {
+    display: inline-block; padding: 6px 14px;
+    background: var(--bg-accent); color: var(--accent-bright);
+    border-radius: 100px; font-size: 13px; font-weight: 600;
+  }
+
+  .price-tag {
+    display: inline-flex; align-items: baseline; gap: 4px;
+    padding: 10px 18px; background: #fff; border: 1px solid var(--border);
+    border-radius: 10px; margin-top: 16px;
+  }
+  .price-amount { font-size: 24px; font-weight: 800; color: var(--text); }
+  .price-unit { font-size: 13px; color: var(--text-muted); }
+
+  /* Comparison Table */
+  .compare-scroll {
+    background: #fff; border: 1px solid var(--border); border-radius: 14px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .compare-table {
+    width: 100%; min-width: 720px;
+    border-collapse: separate; border-spacing: 0;
+  }
+  .compare-table caption {
+    text-align: left; padding: 18px 20px 4px;
+    font-size: 13px; font-weight: 700;
+    color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .compare-table th, .compare-table td {
+    padding: 16px 20px; text-align: left;
+    font-size: 14px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .compare-table thead th {
+    background: var(--bg-card);
+    font-weight: 700; font-size: 12px; letter-spacing: 0.5px;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .compare-table tbody th {
+    font-weight: 700; color: var(--text); width: 160px;
+    background: #fff; text-align: left; font-size: 14px;
+    text-transform: none; letter-spacing: 0;
+  }
+  .compare-table td strong { color: var(--text); font-weight: 700; }
+  .compare-table tr:last-child td,
+  .compare-table tr:last-child th { border-bottom: none; }
+
+  .cta-section {
+    background: var(--gradient-1); color: #fff;
+    border-radius: 24px; padding: 72px 48px;
+    text-align: center;
+    margin: 40px 0 80px;
+  }
+  .cta-section h2 {
+    font-size: clamp(32px, 4vw, 48px); font-weight: 900; line-height: 1.1;
+    margin-bottom: 20px; letter-spacing: -1px;
+  }
+  .cta-section p {
+    font-size: 18px; opacity: 0.9; max-width: 620px; margin: 0 auto 32px;
+  }
+
+  footer {
+    text-align: center; padding: 40px;
+    color: var(--text-muted); font-size: 13px;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 900px) {
+    .segment-matrix { grid-template-columns: repeat(2, 1fr); }
+    .segment-grid { grid-template-columns: 1fr; }
+    .segment { padding: 32px 24px; }
+    section { padding: 64px 24px; }
+    nav { padding: 0 20px; }
+    .nav-links { display: none; }
+    .nav-jump { display: inline-block; }
+  }
+
+  @media (max-width: 560px) {
+    .segment-matrix { grid-template-columns: 1fr; }
+    .hero { padding: 100px 24px 60px; }
+    .cta-section { padding: 56px 28px; }
+  }
+</style>
+</head>
+<body>
+
+<nav aria-label="Primary">
+  <div class="nav-brand">Bitool</div>
+  <div class="nav-links">
+    <a href="#overview">Overview</a>
+    <a href="#solo">Solo</a>
+    <a href="#smb">SMB</a>
+    <a href="#mid">Mid-Market</a>
+    <a href="#enterprise">Enterprise</a>
+    <a href="#compare">Compare</a>
+  </div>
+  <select id="nav-jump-select" class="nav-jump" aria-label="Jump to section"
+          onchange="if(this.value){location.hash=this.value;this.selectedIndex=0;}">
+    <option value="">Jump to…</option>
+    <option value="#overview">Overview</option>
+    <option value="#solo">Solo &amp; Startup</option>
+    <option value="#smb">SMB</option>
+    <option value="#mid">Mid-Market</option>
+    <option value="#enterprise">Enterprise</option>
+    <option value="#compare">Compare</option>
+  </select>
+</nav>
+
+<header class="hero">
+  <div class="hero-badge">Marketing Plan · By Company Size</div>
+  <h1>One product. <span class="gradient">Four stories.</span></h1>
+  <p class="subtitle">
+    Bitool does the same thing for everyone — turn a question into verified data. But what a founder
+    fears, what a VP of Ops hates, and what a Chief Data Officer is measured on are three different
+    worlds. Here is the message that lands in each.
+  </p>
+</header>
+
+<section id="overview">
+  <div class="section-label">The Matrix</div>
+  <h2 class="section-title">Pick the segment. Lead with the line that hurts.</h2>
+  <p class="section-subtitle">
+    Every segment sees a different monster in the closet. Show them the monster first, then show
+    them the product.
+  </p>
+
+  <div class="segment-matrix">
+    <div class="matrix-cell">
+      <div class="matrix-label">Tier 1</div>
+      <div class="matrix-size">Solo &amp; Startup</div>
+      <div class="matrix-employees">1–20 employees</div>
+      <div class="matrix-message">"Your first data hire, for $49."</div>
+    </div>
+    <div class="matrix-cell">
+      <div class="matrix-label">Tier 2</div>
+      <div class="matrix-size">SMB</div>
+      <div class="matrix-employees">21–200 employees</div>
+      <div class="matrix-message">"Fire the dashboard backlog."</div>
+    </div>
+    <div class="matrix-cell">
+      <div class="matrix-label">Tier 3</div>
+      <div class="matrix-size">Mid-Market</div>
+      <div class="matrix-employees">201–2,000 employees</div>
+      <div class="matrix-message">"One source of truth, no migration."</div>
+    </div>
+    <div class="matrix-cell">
+      <div class="matrix-label">Tier 4</div>
+      <div class="matrix-size">Enterprise</div>
+      <div class="matrix-employees">2,000+ employees</div>
+      <div class="matrix-message">"Zero-hallucination AI, audit-ready."</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── SEGMENT 1: SOLO ─────────────── -->
+<section id="solo">
+  <div class="segment solo">
+    <div class="segment-header">
+      <div>
+        <div class="segment-id">Segment 01</div>
+        <div class="segment-name">Solo Operators &amp; Seed Startups</div>
+        <div class="segment-size">1–20 employees · Founder-led · Pre-Series A</div>
+      </div>
+      <div class="segment-tag">Fortune 5,000,000</div>
+    </div>
+
+    <div class="pitch-block">
+      <div class="pitch-label">Headline Message</div>
+      <div class="pitch-headline">"Your first data hire costs $180k. Or $49/month."</div>
+      <div class="pitch-body">
+        You are the CEO, the engineer, and the analyst. You don't have a data team — you <em>are</em>
+        the data team at 11pm on Sundays, copy-pasting from Stripe into Google Sheets. Bitool is the
+        analyst you cannot afford to hire. Connect your database, type a question, get the answer.
+        No SQL, no BI consultant, no six-month dashboard project.
+      </div>
+    </div>
+
+    <div class="segment-grid">
+      <div class="detail-card pain">
+        <div class="detail-title">Pain We Attack</div>
+        <ul>
+          <li>Founder pastes CSVs into Sheets at midnight</li>
+          <li>No budget for a Looker seat, let alone an analyst</li>
+          <li>Can't afford a six-week Fivetran + dbt + Tableau stack</li>
+          <li>Investors ask "what's your CAC by channel?" and they freeze</li>
+        </ul>
+      </div>
+      <div class="detail-card wins">
+        <div class="detail-title">What They Get</div>
+        <ul>
+          <li>Sign up, connect Postgres/Supabase, ask a question in 5 minutes</li>
+          <li>Saved reports become the "board deck" pipeline</li>
+          <li>Zero migration, zero modeling up front</li>
+          <li>One seat, one price, no sales call</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Buyer &amp; Trigger</div>
+        <ul>
+          <li>Buyer: the founder herself (credit card)</li>
+          <li>Trigger: about to raise, needs metrics deck</li>
+          <li>Trigger: hired first PM, who asks "what's our retention?"</li>
+          <li>Decision cycle: same session</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Channels That Work</div>
+        <div class="channels">
+          <span class="channel-chip">Product Hunt launch</span>
+          <span class="channel-chip">Indie Hackers</span>
+          <span class="channel-chip">HN Show</span>
+          <span class="channel-chip">Twitter/X build-in-public</span>
+          <span class="channel-chip">YC bookface</span>
+          <span class="channel-chip">SEO: "how do I query my db without SQL"</span>
+        </div>
+        <div class="price-tag">
+          <span class="price-amount">$49</span>
+          <span class="price-unit">/month · 1 seat · 1 connection</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── SEGMENT 2: SMB ─────────────── -->
+<section id="smb">
+  <div class="segment smb">
+    <div class="segment-header">
+      <div>
+        <div class="segment-id">Segment 02</div>
+        <div class="segment-name">Small &amp; Medium Business</div>
+        <div class="segment-size">21–200 employees · 1 part-time analyst · Series A/B</div>
+      </div>
+      <div class="segment-tag">Backlog Killer</div>
+    </div>
+
+    <div class="pitch-block">
+      <div class="pitch-label">Headline Message</div>
+      <div class="pitch-headline">"Fire the dashboard backlog. Your team already asks the questions."</div>
+      <div class="pitch-body">
+        You have one overworked analyst and a backlog of 47 "quick dashboard" requests. Every ops,
+        sales, and marketing lead is in the Slack channel begging for numbers. Bitool lets every
+        team member ask directly — with the same guardrails as the analyst, because the AI compiles
+        verified ISL, not raw SQL. The backlog empties. The analyst finally gets to build the hard
+        stuff.
+      </div>
+    </div>
+
+    <div class="segment-grid">
+      <div class="detail-card pain">
+        <div class="detail-title">Pain We Attack</div>
+        <ul>
+          <li>One analyst, 47 Slack DMs, 12 half-built dashboards</li>
+          <li>Every department has its own "source of truth" spreadsheet</li>
+          <li>Looker/Tableau license cost blocks broad rollout</li>
+          <li>Metabase queries lie because nobody maintains the models</li>
+        </ul>
+      </div>
+      <div class="detail-card wins">
+        <div class="detail-title">What They Get</div>
+        <ul>
+          <li>20 seats for the cost of 2 BI licenses</li>
+          <li>Scope feature: marketing only sees marketing tables</li>
+          <li>Analyst blesses saved reports, team re-runs them daily</li>
+          <li>AI answers are zero-hallucination — they compile or fail</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Buyer &amp; Trigger</div>
+        <ul>
+          <li>Buyer: Head of Ops, VP of Revenue, or the lone Data Analyst</li>
+          <li>Trigger: hit 50 employees, dashboards are now a bottleneck</li>
+          <li>Trigger: signed a warehouse deal (Snowflake/Databricks), nothing to show for it</li>
+          <li>Decision cycle: 2–4 weeks, POC-driven</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Channels That Work</div>
+        <div class="channels">
+          <span class="channel-chip">SEO: "Metabase alternative"</span>
+          <span class="channel-chip">SEO: "Looker too expensive"</span>
+          <span class="channel-chip">LinkedIn: Head of Ops targeting</span>
+          <span class="channel-chip">Case study blog posts</span>
+          <span class="channel-chip">Partner: Snowflake/Supabase marketplace</span>
+          <span class="channel-chip">Webinar: "Kill the Dashboard Backlog"</span>
+        </div>
+        <div class="price-tag">
+          <span class="price-amount">$499</span>
+          <span class="price-unit">/month · up to 25 seats · unlimited saved reports</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── SEGMENT 3: MID-MARKET ─────────────── -->
+<section id="mid">
+  <div class="segment mid">
+    <div class="segment-header">
+      <div>
+        <div class="segment-id">Segment 03</div>
+        <div class="segment-name">Mid-Market</div>
+        <div class="segment-size">201–2,000 employees · BI team of 3–10 · Series C+</div>
+      </div>
+      <div class="segment-tag">No Migration Required</div>
+    </div>
+
+    <div class="pitch-block">
+      <div class="pitch-label">Headline Message</div>
+      <div class="pitch-headline">"One source of truth. Zero migration. Keep your warehouse."</div>
+      <div class="pitch-body">
+        Your BI team already spent two years building the warehouse. You have Snowflake, you have
+        dbt models, you have a governance committee. What you don't have is a way for the other
+        1,800 employees to self-serve without breaking it. Bitool sits on top of your existing
+        warehouse, introspects your live schema on every query, and gives every employee
+        AI-guided querying that can never write invalid SQL. Your BI team becomes the curator,
+        not the bottleneck.
+      </div>
+    </div>
+
+    <div class="segment-grid">
+      <div class="detail-card pain">
+        <div class="detail-title">Pain We Attack</div>
+        <ul>
+          <li>$400k Tableau bill, still only 80 active users</li>
+          <li>Analysts are ticket-takers instead of strategists</li>
+          <li>"Text-to-SQL" tools hallucinate and leak columns</li>
+          <li>Every department wants Copilot but legal won't allow it</li>
+          <li>Two-year dbt project, still can't answer "revenue by region, last quarter"</li>
+        </ul>
+      </div>
+      <div class="detail-card wins">
+        <div class="detail-title">What They Get</div>
+        <ul>
+          <li>Connects to Snowflake/Databricks/Postgres in 10 minutes</li>
+          <li>Dynamic schema introspection on every query — always current</li>
+          <li>Foreign-key-aware joins on Postgres; guided joins everywhere else</li>
+          <li>Per-team scopes: Finance sees finance, Ops sees ops</li>
+          <li>Every query logged, auditable, re-executable</li>
+          <li>Saved reports become the new "certified dashboards"</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Buyer &amp; Trigger</div>
+        <ul>
+          <li>Economic buyer: Head of Data / VP Analytics</li>
+          <li>Champion: Senior Analyst drowning in Slack requests</li>
+          <li>Trigger: failed or disappointing text-to-SQL pilot</li>
+          <li>Trigger: board asked "where's our AI story for analytics?"</li>
+          <li>Decision cycle: 6–12 weeks with security review</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Channels That Work</div>
+        <div class="channels">
+          <span class="channel-chip">Outbound to VP Data/Analytics</span>
+          <span class="channel-chip">Snowflake Summit / Databricks DAIS</span>
+          <span class="channel-chip">Gartner-style comparison content</span>
+          <span class="channel-chip">Customer advocacy + logos</span>
+          <span class="channel-chip">Analyst relations (Forrester/Gartner)</span>
+          <span class="channel-chip">POC-to-paid motion</span>
+        </div>
+        <div class="price-tag">
+          <span class="price-amount">$2,499</span>
+          <span class="price-unit">/month · up to 250 seats · SSO · audit log</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── SEGMENT 4: ENTERPRISE ─────────────── -->
+<section id="enterprise">
+  <div class="segment ent">
+    <div class="segment-header">
+      <div>
+        <div class="segment-id">Segment 04</div>
+        <div class="segment-name">Enterprise</div>
+        <div class="segment-size">2,000+ employees · Chief Data Officer · Multi-warehouse</div>
+      </div>
+      <div class="segment-tag">Zero-Hallucination Guarantee</div>
+    </div>
+
+    <div class="pitch-block">
+      <div class="pitch-label">Headline Message</div>
+      <div class="pitch-headline">"The only AI analytics tool your CISO will approve."</div>
+      <div class="pitch-body">
+        At your scale, "AI that sometimes hallucinates a column" is a fireable offense. Bitool's
+        ISL pipeline is architecturally incapable of hallucinating — every query is validated
+        against your live schema, compiled deterministically, and scoped to the tables a user is
+        permitted to see. The LLM never writes SQL directly. Every answer is audit-logged. Every
+        saved report is re-executable for regulatory review. Self-hosted, VPC-isolated, BYO-LLM.
+      </div>
+    </div>
+
+    <div class="segment-grid">
+      <div class="detail-card pain">
+        <div class="detail-title">Pain We Attack</div>
+        <ul>
+          <li>CISO blocks every generative AI analytics trial</li>
+          <li>Compliance: SOX, HIPAA, GDPR — need audit trail on every query</li>
+          <li>Different business units on different warehouses</li>
+          <li>Shadow IT: execs bribing analysts for numbers</li>
+          <li>Existing "enterprise BI" = $2M/year, 6-month rollouts, still not adopted</li>
+        </ul>
+      </div>
+      <div class="detail-card wins">
+        <div class="detail-title">What They Get</div>
+        <ul>
+          <li>Self-hosted or dedicated VPC deployment</li>
+          <li>BYO-LLM: Bedrock, Azure OpenAI, private Claude deployment</li>
+          <li>ISL compilation guarantees: no raw LLM SQL ever reaches the DB</li>
+          <li>Row-level security + column masking passthrough</li>
+          <li>SAML SSO, SCIM provisioning, full audit log stream</li>
+          <li>White-glove onboarding + dedicated CSM</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Buyer &amp; Trigger</div>
+        <ul>
+          <li>Economic buyer: CDO / CIO</li>
+          <li>Technical buyer: Head of Data Platform</li>
+          <li>Gatekeeper: CISO + Legal + Procurement</li>
+          <li>Trigger: "AI analytics" on the board's 2026 priorities</li>
+          <li>Trigger: failed Copilot-for-Data pilot this year</li>
+          <li>Decision cycle: 3–9 months, security questionnaire + SOC 2 required</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Channels That Work</div>
+        <div class="channels">
+          <span class="channel-chip">Named-account outbound</span>
+          <span class="channel-chip">Executive roundtables</span>
+          <span class="channel-chip">SI partnerships (Deloitte, Accenture)</span>
+          <span class="channel-chip">Cloud marketplace (AWS/Azure/GCP)</span>
+          <span class="channel-chip">Industry analyst briefings</span>
+          <span class="channel-chip">CDO/CIO peer networks (Evanta, Gartner)</span>
+          <span class="channel-chip">Security-first positioning papers</span>
+        </div>
+        <div class="price-tag">
+          <span class="price-amount">Custom</span>
+          <span class="price-unit">starting $150k/year · unlimited seats · dedicated support</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── COMPARISON TABLE ─────────────── -->
+<section id="compare">
+  <div class="section-label">At a Glance</div>
+  <h2 class="section-title">Same product. Different story.</h2>
+  <p class="section-subtitle">
+    The ISL engine, the schema introspection, the zero-hallucination guarantee — all identical
+    across tiers. What changes is which pain we name first, and who signs the check.
+  </p>
+
+  <div class="compare-scroll" role="region" aria-label="Segment comparison" tabindex="0">
+    <table class="compare-table">
+      <caption>Bitool segments compared across hook, buyer, motion, and pricing</caption>
+      <thead>
+        <tr>
+          <th scope="col"><span class="visually-hidden">Attribute</span></th>
+          <th scope="col">Solo</th>
+          <th scope="col">SMB</th>
+          <th scope="col">Mid-Market</th>
+          <th scope="col">Enterprise</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Hook</th>
+          <td>"Your first data hire for $49"</td>
+          <td>"Kill the dashboard backlog"</td>
+          <td>"No migration required"</td>
+          <td>"CISO-approved AI analytics"</td>
+        </tr>
+        <tr>
+          <th scope="row">Primary fear</th>
+          <td>Can't afford an analyst</td>
+          <td>Analyst is drowning</td>
+          <td>Another failed BI rollout</td>
+          <td>Hallucinated data + compliance breach</td>
+        </tr>
+        <tr>
+          <th scope="row">Star feature</th>
+          <td>5-min connect &amp; ask</td>
+          <td>Team scopes + saved reports</td>
+          <td>Live schema + guided joins</td>
+          <td>ISL guarantee + audit + self-host</td>
+        </tr>
+        <tr>
+          <th scope="row">Buyer</th>
+          <td>Founder (credit card)</td>
+          <td>VP Ops / Head of Data</td>
+          <td>VP Analytics / Head of Data</td>
+          <td>CDO / CIO / CISO</td>
+        </tr>
+        <tr>
+          <th scope="row">Motion</th>
+          <td>Self-serve PLG</td>
+          <td>Self-serve → light-touch sales</td>
+          <td>Sales-assisted POC</td>
+          <td>Enterprise sales + security review</td>
+        </tr>
+        <tr>
+          <th scope="row">Cycle</th>
+          <td>Same session</td>
+          <td>2–4 weeks</td>
+          <td>6–12 weeks</td>
+          <td>3–9 months</td>
+        </tr>
+        <tr>
+          <th scope="row">Price</th>
+          <td>$49/mo</td>
+          <td>$499/mo</td>
+          <td>$2,499/mo</td>
+          <td>$150k+/yr</td>
+        </tr>
+        <tr>
+          <th scope="row">North-star metric</th>
+          <td>Sign-ups → first query</td>
+          <td>Weekly active askers</td>
+          <td>% employees self-serving</td>
+          <td>Logos + net retention</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="cta-section">
+    <h2>Ship one product.<br>Tell four stories.</h2>
+    <p>
+      The best marketing isn't about having a different product for every segment — it's about
+      knowing which monster to name first. Start with Solo. Grow into SMB. Earn Mid-Market. Enterprise
+      will come asking.
+    </p>
+  </div>
+</section>
+
+<footer>
+  Bitool · Marketing Plan · By Company Size
+</footer>
+
+</body>
+</html>

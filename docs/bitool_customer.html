@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitool — Production Data Pipelines, Faster and Safer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #ffffff;
+    --bg-card: #f8f9fb;
+    --bg-card-hover: #f1f3f6;
+    --bg-accent: #eef2ff;
+    --border: #e2e5eb;
+    --border-accent: #6366f1;
+    --text: #1e293b;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-bright: #4f46e5;
+    --accent-glow: rgba(99, 102, 241, 0.08);
+    --green: #059669;
+    --green-bg: rgba(5, 150, 105, 0.06);
+    --red: #dc2626;
+    --red-bg: rgba(220, 38, 38, 0.05);
+    --yellow: #b45309;
+    --yellow-bg: rgba(180, 83, 9, 0.05);
+    --blue: #2563eb;
+    --gradient-1: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    --gradient-2: linear-gradient(135deg, #059669 0%, #2563eb 100%);
+    --gradient-3: linear-gradient(135deg, #d97706 0%, #dc2626 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.7; -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Nav ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(255,255,255,0.9); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    font-weight: 800; font-size: 20px;
+    background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-links { display: flex; gap: 28px; }
+  .nav-links a { color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500; transition: color 0.2s; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta {
+    padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    background: var(--gradient-1); color: #fff; text-decoration: none;
+    transition: all 0.2s;
+  }
+  .nav-cta:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99,102,241,0.25); }
+
+  /* ── Hero ── */
+  .hero {
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 120px 40px 80px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 50% 30%, rgba(99,102,241,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 30% 70%, rgba(168,85,247,0.04) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero-badge {
+    display: inline-block; padding: 6px 16px;
+    border: 1px solid var(--border-accent); border-radius: 100px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.5px;
+    color: var(--accent-bright); background: var(--accent-glow);
+    margin-bottom: 32px; text-transform: uppercase;
+  }
+  .hero h1 {
+    font-size: clamp(40px, 5.5vw, 72px);
+    font-weight: 900; line-height: 1.08; letter-spacing: -2px;
+    margin-bottom: 24px; max-width: 860px;
+  }
+  .hero h1 .gradient {
+    background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero .subtitle {
+    font-size: clamp(17px, 2vw, 20px);
+    color: var(--text-secondary); max-width: 640px;
+    line-height: 1.65; margin-bottom: 48px;
+  }
+  .hero-cta { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 14px 28px; border-radius: 10px;
+    font-size: 15px; font-weight: 600;
+    text-decoration: none; transition: all 0.2s; cursor: pointer; border: none;
+  }
+  .btn-primary {
+    background: var(--gradient-1); color: #fff;
+    box-shadow: 0 4px 24px rgba(99,102,241,0.25);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(99,102,241,0.3); }
+  .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { border-color: var(--text-muted); background: var(--bg-card); }
+
+  /* ── Sections ── */
+  section { padding: 100px 40px; max-width: 1200px; margin: 0 auto; }
+  .section-label {
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--accent); margin-bottom: 16px;
+  }
+  section h2 {
+    font-size: clamp(30px, 3.5vw, 44px);
+    font-weight: 800; letter-spacing: -0.8px; line-height: 1.15; margin-bottom: 20px;
+  }
+  section .lead {
+    font-size: 17px; color: var(--text-secondary); max-width: 680px; margin-bottom: 48px; line-height: 1.7;
+  }
+  .divider { width: 100%; max-width: 1200px; margin: 0 auto; height: 1px; background: var(--border); }
+
+  /* ── Cards ── */
+  .card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  @media (max-width: 900px) { .card-grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px; transition: border-color 0.3s, transform 0.2s;
+  }
+  .card:hover { border-color: var(--text-muted); transform: translateY(-2px); }
+  .card .icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; margin-bottom: 20px;
+  }
+  .card h3 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+  .card p { font-size: 14px; color: var(--text-secondary); line-height: 1.65; }
+
+  /* ── Stat strip ── */
+  .stat-strip {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px;
+    margin: 64px 0;
+  }
+  @media (max-width: 768px) { .stat-strip { grid-template-columns: repeat(2, 1fr); } }
+  .stat-strip .stat { text-align: center; }
+  .stat-strip .stat .number {
+    font-size: 40px; font-weight: 900; letter-spacing: -2px;
+    background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .stat-strip .stat .label { font-size: 13px; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
+
+  /* ── Steps ── */
+  .steps { display: flex; flex-direction: column; gap: 48px; }
+  .step { display: grid; grid-template-columns: 72px 1fr; gap: 28px; align-items: start; }
+  @media (max-width: 768px) { .step { grid-template-columns: 1fr; } }
+  .step-num {
+    width: 56px; height: 56px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 800; color: #fff;
+  }
+  .step h3 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .step p { font-size: 14px; color: var(--text-secondary); line-height: 1.7; max-width: 600px; }
+  .step .detail {
+    margin-top: 12px; padding: 12px 16px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    font-size: 13px; color: var(--text-secondary);
+  }
+  .step .detail strong { color: var(--text); }
+
+  /* ── Tags ── */
+  .tags { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag { padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+  .tag.bronze { background: #f3f0ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+  .tag.silver { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .tag.gold { background: #fefce8; color: #a16207; border: 1px solid #fde68a; }
+
+  /* ── Governance flow ── */
+  .gov-flow {
+    display: flex; align-items: center; justify-content: center; gap: 0; flex-wrap: wrap; margin: 32px 0;
+  }
+  .gov-step {
+    padding: 10px 18px; border-radius: 10px;
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  }
+  .gov-arrow { color: var(--text-muted); padding: 0 6px; font-size: 16px; }
+
+  /* ── Comparison ── */
+  .comparison {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    border-radius: 16px; overflow: hidden; border: 1px solid var(--border);
+  }
+  .comparison th, .comparison td {
+    padding: 14px 18px; text-align: left; font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .comparison thead th {
+    background: var(--bg-card); font-weight: 700; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);
+  }
+  .comparison thead th:last-child { color: var(--accent-bright); }
+  .comparison tbody td { background: var(--bg); }
+  .comparison tbody td:first-child { font-weight: 600; }
+  .comparison tbody td:last-child { background: #f5f3ff; color: var(--accent-bright); font-weight: 500; }
+  .comparison tbody tr:last-child td { border-bottom: none; }
+  .check { color: var(--green); }
+  .cross { color: var(--red); opacity: 0.7; }
+
+  /* ── Insight Block ── */
+  .insight-block {
+    background: var(--bg-card); border: 1px solid var(--border-accent);
+    border-radius: 20px; padding: 48px; text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .insight-block::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--gradient-1);
+  }
+  .insight-block blockquote {
+    font-size: clamp(20px, 2.5vw, 28px);
+    font-weight: 700; line-height: 1.4; max-width: 760px;
+    margin: 0 auto 20px; letter-spacing: -0.5px;
+  }
+  .insight-block blockquote .hl {
+    background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .insight-block .caption {
+    font-size: 14px; color: var(--text-secondary); max-width: 560px; margin: 0 auto;
+  }
+
+  /* ── Demo box ── */
+  .demo-box {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 48px; position: relative; overflow: hidden;
+  }
+  .demo-box::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--gradient-2);
+  }
+
+  /* ── Chat bubbles ── */
+  .chat-container {
+    display: flex; flex-direction: column; align-items: center;
+    max-width: 540px; margin: 24px auto;
+  }
+  .chat-bubble {
+    display: inline-block; max-width: 480px; text-align: left;
+    margin: 6px 0; padding: 12px 18px; border-radius: 14px;
+    font-size: 14px; line-height: 1.5;
+  }
+  .chat-bubble.user {
+    background: var(--accent-glow); border: 1px solid var(--border-accent);
+    color: var(--accent-bright); align-self: flex-end; border-bottom-right-radius: 4px;
+  }
+  .chat-bubble.system {
+    background: #fff; border: 1px solid var(--border);
+    color: var(--text-secondary); align-self: flex-start; border-bottom-left-radius: 4px;
+  }
+
+  /* ── CTA ── */
+  .final-cta {
+    text-align: center; padding: 100px 40px; position: relative;
+  }
+  .final-cta::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse at 50% 50%, rgba(99,102,241,0.05) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .final-cta h2 {
+    font-size: clamp(32px, 4.5vw, 52px);
+    font-weight: 900; letter-spacing: -1.5px; margin-bottom: 16px;
+  }
+  .final-cta .tagline { font-size: 18px; color: var(--text-secondary); margin-bottom: 36px; }
+
+  /* ── Logos strip ── */
+  .logos-strip {
+    display: flex; align-items: center; justify-content: center;
+    gap: 48px; margin: 32px 0; opacity: 0.5;
+    font-size: 14px; font-weight: 600; color: var(--text-muted);
+  }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #f1f3f6; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ NAV ═══════════ -->
+<nav>
+  <div class="nav-brand">Bitool</div>
+  <div class="nav-links">
+    <a href="#why">Why Bitool</a>
+    <a href="#how">How It Works</a>
+    <a href="#reporting">AI Reporting</a>
+    <a href="#semantic">Semantic Layer</a>
+    <a href="#transform">Transforms</a>
+    <a href="#ops">Production Ops</a>
+    <a href="#compare">Compare</a>
+    <a href="#case-study">Case Study</a>
+    <a href="#trust">Enterprise</a>
+  </div>
+  <a href="#get-started" class="nav-cta">Get Started</a>
+</nav>
+
+<!-- ═══════════ HERO ═══════════ -->
+<section class="hero">
+  <div class="hero-badge">Data Pipeline Platform</div>
+  <h1>Build production pipelines <span class="gradient">in hours, not months</span></h1>
+  <p class="subtitle">
+    Connect any API. Infer schema automatically. Model Bronze, Silver, and Gold layers with AI assistance. Ship governed pipelines your whole team can understand and trust.
+  </p>
+  <div class="hero-cta">
+    <a href="#how" class="btn btn-primary">See How It Works</a>
+    <a href="#case-study" class="btn btn-secondary">View Case Study</a>
+  </div>
+
+  <div class="stat-strip" style="margin-top:80px;position:relative;z-index:1;">
+    <div class="stat"><div class="number">10x</div><div class="label">Faster pipeline delivery</div></div>
+    <div class="stat"><div class="number">90%</div><div class="label">Less handwritten SQL</div></div>
+    <div class="stat"><div class="number">Every</div><div class="label">Change governed &amp; auditable</div></div>
+    <div class="stat"><div class="number">24/7</div><div class="label">Production monitoring</div></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ WHY BITOOL ═══════════ -->
+<section id="why">
+  <div class="section-label">Why Bitool</div>
+  <h2>Your team is bottlenecked on pipeline engineering.</h2>
+  <p class="lead">Every new data source means weeks of engineering work. Schema changes break things silently. Business users wait in line. Sound familiar?</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="icon" style="background:var(--accent-glow);color:var(--accent);">&#9889;</div>
+      <h3>Faster onboarding</h3>
+      <p>Connect a new API source and get working Bronze tables in minutes. Bitool detects common auth patterns, pagination strategies, watermarks, and schema &mdash; you configure exceptions, not defaults.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--green-bg);color:var(--green);">&#9878;</div>
+      <h3>Safer changes</h3>
+      <p>Every pipeline change goes through governance: propose, compile, validate, review, publish. Full diff visibility, version history, and rollback. No more cowboy deploys.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--yellow-bg);color:var(--yellow);">&#9881;</div>
+      <h3>Less engineering dependency</h3>
+      <p>Visual graph editing means analysts can understand and modify pipelines without writing SQL. AI explains any node in plain English. Your data engineers stop being the bottleneck.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--red-bg);color:var(--red);">&#9673;</div>
+      <h3>Better day-2 operations</h3>
+      <p>Freshness SLAs, schema drift detection, bad record replay, and full medallion chain monitoring. When something breaks at 2am, you know what happened and why &mdash; before anyone files a ticket.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--accent-glow);color:var(--accent);">&#9733;</div>
+      <h3>AI that you can trust</h3>
+      <p>AI assists design &mdash; suggesting schemas, explaining proposals, drafting transformations. But the compiler is deterministic and every change goes through governance. AI proposes. Your team decides.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--green-bg);color:var(--green);">&#9634;</div>
+      <h3>See the whole pipeline</h3>
+      <p>Every transformation is a visible node on a graph &mdash; not buried in SQL files. Click any node to see what it does, why it's there, and what depends on it. The visual graph is the source of truth.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ HOW IT WORKS ═══════════ -->
+<section id="how">
+  <div class="section-label">How It Works</div>
+  <h2>From connected source to governed pipeline in six steps.</h2>
+  <p class="lead">A concrete rollout path, not a philosophy. Here's what happens when you bring a new data source into Bitool.</p>
+
+  <div class="steps">
+
+    <div class="step">
+      <div class="step-num" style="background:var(--gradient-1);">1</div>
+      <div>
+        <h3>Connect your source</h3>
+        <p>Point Bitool at an API (REST, GraphQL) or provide an OpenAPI spec. The system discovers endpoints, detects authentication patterns, and identifies pagination strategies automatically.</p>
+        <div class="detail">
+          <strong>Connector intelligence:</strong> Auth type detection (Bearer, OAuth, API key), cursor/offset/keyset pagination inference, rate limit awareness, retry configuration. You configure exceptions, not defaults.
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num" style="background:var(--gradient-2);">2</div>
+      <div>
+        <h3>Infer Bronze schema</h3>
+        <p>Bitool samples live data, infers column types, suggests primary keys and watermark fields, and configures incremental loading. You review and adjust &mdash; AI explains every recommendation.</p>
+        <div class="detail">
+          <strong>What you get:</strong> Field types, nullability, nested structure flattening, watermark selection with rationale, primary key candidates with confidence scores, schema evolution mode (append/merge).
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num" style="background:linear-gradient(135deg,#a855f7,#6366f1);">3</div>
+      <div>
+        <h3>Generate Silver &amp; Gold proposals</h3>
+        <p>From your Bronze tables, Bitool proposes cleaned Silver dimension and fact tables, then Gold business models &mdash; KPIs, aggregations, marts. AI-assisted, but every proposal is a reviewable diff.</p>
+        <div class="tags">
+          <span class="tag bronze">Bronze &mdash; raw API data</span>
+          <span class="tag silver">Silver &mdash; cleaned, typed, deduplicated</span>
+          <span class="tag gold">Gold &mdash; KPIs, aggregations, marts</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num" style="background:var(--gradient-3);">4</div>
+      <div>
+        <h3>Review, validate, and publish</h3>
+        <p>Every change follows the governance lifecycle. Proposals are compiled to SQL deterministically, validated against schema and business rules, reviewed by your team, and published as immutable versioned artifacts.</p>
+        <div class="gov-flow" style="justify-content:flex-start;">
+          <div class="gov-step">Propose</div><span class="gov-arrow">&rarr;</span>
+          <div class="gov-step">Compile</div><span class="gov-arrow">&rarr;</span>
+          <div class="gov-step">Validate</div><span class="gov-arrow">&rarr;</span>
+          <div class="gov-step">Review</div><span class="gov-arrow">&rarr;</span>
+          <div class="gov-step">Publish</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num" style="background:linear-gradient(135deg,#2563eb,#059669);">5</div>
+      <div>
+        <h3>Execute on your warehouse</h3>
+        <p>Published pipelines compile to SQL and execute on Databricks, Snowflake, or PostgreSQL. The compiler is deterministic &mdash; same graph always produces the same SQL. No AI in the execution path.</p>
+        <div class="detail">
+          <strong>Supported targets:</strong> Databricks (SQL + Jobs API), Snowflake, PostgreSQL. Warehouse-native execution &mdash; no proprietary runtime.
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num" style="background:linear-gradient(135deg,#059669,#6366f1);">6</div>
+      <div>
+        <h3>Monitor in production</h3>
+        <p>The Ops Console gives you real-time visibility across the entire medallion chain. Not just "did it run" &mdash; freshness, drift, quality, and lineage.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ SEMANTIC LAYER ═══════════ -->
+<section id="semantic">
+  <div class="section-label">Semantic Layer</div>
+  <h2>Your business logic, browsable and governed.</h2>
+  <p class="lead">Bitool auto-generates a Semantic Model from your existing Silver/Gold pipeline &mdash; entity classification, column roles, measures, hierarchies, and join relationships. Browse it, edit it in English, govern it with approval workflows.</p>
+
+  <div class="card-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card">
+      <h3>Auto-generated from your pipeline</h3>
+      <p>One click assembles a Semantic Model from your Silver/Gold proposals, schema context, and FK relationships. Entities are classified as fact or dimension. Column roles (business_key, measure, attribute, time_dimension) are inferred. Confidence scores tell you how certain each inference is.</p>
+    </div>
+    <div class="card">
+      <h3>Calculated &amp; restricted measures</h3>
+      <p>Define <code style="font-size:12px;">cost_per_mile = fuel_cost / NULLIF(miles, 0)</code> once, query by name forever. Restricted measures like <code style="font-size:12px;">emea_revenue</code> add automatic WHERE clauses. Both become first-class options in AI Reporting &mdash; the LLM picks from your defined measures, not raw columns.</p>
+    </div>
+    <div class="card">
+      <h3>Perspectives &amp; hierarchies</h3>
+      <p>Create audience-scoped views: finance sees revenue measures, operations sees operational metrics. Define drill hierarchies (<code style="font-size:12px;">region &rarr; city &rarr; store</code>) and the AI suggests drill-down queries. Time hierarchies auto-expand to year/quarter/month/week/day.</p>
+    </div>
+    <div class="card">
+      <h3>Governance built in</h3>
+      <p>Models follow a full lifecycle: draft &rarr; submit for review (with designated reviewer) &rarr; approve/reject &rarr; publish. Row-level security policies restrict data per user session. Impact analysis shows affected reports before you change a model. Workspace-scoped promotion moves models from dev to production.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:32px;text-align:center;">
+    <p style="color:var(--text-secondary);font-size:14px;max-width:640px;margin:0 auto;">
+      <strong style="color:var(--text);">Edit in English:</strong> <em>"Add measure cost_per_mile as fuel_cost / miles on trips."</em> The system parses, validates, and applies. No YAML, no SQL config files, no LookML.
+    </p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ NL TO TRANSFORM ═══════════ -->
+<section id="transform">
+  <div class="section-label">Text to Transform</div>
+  <h2>Describe a data transformation. Get a validated graph.</h2>
+  <p class="lead">Build data transformation logic by describing what you want in plain English. Bitool generates an executable graph with Logic and Conditional nodes &mdash; no Python, no custom code, no external runtime.</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+    <div class="card">
+      <h3>How it works</h3>
+      <p>Open the Transform Chat. Describe your transformation: <em>"Normalize customer input, assign a risk score, branch on risk level, return a decision payload."</em> Bitool generates a constrained transform GIL, validates topology and data flow, and renders the graph on canvas. Review visually, then click Apply.</p>
+    </div>
+    <div class="card">
+      <h3>Safety built in</h3>
+      <p>The AI generates constrained GIL &mdash; only valid transform patterns are allowed. Topology validation enforces 1 source, 1 output, linear chains. Data flow validation ensures every column reference resolves. When the LLM fails, deterministic fallback templates (5 business patterns) take over. No arbitrary code reaches your runtime.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:24px;">
+    <div class="chat-container" style="margin:16px auto;">
+      <div class="chat-bubble user">"Build an order transform that cleans fields, computes discounts, routes high-value orders to priority, and shapes a response."</div>
+      <div class="chat-bubble system">Generated: Endpoint &rarr; Normalize &rarr; Discount Logic &rarr; Priority Router &rarr; Response Builder &rarr; Output<br>Validated &bull; Preview ready &bull; Apply to canvas</div>
+    </div>
+  </div>
+
+  <div style="margin-top:24px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;text-align:center;">
+    <div style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Logic Nodes</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Ordered assignments, expressions, derived variables &mdash; think in-graph Excel formulas</div>
+    </div>
+    <div style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Conditional Nodes</div>
+      <div style="font-size:12px;color:var(--text-secondary);">if-else, case, pattern-match branching &mdash; route data through different paths</div>
+    </div>
+    <div style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Expression Language</div>
+      <div style="font-size:12px;color:var(--text-secondary);">40+ built-in functions: trim, upper, concat, coalesce, round, if, isnull, min, max, sum</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ PRODUCTION OPS ═══════════ -->
+<section id="ops">
+  <div class="section-label">Production Operations</div>
+  <h2>Day-2 operations are a first-class feature, not an afterthought.</h2>
+  <p class="lead">Most pipeline tools stop at "it runs." Bitool starts there. Here's what you get in production.</p>
+
+  <div class="card-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card">
+      <h3>Freshness SLAs</h3>
+      <p>Per-endpoint freshness tracking with configurable SLA thresholds. Know exactly how stale each source is, when it last succeeded, and whether it's within your defined window. Alerts before your stakeholders notice.</p>
+    </div>
+    <div class="card">
+      <h3>Schema Drift Detection</h3>
+      <p>APIs change without warning. Bitool detects new fields, missing fields, and type changes automatically. AI explains the impact in plain English and suggests remediation. Review and approve before drift corrupts downstream models.</p>
+    </div>
+    <div class="card">
+      <h3>Bad Record Handling</h3>
+      <p>Parse errors, type mismatches, null violations &mdash; bad records are captured with full context: failure class, error message, and the original record. Inspect, replay, or ignore with a complete audit trail.</p>
+    </div>
+    <div class="card">
+      <h3>Medallion Chain Monitoring</h3>
+      <p>Trace freshness from Bronze ingestion through Silver cleaning to Gold business models. When a Gold report is stale, you see exactly which upstream stage is the bottleneck &mdash; not just "something's slow."</p>
+    </div>
+    <div class="card">
+      <h3>Pipeline Health Dashboard</h3>
+      <p>Success rates, throughput, batch status, worker health, and queue depth. One screen for everything that matters operationally. Configurable thresholds and alerting.</p>
+    </div>
+    <div class="card">
+      <h3>Governed Change Management</h3>
+      <p>Every pipeline version is immutable and auditable. Full diff between any two versions. Rollback to any previous publish. See who changed what, when, and why. Built for compliance review.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:48px;">
+    <div class="insight-block">
+      <blockquote>
+        When something breaks at 2am, you need to know <span class="hl">what happened, why, and how to fix it</span> &mdash; without waking up the one engineer who wrote the SQL.
+      </blockquote>
+      <p class="caption">That's what production operations means. Visual pipelines everyone can read, with monitoring everyone can act on.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ THE AI LOOP ═══════════ -->
+<section>
+  <div class="section-label">AI Assistance</div>
+  <h2>AI that helps you build, not AI that builds for you.</h2>
+  <p class="lead">Bitool's AI suggests schemas, explains proposals, and drafts transformations. But every suggestion is constrained by the compiler and validated by your governance process.</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;">
+    <div>
+      <h3 style="font-size:18px;margin-bottom:16px;">What AI does</h3>
+      <ul style="list-style:none;font-size:14px;color:var(--text-secondary);">
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="check" style="margin-right:8px;">&#10003;</span> Suggests primary keys and watermarks with confidence scores</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="check" style="margin-right:8px;">&#10003;</span> Explains any node or proposal in plain English</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="check" style="margin-right:8px;">&#10003;</span> Drafts Silver and Gold model proposals from Bronze schemas</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="check" style="margin-right:8px;">&#10003;</span> Explains validation failures with suggested fixes</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="check" style="margin-right:8px;">&#10003;</span> Explains schema drift impact and suggests remediation</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="check" style="margin-right:8px;">&#10003;</span> Answers natural-language questions about your data (ISL pipeline)</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="check" style="margin-right:8px;">&#10003;</span> Generates transform graphs from business descriptions</li>
+        <li style="padding:10px 0;"><span class="check" style="margin-right:8px;">&#10003;</span> Edits semantic models in plain English</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="font-size:18px;margin-bottom:16px;">What AI doesn't do</h3>
+      <ul style="list-style:none;font-size:14px;color:var(--text-secondary);">
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="cross" style="margin-right:8px;">&#10007;</span> Generate unconstrained SQL that you have to validate</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="cross" style="margin-right:8px;">&#10007;</span> Execute in production &mdash; the compiler is fully deterministic</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="cross" style="margin-right:8px;">&#10007;</span> Bypass governance gates or skip validation</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="cross" style="margin-right:8px;">&#10007;</span> Mutate pipelines without proposal review</li>
+        <li style="padding:10px 0;border-bottom:1px solid var(--border);"><span class="cross" style="margin-right:8px;">&#10007;</span> Access data outside the governed schema</li>
+        <li style="padding:10px 0;"><span class="cross" style="margin-right:8px;">&#10007;</span> Replace your team's judgment &mdash; it always proposes, never decides</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top:40px;">
+    <h3 style="font-size:18px;margin-bottom:16px;">The explain &rarr; edit loop</h3>
+    <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px;">Click any node. Ask what it does. Tell it what to change. The graph updates, SQL recompiles, and the change enters governance review.</p>
+    <div class="chat-container" style="margin:16px auto;">
+      <div class="chat-bubble user">"Explain what this join node does"</div>
+      <div class="chat-bubble system">"Joins orders with customers on customer_id. Filters to US region. Aggregates revenue by month. Customer table uses SCD Type 2 merge."</div>
+      <div class="chat-bubble user">"Only include active customers"</div>
+      <div class="chat-bubble system">Added filter: customers.status = 'active'. Graph updated. SQL recompiled. Ready for review.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ AI REPORTING ═══════════ -->
+<section id="reporting">
+  <div class="section-label">AI Reporting</div>
+  <h2>Ask questions in English. Get validated answers in seconds.</h2>
+  <p class="lead">Connect your warehouse, ask any question, and get results backed by a validated query &mdash; not hallucinated SQL. No dashboards to build, no analyst queue, no SQL to write.</p>
+
+  <!-- Pipeline diagram -->
+  <div style="display:flex;align-items:center;gap:12px;justify-content:center;margin:40px 0;flex-wrap:wrap;">
+    <div class="gov-step" style="border-color:var(--border-accent);color:var(--accent-bright);">Your Question</div>
+    <span class="gov-arrow">&rarr;</span>
+    <div class="gov-step" style="border-color:#a7f3d0;color:var(--green);">ISL Document</div>
+    <span class="gov-arrow">&rarr;</span>
+    <div class="gov-step">Validate</div>
+    <span class="gov-arrow">&rarr;</span>
+    <div class="gov-step">Compile SQL</div>
+    <span class="gov-arrow">&rarr;</span>
+    <div class="gov-step" style="border-color:#fecaca;color:var(--red);">Execute &amp; Return</div>
+  </div>
+
+  <div class="card-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card">
+      <h3>No hallucinated SQL</h3>
+      <p>The AI generates a constrained ISL (Intelligent Structured Language) document, not raw SQL. Table names are enum-locked to your actual schema. Every column and join is validated before compilation. Invalid queries are rejected with a clear explanation &mdash; they never reach your database.</p>
+    </div>
+    <div class="card">
+      <h3>Semantic model awareness</h3>
+      <p>When a published semantic model exists, reporting automatically uses it. Calculated measures like <code style="font-size:12px;">cost_per_mile</code>, restricted measures, dimension hierarchies, and lazy associations become the vocabulary the AI picks from. Row-level security policies are enforced transparently per user session.</p>
+    </div>
+    <div class="card">
+      <h3>Seven supported backends</h3>
+      <p>PostgreSQL, MySQL, Oracle, SQL Server, DB2, Snowflake, and Databricks. Auto-training detects common SaaS schemas (Stripe, HubSpot, Salesforce, Shopify, QuickBooks, GA4, Jira, Zendesk) instantly &mdash; no LLM calls needed for recognized sources.</p>
+    </div>
+    <div class="card">
+      <h3>Saved reports &amp; follow-ups</h3>
+      <p>Save any report with its ISL, semantic model binding, and perspective. Re-executing restores the full context including RLS enforcement. Ask follow-up questions &mdash; Bitool maintains conversational context across your session. Auto-charting detects patterns and suggests visualizations.</p>
+    </div>
+  </div>
+
+  <!-- Demo conversation -->
+  <div style="margin-top:40px;">
+    <div class="insight-block" style="border-color:var(--green);text-align:left;">
+      <h3 style="font-size:18px;margin-bottom:16px;text-align:center;">Example: From Question to Chart in 3 Seconds</h3>
+      <div class="chat-container">
+        <div class="chat-bubble user">"Show me fuel cost by driver for this month, top 10"</div>
+        <div class="chat-bubble system">
+          Generated ISL &bull; Validated against schema &bull; Compiled to SQL<br>
+          10 rows returned &bull; Bar chart auto-generated<br>
+          <span style="font-size:12px;color:var(--text-muted);">Pipeline: NL &rarr; ISL &rarr; Validate &rarr; SQL &rarr; Execute</span>
+        </div>
+        <div class="chat-bubble user">"Break that down by region"</div>
+        <div class="chat-bubble system">
+          Follow-up detected &bull; Added GROUP BY region<br>
+          24 rows &bull; Chart updated
+        </div>
+        <div class="chat-bubble user">"Save as 'Monthly Fuel by Region'"</div>
+        <div class="chat-bubble system">
+          Saved with semantic model binding &bull; Re-run anytime with RLS enforced
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ COMPARE ═══════════ -->
+<section id="compare">
+  <div class="section-label">How We Compare</div>
+  <h2>One platform instead of five tools.</h2>
+  <p class="lead">Most teams stitch together ingestion, transformation, orchestration, monitoring, reporting, and governance from separate vendors. Bitool handles the full pipeline.</p>
+
+  <table class="comparison">
+    <thead>
+      <tr>
+        <th>Capability</th>
+        <th>dbt</th>
+        <th>Looker / Tableau</th>
+        <th>Informatica</th>
+        <th>LLM SQL tools</th>
+        <th>Bitool</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>API ingestion with auto-config</td>
+        <td style="color:var(--text-muted);">requires additional tools</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">manual config</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003; built-in</td>
+      </tr>
+      <tr>
+        <td>Visual pipeline editing</td>
+        <td style="color:var(--text-muted);">read-only DAG</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003; editable</td>
+      </tr>
+      <tr>
+        <td>Full pipeline: ingest &rarr; transform &rarr; model &rarr; report</td>
+        <td style="color:var(--text-muted);">transform only</td>
+        <td style="color:var(--text-muted);">report only</td>
+        <td style="color:var(--text-muted);">ingest + transform</td>
+        <td style="color:var(--text-muted);">report only</td>
+        <td class="check">&#10003; end-to-end</td>
+      </tr>
+      <tr>
+        <td>AI-assisted pipeline generation</td>
+        <td style="color:var(--text-muted);">requires additional tools</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+        <td class="check">&#10003; constrained</td>
+      </tr>
+      <tr>
+        <td>Deterministic compiler (no AI in prod)</td>
+        <td class="check">&#10003;</td>
+        <td class="check">&#10003;</td>
+        <td class="check">&#10003;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>Full medallion (Bronze / Silver / Gold)</td>
+        <td style="color:var(--text-muted);">transforms only, requires additional tools</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">partial</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003; end-to-end</td>
+      </tr>
+      <tr>
+        <td>Schema drift detection &amp; remediation</td>
+        <td style="color:var(--text-muted);">requires additional tools</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">basic</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003; with AI explain</td>
+      </tr>
+      <tr>
+        <td>Freshness SLAs &amp; chain monitoring</td>
+        <td style="color:var(--text-muted);">requires additional tools</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">partial</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003; per-endpoint</td>
+      </tr>
+      <tr>
+        <td>Governed proposal &rarr; publish workflow</td>
+        <td style="color:var(--text-muted);">partial</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">partial</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>NL &rarr; validated report (no raw SQL)</td>
+        <td style="color:var(--text-muted);">requires additional tools</td>
+        <td style="color:var(--text-muted);">Duet AI / Ask Data (limited)</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">NL &rarr; SQL (unvalidated)</td>
+        <td class="check">&#10003; ISL pipeline</td>
+      </tr>
+      <tr>
+        <td>Semantic layer with measures &amp; RLS</td>
+        <td style="color:var(--text-muted);">requires dbt metrics</td>
+        <td style="color:var(--text-muted);">LookML / Tableau Prep</td>
+        <td style="color:var(--text-muted);">partial</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003; auto-generated</td>
+      </tr>
+      <tr>
+        <td>NL &rarr; transform graph generation</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003; constrained GIL</td>
+      </tr>
+      <tr>
+        <td>No DE team required for setup</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top:40px;display:grid;grid-template-columns:repeat(2,1fr);gap:24px;">
+    <div class="card">
+      <h3 style="font-size:15px;">vs. dbt</h3>
+      <p>dbt handles transforms well, but ingestion, monitoring, and visual editing require additional tools (Fivetran, Monte Carlo, Airflow). Bitool handles the full pipeline in one platform.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">vs. Looker / Tableau</h3>
+      <p>Consumption layers that bolt AI onto dashboards. No ingestion, no transforms, no medallion architecture. Their semantic layers (LookML, Tableau Prep) require a DE team. Bitool auto-generates the semantic model from the pipeline that built the data.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">vs. Informatica / Matillion</h3>
+      <p>Visual, but everything is manual. No AI to bootstrap pipelines. No schema inference. Bitool gives you the speed of AI with the safety of deterministic compilation.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">vs. AI SQL generators</h3>
+      <p>They produce SQL you have to validate by reading. Bitool produces a visual graph you can verify by looking. And the compiler ensures the SQL is correct &mdash; deterministically.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ CASE STUDY ═══════════ -->
+<section id="case-study">
+  <div class="section-label">Case Study</div>
+  <h2>Samsara Analytics</h2>
+  <p class="lead">A complete analytics platform built on Bitool &mdash; from Samsara's telematics API to executive dashboards and AI-powered Q&amp;A.</p>
+
+  <div class="demo-box">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;">
+
+      <!-- Left: what was built -->
+      <div>
+        <h3 style="font-size:18px;margin-bottom:20px;">What was built</h3>
+        <div class="stat-strip" style="grid-template-columns: repeat(2, 1fr);margin:0 0 24px;">
+          <div class="stat"><div class="number" style="font-size:36px;">37</div><div class="label">Live Reports</div></div>
+          <div class="stat"><div class="number" style="font-size:36px;">18</div><div class="label">KPI Metrics</div></div>
+          <div class="stat"><div class="number" style="font-size:36px;">9</div><div class="label">Report Categories</div></div>
+          <div class="stat"><div class="number" style="font-size:36px;">17</div><div class="label">Gold Marts</div></div>
+        </div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
+          <strong style="color:var(--text);">Report categories:</strong> Operations, Fuel Management, Driver Safety, HOS Compliance, Cold Chain, Asset Health, Alerts, Sensors, Reference Data.
+        </p>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-top:12px;">
+          <strong style="color:var(--text);">AI Q&amp;A:</strong> Anyone on the team asks questions in plain English. AI generates validated queries constrained to the governed schema.
+        </p>
+      </div>
+
+      <!-- Right: how it was built -->
+      <div>
+        <h3 style="font-size:18px;margin-bottom:20px;">How it was built</h3>
+        <ul style="list-style:none;font-size:13px;color:var(--text-secondary);">
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;">
+            <span style="color:var(--accent);font-weight:700;min-width:24px;">1.</span>
+            Connected Samsara API &mdash; auth, pagination, and rate limits auto-configured
+          </li>
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;">
+            <span style="color:var(--accent);font-weight:700;min-width:24px;">2.</span>
+            15+ endpoints discovered, schemas inferred, watermarks selected
+          </li>
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;">
+            <span style="color:var(--accent);font-weight:700;min-width:24px;">3.</span>
+            Bronze tables ingesting to Databricks with incremental loading
+          </li>
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;">
+            <span style="color:var(--accent);font-weight:700;min-width:24px;">4.</span>
+            Silver dimension tables proposed with merge logic and governance
+          </li>
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;">
+            <span style="color:var(--accent);font-weight:700;min-width:24px;">5.</span>
+            17 Gold marts compiled, validated, and published
+          </li>
+          <li style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;">
+            <span style="color:var(--accent);font-weight:700;min-width:24px;">6.</span>
+            Ops monitoring live: freshness, drift detection, bad record handling
+          </li>
+          <li style="padding:8px 0;display:flex;gap:8px;">
+            <span style="color:var(--accent);font-weight:700;min-width:24px;">7.</span>
+            37 reports and AI Q&amp;A serving the operations team
+          </li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- Outcomes -->
+    <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border);">
+      <h3 style="font-size:16px;margin-bottom:16px;text-align:center;">Business Outcomes</h3>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+        <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;text-align:center;">
+          <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:4px;">Reduced onboarding time</div>
+          <div style="font-size:12px;color:var(--text-secondary);">New telemetry sources go from API docs to production dashboards without dedicated engineering sprints</div>
+        </div>
+        <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;text-align:center;">
+          <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:4px;">Self-service analytics</div>
+          <div style="font-size:12px;color:var(--text-secondary);">Operations users answer questions in plain English without filing data engineering tickets</div>
+        </div>
+        <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;text-align:center;">
+          <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:4px;">Governed &amp; auditable</div>
+          <div style="font-size:12px;color:var(--text-secondary);">Every pipeline change versioned with full diff, approval trail, and rollback &mdash; ready for compliance review</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ ENTERPRISE TRUST ═══════════ -->
+<section id="trust">
+  <div class="section-label">Enterprise Ready</div>
+  <h2>Built for teams that need to trust their tooling.</h2>
+  <p class="lead">Governance, auditability, and production reliability aren't add-ons. They're how the system works.</p>
+
+  <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="card">
+      <h3 style="font-size:15px;">Approval Workflows</h3>
+      <p>Every pipeline change follows propose &rarr; compile &rarr; validate &rarr; review &rarr; publish. Changes are reviewed as diffs with full context before they reach production. No unreviewed deploys.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">Immutable Version History</h3>
+      <p>Every published pipeline is a versioned, immutable artifact. Full diff between any two versions. Rollback to any previous publish. Complete history of who changed what, when, and why.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">Audit Trail</h3>
+      <p>Proposal creation, validation results, reviewer approvals, publish events, and runtime execution &mdash; all logged and traceable. Built for SOX, GDPR, and internal compliance review.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">Deterministic Execution</h3>
+      <p>AI assists design only. The compiler, validator, and execution engine are fully deterministic. Same graph always produces the same SQL. No AI surprises in production workloads.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">Warehouse-Native</h3>
+      <p>Pipelines compile to standard SQL and execute on your warehouse (Databricks, Snowflake, PostgreSQL). No proprietary runtime, no data leaving your environment, no vendor lock on execution.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">Target Portability</h3>
+      <p>Switch warehouses by changing the target configuration. The deterministic compiler recompiles the same graph to the new SQL dialect. Your pipeline logic isn't locked to one vendor.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ DEPLOYMENT ═══════════ -->
+<section>
+  <div class="section-label">Deployment</div>
+  <h2>Runs where your data already lives.</h2>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;">
+    <div class="card">
+      <h3 style="font-size:15px;">Warehouse targets</h3>
+      <p>Databricks (SQL Warehouse + Jobs API), Snowflake, PostgreSQL. Warehouse-native execution &mdash; Bitool compiles SQL for your target dialect. No proprietary runtime.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">Source connectors</h3>
+      <p>REST APIs with common auth, pagination, and rate limiting patterns detected automatically. OpenAPI spec discovery. Built-in connector knowledge for SaaS APIs including Samsara, Stripe, and Salesforce.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;">Architecture</h3>
+      <p>Deterministic graph &rarr; SQL compiler. Medallion semantics (Bronze/Silver/Gold). Immutable versioned artifacts. AI in the design layer only &mdash; deterministic compilation and execution.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ CTA ═══════════ -->
+<div class="final-cta" id="get-started">
+  <h2>Ready to build pipelines <span style="background:var(--gradient-1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">your whole team can trust?</span></h2>
+  <p class="tagline">Connect your first source. See governed pipelines in hours, not months.</p>
+  <div class="hero-cta">
+    <a href="mailto:hello@bitool.io" class="btn btn-primary">Request a Demo</a>
+    <a href="#how" class="btn btn-secondary">See How It Works</a>
+  </div>
+  <div style="margin-top:32px;color:var(--text-muted);font-size:13px;">
+    Bitool &mdash; Production data pipelines, faster and safer.
+  </div>
+</div>
+
+</body>
+</html>

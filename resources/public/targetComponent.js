@@ -128,7 +128,7 @@ template.innerHTML = `
 
   <div class="card">
     <div class="grid">
-      <div>
+      <div id="targetKindRow">
         <label for="targetKind">Target Kind</label>
         <select id="targetKind" data-field="target_kind">
           <option value="databricks">databricks</option>
@@ -138,23 +138,23 @@ template.innerHTML = `
           <option value="snowflake">snowflake</option>
         </select>
       </div>
-      <div>
+      <div id="connectionIdRow">
         <label for="connectionId">Connection ID</label>
         <select id="connectionId" data-field="connection_id"></select>
       </div>
-      <div>
+      <div id="catalogRow">
         <label for="catalog">Catalog</label>
         <input id="catalog" data-field="catalog" type="text" />
       </div>
-      <div>
+      <div id="schemaRow">
         <label for="schema">Schema</label>
         <input id="schema" data-field="schema" type="text" />
       </div>
-      <div>
+      <div id="tableNameRow">
         <label for="tableName">Table Name</label>
         <input id="tableName" data-field="table_name" type="text" />
       </div>
-      <div>
+      <div id="writeModeRow">
         <label for="writeMode">Write Mode</label>
         <select id="writeMode" data-field="write_mode">
           <option value="append">append</option>
@@ -169,7 +169,7 @@ template.innerHTML = `
           Explain write mode
         </button>
       </div>
-      <div>
+      <div id="tableFormatRow">
         <label for="tableFormat">Table Format</label>
         <select id="tableFormat" data-field="table_format">
           <option value="delta">delta</option>
@@ -177,27 +177,27 @@ template.innerHTML = `
           <option value="table">table</option>
         </select>
       </div>
-      <div>
+      <div id="partitionColumnsRow">
         <label for="partitionColumns">Partition Columns (CSV)</label>
         <input id="partitionColumns" data-field="partition_columns" type="text" />
       </div>
-      <div>
+      <div id="mergeKeysRow">
         <label for="mergeKeys">Merge Keys (CSV)</label>
         <input id="mergeKeys" data-field="merge_keys" type="text" />
       </div>
-      <div>
+      <div id="clusterByRow">
         <label for="clusterBy">Cluster By (CSV)</label>
         <input id="clusterBy" data-field="cluster_by" type="text" />
       </div>
-      <div class="inline">
+      <div id="createTableRow" class="inline">
         <label>Create Table</label>
         <input id="createTable" data-field="create_table" type="checkbox" />
       </div>
-      <div class="inline">
+      <div id="truncateRow" class="inline">
         <label>Truncate On Run</label>
         <input id="truncate" data-field="truncate" type="checkbox" />
       </div>
-      <div class="inline">
+      <div id="triggerGoldOnSuccessRow" class="inline">
         <label>Trigger Gold On Success</label>
         <input id="triggerGoldOnSuccess" data-field="trigger_gold_on_success" type="checkbox" />
       </div>
@@ -243,7 +243,7 @@ template.innerHTML = `
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="warehouseJobsCard">
     <div class="grid">
       <div>
         <label for="bronzeJobId">Bronze Job ID</label>
@@ -301,6 +301,7 @@ class TargetComponent extends HTMLElement {
     this.savedState = null;
     this.connectionCatalog = null;
     this.connectionDetailCache = new Map();
+    this.connectionDbType = null;
   }
 
   static get observedAttributes() {
@@ -335,6 +336,7 @@ class TargetComponent extends HTMLElement {
     return {
       id: rect.id || null,
       target_kind: rect.target_kind || "databricks",
+      connection_dbtype: rect.connection_dbtype || null,
       connection_id: rect.connection_id ?? rect.c ?? "",
       catalog: rect.catalog || "",
       schema: rect.schema || "",
@@ -361,6 +363,77 @@ class TargetComponent extends HTMLElement {
       sf_on_error: rect.sf_on_error || "ABORT_STATEMENT",
       sf_purge: Boolean(rect.sf_purge),
     };
+  }
+
+  effectiveDbType() {
+    return (this.state?.connection_dbtype || this.state?.target_kind || "").toLowerCase();
+  }
+
+  setRowVisible(rowId, visible) {
+    const el = this.shadowRoot.querySelector(`#${rowId}`);
+    if (el) el.style.display = visible ? "" : "none";
+  }
+
+  normalizeStateForTargetKind() {
+    const kind = (this.state.target_kind || "").toLowerCase();
+    this.state.connection_dbtype = kind || null;
+
+    if (!["databricks", "snowflake", "bigquery"].includes(kind)) {
+      this.state.catalog = "";
+    }
+
+    if (kind !== "databricks") {
+      this.state.bronze_job_id = "";
+      this.state.silver_job_id = "";
+      this.state.gold_job_id = "";
+      this.state.bronze_job_params = {};
+      this.state.silver_job_params = {};
+      this.state.gold_job_params = {};
+      if (this.state.table_format === "delta") {
+        this.state.table_format = "table";
+      }
+      this.state.partition_columns = [];
+      this.state.cluster_by = [];
+    }
+
+    if (kind !== "snowflake") {
+      this.state.sf_load_method = "jdbc";
+      this.state.sf_stage_name = "";
+      this.state.sf_warehouse = "";
+      this.state.sf_file_format = "";
+      this.state.sf_on_error = "ABORT_STATEMENT";
+      this.state.sf_purge = false;
+    }
+  }
+
+  updateFieldVisibility() {
+    const kind = this.effectiveDbType();
+    const isDatabricks = kind === "databricks";
+    const isSnowflake = kind === "snowflake";
+    const isBigQuery = kind === "bigquery";
+    const isPostgresLike = kind === "postgresql" || kind === "mysql";
+
+    this.setRowVisible("catalogRow", isDatabricks || isSnowflake || isBigQuery);
+    this.setRowVisible("tableFormatRow", isDatabricks);
+    this.setRowVisible("partitionColumnsRow", isDatabricks);
+    this.setRowVisible("clusterByRow", isDatabricks);
+    this.setRowVisible("warehouseJobsCard", isDatabricks);
+    this.setRowVisible("triggerGoldOnSuccessRow", isDatabricks);
+
+    const mergeKeysVisible = isDatabricks || isPostgresLike || isSnowflake || isBigQuery;
+    this.setRowVisible("mergeKeysRow", mergeKeysVisible);
+
+    const schemaLabel = this.shadowRoot.querySelector('label[for="schema"]');
+    if (schemaLabel) {
+      schemaLabel.textContent = isBigQuery ? "Dataset / Schema" : "Schema";
+    }
+
+    const catalogLabel = this.shadowRoot.querySelector('label[for="catalog"]');
+    if (catalogLabel) {
+      catalogLabel.textContent = isBigQuery ? "Project / Catalog" : "Catalog";
+    }
+
+    this.toggleSnowflakeCard();
   }
 
   open() {
@@ -494,9 +567,15 @@ class TargetComponent extends HTMLElement {
   applyConnectionDetail(detail) {
     if (!detail) return;
     this.state.connection_id = detail.id ?? this.state.connection_id;
-    // Only apply connection defaults for catalog/schema if not already saved on the node
-    if (!this.state.catalog) this.state.catalog = detail.dbname || "";
+    this.state.connection_dbtype = detail.dbtype || this.state.connection_dbtype;
+    const detailKind = (detail.dbtype || this.state.target_kind || "").toLowerCase();
+    if (["databricks", "snowflake", "bigquery"].includes(detailKind)) {
+      if (!this.state.catalog) this.state.catalog = detail.catalog || detail.dbname || "";
+    } else {
+      this.state.catalog = "";
+    }
     if (!this.state.schema) this.state.schema = detail.schema || "";
+    this.normalizeStateForTargetKind();
     this.render();
     this.saveButton.disabled = JSON.stringify(this.state) === this.savedState;
   }
@@ -552,6 +631,7 @@ class TargetComponent extends HTMLElement {
       this.state[field] = value;
     }
     if (field === "target_kind") {
+      this.normalizeStateForTargetKind();
       this.toggleSnowflakeCard();
       try {
         await this.prefetchConnectionDetailsForCurrentKind();
@@ -597,7 +677,7 @@ class TargetComponent extends HTMLElement {
     sr.querySelector("#sfFileFormat").value = this.state.sf_file_format;
     sr.querySelector("#sfOnError").value = this.state.sf_on_error;
     sr.querySelector("#sfPurge").checked = this.state.sf_purge;
-    this.toggleSnowflakeCard();
+    this.updateFieldVisibility();
     this.saveButton.disabled = true;
   }
 

@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitool — Marketing Plan: BI for the Fortune 5,000,000</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #ffffff;
+    --bg-card: #f8f9fb;
+    --bg-card-hover: #f1f3f6;
+    --bg-accent: #eef2ff;
+    --border: #e2e5eb;
+    --border-accent: #6366f1;
+    --text: #1e293b;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-bright: #4f46e5;
+    --accent-glow: rgba(99, 102, 241, 0.08);
+    --green: #059669;
+    --green-bg: rgba(5, 150, 105, 0.06);
+    --red: #dc2626;
+    --red-bg: rgba(220, 38, 38, 0.05);
+    --yellow: #b45309;
+    --yellow-bg: rgba(180, 83, 9, 0.05);
+    --blue: #2563eb;
+    --gradient-1: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    --gradient-2: linear-gradient(135deg, #059669 0%, #2563eb 100%);
+    --gradient-3: linear-gradient(135deg, #d97706 0%, #dc2626 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* -- Nav -- */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    font-weight: 800; font-size: 20px;
+    background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-links { display: flex; gap: 24px; }
+  .nav-links a {
+    color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--accent); }
+
+  /* -- Hero -- */
+  .hero {
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+    padding: 120px 40px 80px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 50% 30%, rgba(99,102,241,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 30% 70%, rgba(168,85,247,0.04) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero-badge {
+    display: inline-block; padding: 6px 16px;
+    border: 1px solid var(--border-accent); border-radius: 100px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.5px;
+    color: var(--accent-bright); background: var(--accent-glow);
+    margin-bottom: 32px; text-transform: uppercase;
+  }
+  .hero h1 {
+    font-size: clamp(40px, 5.5vw, 72px);
+    font-weight: 900; line-height: 1.08; letter-spacing: -2px;
+    margin-bottom: 24px; max-width: 900px;
+  }
+  .hero h1 .gradient {
+    background: var(--gradient-1);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero .subtitle {
+    font-size: clamp(17px, 2vw, 21px);
+    color: var(--text-secondary); max-width: 700px;
+    line-height: 1.65; margin-bottom: 40px;
+  }
+  .hero .quote {
+    font-style: italic; color: var(--text-muted); font-size: 15px;
+    max-width: 600px; margin-top: 48px; line-height: 1.6;
+    border-left: 3px solid var(--accent); padding-left: 20px; text-align: left;
+  }
+  .hero .quote strong { color: var(--text-secondary); font-style: normal; }
+
+  /* -- Sections -- */
+  section { padding: 100px 40px; max-width: 1100px; margin: 0 auto; }
+  .section-label {
+    display: inline-block; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--accent); margin-bottom: 12px;
+  }
+  section h2 {
+    font-size: clamp(28px, 3.5vw, 40px);
+    font-weight: 800; letter-spacing: -1px;
+    margin-bottom: 20px; line-height: 1.15;
+  }
+  section h3 {
+    font-size: 22px; font-weight: 700; margin-bottom: 12px; margin-top: 40px;
+    letter-spacing: -0.3px;
+  }
+  section h4 {
+    font-size: 16px; font-weight: 700; margin-bottom: 8px; margin-top: 28px;
+    color: var(--accent-bright);
+  }
+  section > p, section > ul, section > ol, .content p, .content ul, .content ol {
+    color: var(--text-secondary); font-size: 15px; line-height: 1.75; margin-bottom: 16px;
+  }
+  section ul, section ol { padding-left: 24px; }
+  section li { margin-bottom: 8px; }
+  section li strong { color: var(--text); }
+
+  .divider {
+    border: none; border-top: 1px solid var(--border); margin: 80px auto; max-width: 200px;
+  }
+
+  /* -- Philosophy Cards -- */
+  .philosophy-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px; margin-top: 32px;
+  }
+  .philosophy-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 28px; transition: all 0.2s;
+  }
+  .philosophy-card:hover { border-color: var(--border-accent); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(99,102,241,0.08); }
+  .philosophy-card .source {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--accent); margin-bottom: 12px;
+  }
+  .philosophy-card h3 { font-size: 17px; margin-top: 0; margin-bottom: 10px; }
+  .philosophy-card p { font-size: 14px; color: var(--text-secondary); line-height: 1.6; margin: 0; }
+  .philosophy-card ul { padding-left: 18px; margin-top: 10px; }
+  .philosophy-card li { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 6px; }
+  .philosophy-card li strong { color: var(--text); }
+
+  /* -- Target Persona -- */
+  .persona-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px; margin-top: 28px;
+  }
+  .persona-card {
+    border: 1px solid var(--border); border-radius: 16px; padding: 28px;
+    position: relative; overflow: hidden;
+  }
+  .persona-card.primary { background: var(--accent-glow); border-color: var(--border-accent); }
+  .persona-card.secondary { background: var(--green-bg); border-color: #a7f3d0; }
+  .persona-card.anti { background: var(--red-bg); border-color: #fecaca; }
+  .persona-card .persona-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px;
+    padding: 3px 10px; border-radius: 100px; margin-bottom: 14px;
+  }
+  .persona-card.primary .persona-tag { background: var(--accent); color: #fff; }
+  .persona-card.secondary .persona-tag { background: var(--green); color: #fff; }
+  .persona-card.anti .persona-tag { background: var(--red); color: #fff; }
+  .persona-card h3 { font-size: 18px; margin-top: 0; margin-bottom: 10px; }
+  .persona-card p, .persona-card li { font-size: 13px; color: var(--text-secondary); line-height: 1.65; }
+
+  /* -- Competitor Table -- */
+  .comp-table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 14px; }
+  .comp-table th {
+    text-align: left; padding: 12px 16px; background: var(--bg-card);
+    border-bottom: 2px solid var(--border); font-weight: 700; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);
+  }
+  .comp-table td {
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .comp-table tr:hover td { background: var(--accent-glow); }
+  .comp-table .comp-name { font-weight: 700; color: var(--text); white-space: nowrap; }
+  .comp-table .counter { color: var(--accent-bright); font-weight: 500; }
+
+  /* -- Pricing Cards -- */
+  .pricing-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px; margin-top: 28px;
+  }
+  .pricing-card {
+    border: 1px solid var(--border); border-radius: 16px; padding: 32px;
+    text-align: center; transition: all 0.2s; position: relative;
+  }
+  .pricing-card.featured {
+    border-color: var(--accent); box-shadow: 0 4px 24px rgba(99,102,241,0.12);
+    transform: scale(1.03);
+  }
+  .pricing-card .plan-name {
+    font-size: 13px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px;
+  }
+  .pricing-card .price {
+    font-size: 42px; font-weight: 900; letter-spacing: -2px; margin-bottom: 4px;
+  }
+  .pricing-card.featured .price {
+    background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .pricing-card .per { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+  .pricing-card .features { list-style: none; padding: 0; text-align: left; }
+  .pricing-card .features li {
+    font-size: 13px; color: var(--text-secondary); padding: 6px 0;
+    border-top: 1px solid var(--border);
+  }
+  .pricing-card .features li::before { content: "\2713  "; color: var(--green); font-weight: 700; }
+  .pricing-rules { margin-top: 28px; }
+  .pricing-rules li { font-size: 14px; color: var(--text-secondary); }
+
+  /* -- Channel Tiers -- */
+  .tier-badge {
+    display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; padding: 4px 14px; border-radius: 100px; margin-bottom: 16px;
+  }
+  .tier-1 { background: var(--accent); color: #fff; }
+  .tier-2 { background: var(--green); color: #fff; }
+  .tier-3 { background: var(--yellow); color: #fff; }
+  .tier-4 { background: var(--text-muted); color: #fff; }
+
+  .channel-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 24px; margin-bottom: 16px;
+  }
+  .channel-card h4 { margin-top: 0; font-size: 16px; color: var(--text); }
+  .channel-card p, .channel-card li { font-size: 13px; color: var(--text-secondary); line-height: 1.65; }
+  .channel-card ul { padding-left: 18px; }
+  .channel-card li { margin-bottom: 4px; }
+
+  .topic-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px; margin-top: 12px;
+  }
+  .topic-tag {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; font-size: 12px;
+    color: var(--text-secondary); line-height: 1.5;
+  }
+  .topic-tag .cat {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--accent); display: block; margin-bottom: 4px;
+  }
+
+  /* -- SEO Table -- */
+  .seo-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  .seo-table th {
+    text-align: left; padding: 10px 14px; background: var(--bg-card);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); font-weight: 700; border-bottom: 2px solid var(--border);
+  }
+  .seo-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .seo-table .vol { font-weight: 600; color: var(--accent); }
+  .seo-table .low { color: var(--green); font-weight: 600; }
+  .seo-table .med { color: var(--yellow); font-weight: 600; }
+
+  /* -- Timeline -- */
+  .timeline { margin-top: 32px; position: relative; padding-left: 40px; }
+  .timeline::before {
+    content: ''; position: absolute; left: 14px; top: 0; bottom: 0;
+    width: 2px; background: var(--border);
+  }
+  .timeline-block { margin-bottom: 40px; position: relative; }
+  .timeline-block::before {
+    content: ''; position: absolute; left: -32px; top: 6px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); border: 3px solid #fff;
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  .timeline-block.done::before { background: var(--green); box-shadow: 0 0 0 2px var(--green); }
+  .timeline-block h3 {
+    font-size: 17px; font-weight: 700; margin-top: 0; margin-bottom: 10px;
+    color: var(--text);
+  }
+  .timeline-block .week-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--accent); margin-bottom: 6px;
+  }
+  .timeline-block ul { padding-left: 18px; }
+  .timeline-block li { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.5; }
+
+  /* -- Metrics Table -- */
+  .metrics-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  .metrics-table th {
+    padding: 10px 16px; background: var(--bg-card);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); font-weight: 700; text-align: center;
+    border-bottom: 2px solid var(--border);
+  }
+  .metrics-table th:first-child { text-align: left; }
+  .metrics-table td {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 14px; text-align: center;
+  }
+  .metrics-table td:first-child { text-align: left; font-weight: 600; color: var(--text); }
+  .metrics-table .highlight { color: var(--accent-bright); font-weight: 700; }
+
+  /* -- Manifesto -- */
+  .manifesto {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #3730a3 100%);
+    border-radius: 24px; padding: 60px 48px; color: #fff;
+    margin-top: 40px; position: relative; overflow: hidden;
+  }
+  .manifesto::before {
+    content: ''; position: absolute; top: -50%; right: -30%;
+    width: 80%; height: 200%; border-radius: 50%;
+    background: rgba(99,102,241,0.15); pointer-events: none;
+  }
+  .manifesto h3 {
+    font-size: clamp(26px, 3.5vw, 36px); font-weight: 900;
+    margin-top: 0; margin-bottom: 24px; letter-spacing: -1px; color: #fff;
+  }
+  .manifesto p {
+    font-size: 16px; line-height: 1.8; color: rgba(255,255,255,0.85);
+    margin-bottom: 18px; max-width: 700px; position: relative; z-index: 1;
+  }
+  .manifesto p strong { color: #fff; }
+  .manifesto .cta-line {
+    font-size: 22px; font-weight: 800; color: #c7d2fe;
+    margin-top: 32px; letter-spacing: -0.5px;
+  }
+
+  /* -- Anti-Patterns -- */
+  .anti-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px; margin-top: 24px;
+  }
+  .anti-card {
+    background: var(--red-bg); border: 1px solid #fecaca;
+    border-radius: 12px; padding: 18px 20px;
+  }
+  .anti-card .x { color: var(--red); font-weight: 800; font-size: 16px; margin-right: 8px; }
+  .anti-card .rule { font-size: 14px; font-weight: 600; color: var(--text); }
+  .anti-card .reason { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  /* -- Only-We Box -- */
+  .only-we {
+    background: var(--accent-glow); border: 2px solid var(--border-accent);
+    border-radius: 16px; padding: 28px 32px; margin-top: 28px;
+    text-align: center;
+  }
+  .only-we p {
+    font-size: 18px; font-weight: 700; color: var(--accent-bright);
+    line-height: 1.5; margin: 0;
+  }
+
+  /* -- Responsive -- */
+  @media (max-width: 768px) {
+    nav { padding: 0 20px; }
+    .nav-links { display: none; }
+    section { padding: 60px 20px; }
+    .hero { padding: 100px 20px 60px; }
+    .manifesto { padding: 40px 24px; }
+    .pricing-card.featured { transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-brand">Bitool</div>
+  <div class="nav-links">
+    <a href="#thesis">Thesis</a>
+    <a href="#philosophy">Philosophy</a>
+    <a href="#target">Target</a>
+    <a href="#positioning">Positioning</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#channels">Channels</a>
+    <a href="#launch">Launch Plan</a>
+    <a href="#metrics">Metrics</a>
+    <a href="#manifesto">Manifesto</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-badge">Marketing Plan</div>
+  <h1>BI for the <span class="gradient">Fortune 5,000,000</span></h1>
+  <p class="subtitle">
+    Connect any database. Ask any question. Get a validated, correct answer in 3 seconds.
+    No analyst. No setup. No $100K contract.
+  </p>
+  <div class="quote">
+    "Forget the enterprise market. Forget the mid-sized company market. Build for the smallest of small companies and you'll find a thirsty, neglected market waiting for you."
+    <br><strong>&mdash; Jason Fried, 37signals</strong>
+  </div>
+</div>
+
+<!-- Thesis -->
+<section id="thesis">
+  <div class="section-label">The Thesis</div>
+  <h2>Every BI vendor chases the Fortune 500.<br>We're building for the other 5 million.</h2>
+  <p>
+    Tableau, Power BI, ThoughtSpot, Looker &mdash; they all sell to enterprises with dedicated data teams,
+    six-figure budgets, and months-long implementation cycles.
+  </p>
+  <p>
+    Meanwhile, <strong>5 million+ businesses</strong> in the US alone have data sitting in Postgres, MySQL,
+    Snowflake, or spreadsheets &mdash; and zero ability to get answers from it. They can't afford a $75/user/month
+    Tableau license. They don't have an analyst. They don't have 6 weeks for ThoughtSpot's semantic layer setup.
+  </p>
+  <p>
+    <strong>Bitool is BI for the Fortune 5,000,000.</strong>
+  </p>
+</section>
+
+<hr class="divider">
+
+<!-- Philosophy -->
+<section id="philosophy">
+  <div class="section-label">Philosophies We're Stealing</div>
+  <h2>Four founders who got it right</h2>
+  <p>
+    Each built a product for the underserved majority instead of the over-served elite.
+    We're applying their playbooks to BI.
+  </p>
+
+  <div class="philosophy-grid">
+    <div class="philosophy-card">
+      <div class="source">Jason Fried &mdash; 37signals / Basecamp</div>
+      <h3>Build for the Fortune 5,000,000</h3>
+      <ul>
+        <li><strong>Fortune 5,000,000</strong> &mdash; not Fortune 500</li>
+        <li><strong>Sell the byproduct</strong> &mdash; the process of building Bitool generates content that IS the marketing</li>
+        <li><strong>Charge from day one</strong> &mdash; no "free forever" tier</li>
+        <li><strong>Be opinionated</strong> &mdash; "LLMs should never write raw SQL"</li>
+        <li><strong>Outteach, don't outspend</strong></li>
+      </ul>
+    </div>
+
+    <div class="philosophy-card">
+      <div class="source">Dharmesh Shah &mdash; HubSpot</div>
+      <h3>Inbound, Not Outbound</h3>
+      <ul>
+        <li><strong>Create value before extracting it</strong></li>
+        <li><strong>Blog your way in</strong> &mdash; zero ad budget, just blogging</li>
+        <li><strong>Be the expert they trust</strong> &mdash; when someone googles "how to analyze my business data," Bitool should be the answer</li>
+        <li><strong>Level the playing field</strong> &mdash; give small businesses the same tools the Fortune 500 has</li>
+      </ul>
+    </div>
+
+    <div class="philosophy-card">
+      <div class="source">Joel Spolsky &mdash; Fog Creek / Stack Overflow</div>
+      <h3>Write a Perfectly Targeted Magazine</h3>
+      <ul>
+        <li><strong>Write for YOUR audience</strong> &mdash; a magazine for data-curious business owners, not "everyone"</li>
+        <li><strong>Content builds the audience, audience builds the company</strong></li>
+        <li><strong>Opinionated technical writing converts</strong> &mdash; Joel's most popular post was a strong opinion, not a product demo</li>
+      </ul>
+    </div>
+
+    <div class="philosophy-card">
+      <div class="source">Amit Bendov &mdash; Sisense</div>
+      <h3>"Democratize BI" &mdash; Actually Do It</h3>
+      <p>
+        Sisense says "democratize BI" but charges $30K+/year.
+        The real democratization is <strong>$49/month self-serve</strong>.
+        Don't just say it. Price it.
+      </p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Target -->
+<section id="target">
+  <div class="section-label">Target Customer</div>
+  <h2>Who we're building for</h2>
+
+  <div class="persona-grid">
+    <div class="persona-card primary">
+      <div class="persona-tag">Primary</div>
+      <h3>The "Accidental Analyst"</h3>
+      <p>A person at a 5&ndash;200 employee company who is NOT a data analyst but has become the go-to person for "can you pull the numbers on X?"</p>
+      <ul>
+        <li><strong>Title:</strong> Ops Manager, Finance Lead, Marketing Manager, Founder/CEO</li>
+        <li><strong>Company size:</strong> 5&ndash;200 employees</li>
+        <li><strong>Revenue:</strong> $500K&ndash;$50M</li>
+        <li><strong>Stack:</strong> Postgres/MySQL, maybe Snowflake, definitely Google Sheets</li>
+        <li><strong>Pain:</strong> Exports to CSV, vlookups in Excel, waits 3 days for a developer to write SQL</li>
+        <li><strong>Budget:</strong> Can approve $49&ndash;$199/mo without a committee</li>
+        <li><strong>Hangs out:</strong> LinkedIn, Reddit, YouTube, Google search</li>
+      </ul>
+    </div>
+
+    <div class="persona-card secondary">
+      <div class="persona-tag">Secondary</div>
+      <h3>Solo / Technical SaaS Founders</h3>
+      <ul>
+        <li>Already have a Postgres database</li>
+        <li>Want dashboards for their customers (embedded analytics)</li>
+        <li>Currently using Metabase or building custom charts</li>
+        <li>Would pay for AI-powered reporting they can embed</li>
+      </ul>
+    </div>
+
+    <div class="persona-card anti">
+      <div class="persona-tag">Anti-Target</div>
+      <h3>Who NOT to Sell To</h3>
+      <ul>
+        <li>Fortune 500 (they have Tableau + a 20-person data team)</li>
+        <li>Companies that want a 6-month POC with an RFP process</li>
+        <li>Anyone who asks for SOC2 before seeing the product</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Positioning -->
+<section id="positioning">
+  <div class="section-label">Positioning</div>
+  <h2>How we talk about Bitool</h2>
+
+  <h3>One-liner</h3>
+  <p style="font-size:20px; font-weight:700; color:var(--text); margin-bottom:24px;">
+    "AI-powered BI that works in 30 seconds, not 30 days."
+  </p>
+
+  <h3>Elevator Pitch</h3>
+  <p>
+    Bitool lets anyone connect a database and ask questions in plain English. No SQL. No dashboards to build.
+    No analyst to hire. Our AI can't hallucinate &mdash; it's constrained to your actual schema, validated before
+    execution, and compiles deterministic SQL. You get a correct answer in 3 seconds. Starts at $49/month.
+  </p>
+
+  <h3>Against Competitors</h3>
+  <table class="comp-table">
+    <thead>
+      <tr><th>Competitor</th><th>Their Pitch</th><th>Our Counter</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="comp-name">Tableau</td>
+        <td>"See and understand your data"</td>
+        <td class="counter">"...after 3 months of training and $75/user/month"</td>
+      </tr>
+      <tr>
+        <td class="comp-name">Power BI</td>
+        <td>"Turn data into opportunity"</td>
+        <td class="counter">"If you already live in Microsoft 365. Otherwise, good luck."</td>
+      </tr>
+      <tr>
+        <td class="comp-name">ThoughtSpot</td>
+        <td>"AI-powered analytics"</td>
+        <td class="counter">"After 6 weeks of semantic layer setup. We do it in 30 seconds."</td>
+      </tr>
+      <tr>
+        <td class="comp-name">Metabase</td>
+        <td>"Fast analytics for everyone"</td>
+        <td class="counter">"If 'everyone' knows SQL. Our AI means nobody needs SQL."</td>
+      </tr>
+      <tr>
+        <td class="comp-name">ChatGPT + SQL</td>
+        <td>"Just ask it to write SQL"</td>
+        <td class="counter">"And pray it doesn't hallucinate column names. Our ISL makes that impossible."</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="only-we">
+    <p>"Bitool is the only BI tool where the AI literally cannot reference a column that doesn't exist in your database."</p>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Pricing -->
+<section id="pricing">
+  <div class="section-label">Pricing &mdash; Jason Fried Style</div>
+  <h2>Simple. Public. No sales calls.</h2>
+
+  <div class="pricing-grid">
+    <div class="pricing-card">
+      <div class="plan-name">Starter</div>
+      <div class="price">$49</div>
+      <div class="per">/month</div>
+      <ul class="features">
+        <li>1 database connection</li>
+        <li>AI reporting (natural language)</li>
+        <li>500 queries/month</li>
+        <li>14-day free trial</li>
+      </ul>
+    </div>
+
+    <div class="pricing-card featured">
+      <div class="plan-name">Team</div>
+      <div class="price">$149</div>
+      <div class="per">/month</div>
+      <ul class="features">
+        <li>5 database connections</li>
+        <li>Saved reports</li>
+        <li>3 team members</li>
+        <li>Conversational follow-ups</li>
+      </ul>
+    </div>
+
+    <div class="pricing-card">
+      <div class="plan-name">Business</div>
+      <div class="price">$399</div>
+      <div class="per">/month</div>
+      <ul class="features">
+        <li>Unlimited connections</li>
+        <li>Embedded analytics API</li>
+        <li>Unlimited users</li>
+        <li>White-label option</li>
+      </ul>
+    </div>
+  </div>
+
+  <ul class="pricing-rules">
+    <li><strong>No per-seat pricing</strong> &mdash; don't punish growth (Fried)</li>
+    <li><strong>No free tier</strong> &mdash; 14-day free trial attracts serious buyers, not tire-kickers</li>
+    <li><strong>No "contact sales"</strong> &mdash; every plan is self-serve with a credit card</li>
+    <li><strong>Annual discount:</strong> 2 months free (pay for 10, get 12)</li>
+  </ul>
+</section>
+
+<hr class="divider">
+
+<!-- Channels -->
+<section id="channels">
+  <div class="section-label">Marketing Channels</div>
+  <h2>Ranked by ROI</h2>
+
+  <!-- Tier 1 -->
+  <h3><span class="tier-badge tier-1">Tier 1</span> Content &mdash; Do This First, Do This Always</h3>
+  <p>The Spolsky/Shah playbook: <strong>teach, don't sell.</strong></p>
+
+  <div class="channel-card">
+    <h4>1. The Bitool Blog &mdash; "Data Without the Data Team"</h4>
+    <p>Write 2 posts/week. Topics the Fortune 5,000,000 is already googling:</p>
+    <div class="topic-grid">
+      <div class="topic-tag"><span class="cat">Problem-Aware</span>How to analyze your Postgres data without knowing SQL</div>
+      <div class="topic-tag"><span class="cat">Problem-Aware</span>5 questions every restaurant owner should ask their POS data</div>
+      <div class="topic-tag"><span class="cat">Problem-Aware</span>The $100K question: do you really need a data analyst?</div>
+      <div class="topic-tag"><span class="cat">Solution-Aware</span>Metabase vs. Bitool: which is better if nobody knows SQL?</div>
+      <div class="topic-tag"><span class="cat">Solution-Aware</span>Why AI SQL generators are dangerous (and what we do instead)</div>
+      <div class="topic-tag"><span class="cat">Opinionated</span>LLMs should never write raw SQL. Here's why.</div>
+      <div class="topic-tag"><span class="cat">Opinionated</span>Why every SaaS app will have embedded AI analytics by 2027</div>
+      <div class="topic-tag"><span class="cat">Byproduct</span>How we built a zero-hallucination AI query engine</div>
+      <div class="topic-tag"><span class="cat">Byproduct</span>Our schema introspection handles Postgres, Snowflake, and Databricks</div>
+    </div>
+  </div>
+
+  <div class="channel-card">
+    <h4>2. YouTube &mdash; "3-Minute Data Wins"</h4>
+    <p>Short, punchy videos. Screen recording + face. Authenticity &gt; polish.</p>
+    <ul>
+      <li>"Watch me connect a restaurant's database and answer 5 questions in 60 seconds"</li>
+      <li>"Bitool vs. writing SQL: which is faster?" (split-screen race)</li>
+      <li>"I connected a Shopify database and found $40K in hidden revenue"</li>
+    </ul>
+  </div>
+
+  <div class="channel-card">
+    <h4>3. SEO &mdash; Own the Long Tail</h4>
+    <table class="seo-table">
+      <thead><tr><th>Keyword Cluster</th><th>Volume</th><th>Competition</th></tr></thead>
+      <tbody>
+        <tr><td>how to analyze postgres data</td><td class="vol">2K+</td><td class="low">Low</td></tr>
+        <tr><td>business intelligence for small business</td><td class="vol">5K+</td><td class="med">Medium</td></tr>
+        <tr><td>AI data analysis tool</td><td class="vol">8K+</td><td class="med">Medium</td></tr>
+        <tr><td>alternative to Tableau for small business</td><td class="vol">1K+</td><td class="low">Low</td></tr>
+        <tr><td>connect database get reports</td><td class="vol">500+</td><td class="low">Very Low</td></tr>
+        <tr><td>ask questions to my database</td><td class="vol">1K+</td><td class="low">Low</td></tr>
+        <tr><td>no-code data analysis</td><td class="vol">3K+</td><td class="med">Medium</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Tier 2 -->
+  <h3 style="margin-top:48px"><span class="tier-badge tier-2">Tier 2</span> Community &amp; Social</h3>
+
+  <div class="channel-card">
+    <h4>4. LinkedIn &mdash; Founder's Personal Brand</h4>
+    <p>Post 3&ndash;5x/week. Not about Bitool &mdash; about the <strong>problem</strong>:</p>
+    <ul>
+      <li>"Small businesses generate more data than ever. But only the Fortune 500 can afford to analyze it. That's broken."</li>
+      <li>"I watched a restaurant manager spend 4 hours building a pivot table. She just needed to know which menu items are profitable."</li>
+      <li>"Every BI vendor says 'democratize analytics.' Then they charge $75/user/month. That's not democracy."</li>
+    </ul>
+    <p style="margin-top:8px">This is the Dharmesh Shah playbook &mdash; he built HubSpot's brand through his personal LinkedIn long before HubSpot had a marketing budget.</p>
+  </div>
+
+  <div class="channel-card">
+    <h4>5. Reddit / Hacker News</h4>
+    <ul>
+      <li><strong>r/smallbusiness</strong> (1.2M) &mdash; answer data/analytics questions, naturally mention Bitool</li>
+      <li><strong>r/dataengineering</strong> (300K) &mdash; technical credibility posts about ISL</li>
+      <li><strong>r/SaaS</strong> (100K) &mdash; building-in-public updates</li>
+      <li><strong>Hacker News</strong> &mdash; "Show HN: AI BI tool that can't hallucinate SQL"</li>
+    </ul>
+    <p><strong>Rule:</strong> 10 helpful comments for every 1 mention of Bitool. Give first, sell never.</p>
+  </div>
+
+  <div class="channel-card">
+    <h4>6. Twitter/X</h4>
+    <ul>
+      <li>Threads: "Why every BI tool is broken for small businesses"</li>
+      <li>Build-in-public: "Week 47: 200 databases connected..."</li>
+      <li>Hot takes: "Tableau is a $70B company that 99% of businesses can't use."</li>
+    </ul>
+  </div>
+
+  <!-- Tier 3 -->
+  <h3 style="margin-top:48px"><span class="tier-badge tier-3">Tier 3</span> Partnerships &amp; Distribution</h3>
+
+  <div class="channel-card">
+    <h4>7. Integration Marketplaces</h4>
+    <ul>
+      <li><strong>Heroku Add-ons</strong> &mdash; every Heroku app has a Postgres database</li>
+      <li><strong>DigitalOcean Marketplace</strong> &mdash; their users ARE the Fortune 5,000,000</li>
+      <li><strong>Railway / Render / Fly.io</strong> &mdash; developer-first hosting</li>
+      <li><strong>Supabase integrations</strong> &mdash; their users already have Postgres, need analytics</li>
+    </ul>
+  </div>
+
+  <div class="channel-card">
+    <h4>8. SaaS Partnerships (Embedded Analytics)</h4>
+    <p>"Your customers want dashboards. Don't build them. Embed Bitool."</p>
+    <p>Partner with 10 vertical SaaS companies (restaurant POS, e-commerce, logistics). Revenue share or white-label.</p>
+  </div>
+
+  <div class="channel-card">
+    <h4>9. Accountants &amp; Bookkeepers</h4>
+    <p>Every small business has one. They already have access to financial data and get asked "how are we doing?" every month.</p>
+    <p><strong>Partner program:</strong> "Refer your clients to Bitool, earn 20% recurring commission."</p>
+  </div>
+
+  <!-- Tier 4 -->
+  <h3 style="margin-top:48px"><span class="tier-badge tier-4">Tier 4</span> Paid &mdash; Only After Organic Works</h3>
+
+  <div class="channel-card">
+    <h4>10. Google Ads &mdash; Bottom of Funnel Only</h4>
+    <ul>
+      <li>"Tableau alternative small business"</li>
+      <li>"AI database query tool"</li>
+      <li>"business intelligence no SQL"</li>
+    </ul>
+    <p>Budget: $2K/month max. CAC target: &lt;$150.</p>
+  </div>
+
+  <div class="channel-card">
+    <h4>11. Newsletter Sponsorships</h4>
+    <p>Sponsor 2&ndash;3 newsletters: Data Engineering Newsletter, Indie Hackers, MicroConf. $500&ndash;$2K per placement. Test 3, double down on what converts.</p>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Launch Timeline -->
+<section id="launch">
+  <div class="section-label">Launch Sequence</div>
+  <h2>First 90 Days</h2>
+
+  <div class="timeline">
+    <div class="timeline-block">
+      <div class="week-label">Week 1&ndash;2: Foundation</div>
+      <h3>Get the basics live</h3>
+      <ul>
+        <li>Landing page with one-liner, 60-second demo video, pricing, signup</li>
+        <li>Publish 3 foundational blog posts (manifesto, "BI is broken", "how ISL works")</li>
+        <li>Set up LinkedIn, Twitter/X, YouTube accounts</li>
+        <li>Create 14-day free trial flow</li>
+      </ul>
+    </div>
+
+    <div class="timeline-block">
+      <div class="week-label">Week 3&ndash;4: Content Engine</div>
+      <h3>Start the compounding</h3>
+      <ul>
+        <li>Publish 2 blog posts/week</li>
+        <li>Record first 5 YouTube "3-Minute Data Wins" videos</li>
+        <li>Post daily on LinkedIn (founder's personal account)</li>
+        <li>Submit "Show HN" post on Hacker News</li>
+        <li>Helpful posts in r/smallbusiness, r/dataengineering</li>
+      </ul>
+    </div>
+
+    <div class="timeline-block">
+      <div class="week-label">Week 5&ndash;8: Distribution</div>
+      <h3>Plug into existing channels</h3>
+      <ul>
+        <li>Submit to Heroku Add-ons, DigitalOcean Marketplace</li>
+        <li>Reach out to 20 SaaS founders for embedded analytics partnerships</li>
+        <li>Reach out to 10 bookkeeping/accounting firms</li>
+        <li>Guest post on 2&ndash;3 relevant blogs</li>
+        <li>Launch on Product Hunt (aim for top 5 of the day)</li>
+      </ul>
+    </div>
+
+    <div class="timeline-block">
+      <div class="week-label">Week 9&ndash;12: Amplify</div>
+      <h3>Double down on what's working</h3>
+      <ul>
+        <li>Scale top-performing content topics</li>
+        <li>Start Google Ads &mdash; $2K/mo on highest-intent keywords</li>
+        <li>Sponsor 2 newsletters</li>
+        <li>Publish first customer case study</li>
+        <li>"State of Small Business Data" original research report</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Metrics -->
+<section id="metrics">
+  <div class="section-label">Metrics That Matter</div>
+  <h2>Track what moves the needle</h2>
+
+  <table class="metrics-table">
+    <thead>
+      <tr><th>Metric</th><th>Week 4</th><th>Week 8</th><th>Week 12</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Blog monthly visitors</td><td>500</td><td>2,000</td><td class="highlight">5,000</td></tr>
+      <tr><td>Free trial signups</td><td>20</td><td>80</td><td class="highlight">200</td></tr>
+      <tr><td>Trial &rarr; paid conversion</td><td>8%</td><td>10%</td><td class="highlight">12%</td></tr>
+      <tr><td>Paying customers</td><td>2</td><td>8</td><td class="highlight">24</td></tr>
+      <tr><td>MRR</td><td>$100</td><td>$600</td><td class="highlight">$2,400</td></tr>
+      <tr><td>CAC (blended)</td><td>&mdash;</td><td>$150</td><td class="highlight">&lt;$100</td></tr>
+      <tr><td>LinkedIn followers</td><td>500</td><td>1,500</td><td class="highlight">3,000</td></tr>
+    </tbody>
+  </table>
+
+  <h3>North Star Metric</h3>
+  <div class="only-we" style="margin-top:16px">
+    <p style="font-size:16px"><strong>Time to first insight:</strong> how many seconds from signup to the user getting their first real answer.</p>
+    <p style="font-size:28px; margin-top:8px"><strong>Target: &lt; 60 seconds</strong></p>
+  </div>
+  <p style="margin-top:16px">This metric drives everything &mdash; product, onboarding, content, demos. If this number is small, the product sells itself.</p>
+</section>
+
+<hr class="divider">
+
+<!-- Manifesto -->
+<section id="manifesto">
+  <div class="section-label">The Manifesto &mdash; Blog Post #1</div>
+  <h2>Publish this on launch day</h2>
+
+  <div class="manifesto">
+    <h3>"BI is Broken. We're Fixing It."</h3>
+    <p>There are 33 million businesses in America. Fewer than 50,000 can afford Tableau.</p>
+    <p>
+      The rest &mdash; the restaurants, the Shopify stores, the 15-person logistics companies,
+      the SaaS startups &mdash; they have more data than ever. Sales data. Customer data. Operations data.
+      It's sitting in a Postgres database or a Snowflake warehouse, and nobody can get answers from it.
+    </p>
+    <p>
+      Not because the data isn't there. Because <strong>every BI tool was built for the Fortune 500.</strong>
+    </p>
+    <p>
+      Tableau needs a trained analyst. Power BI needs Microsoft 365. ThoughtSpot needs 6 weeks of semantic
+      layer setup. Metabase needs someone who knows SQL.
+    </p>
+    <p>
+      Meanwhile, the ops manager at a 30-person company just wants to know: "Which products are losing money
+      this quarter?" She shouldn't need a $75/month license, a 3-day training course, and a SQL certification
+      to answer that question.
+    </p>
+    <p><strong>We built Bitool for her.</strong></p>
+    <p>
+      Connect your database. Ask a question in English. Get a correct answer in 3 seconds.
+      Not 3 days. Not 3 weeks. Three seconds.
+    </p>
+    <p>
+      Our AI doesn't hallucinate. It can't &mdash; we constrain it to your actual schema,
+      validate every query before execution, and compile deterministic SQL.
+      No guessing. No "I made up a column name." No broken queries.
+    </p>
+    <p>
+      Jason Fried called them the Fortune 5,000,000. The millions of small businesses that software
+      vendors ignore while chasing enterprise deals.
+    </p>
+    <p>We're not ignoring them. We're building for them.</p>
+    <div class="cta-line">Bitool. BI for the Fortune 5,000,000.</div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- What NOT to Do -->
+<section id="anti">
+  <div class="section-label">Guardrails</div>
+  <h2>What NOT to Do</h2>
+
+  <div class="anti-grid">
+    <div class="anti-card">
+      <span class="x">&times;</span><span class="rule">Don't hire a sales team</span>
+      <div class="reason">If the product needs a human to explain it, the product is too complicated &mdash; Fried</div>
+    </div>
+    <div class="anti-card">
+      <span class="x">&times;</span><span class="rule">Don't build a "free forever" tier</span>
+      <div class="reason">It attracts users who will never pay &mdash; Fried</div>
+    </div>
+    <div class="anti-card">
+      <span class="x">&times;</span><span class="rule">Don't buy email lists</span>
+      <div class="reason">Inbound only &mdash; Shah</div>
+    </div>
+    <div class="anti-card">
+      <span class="x">&times;</span><span class="rule">Don't go to enterprise trade shows</span>
+      <div class="reason">You'll spend $20K to talk to the wrong people</div>
+    </div>
+    <div class="anti-card">
+      <span class="x">&times;</span><span class="rule">Don't do webinars</span>
+      <div class="reason">Record a YouTube video instead &mdash; it compounds forever</div>
+    </div>
+    <div class="anti-card">
+      <span class="x">&times;</span><span class="rule">Don't compare in feature tables</span>
+      <div class="reason">You'll lose vs Tableau on features. Compare on time-to-value and simplicity.</div>
+    </div>
+    <div class="anti-card">
+      <span class="x">&times;</span><span class="rule">Don't raise VC to fund marketing</span>
+      <div class="reason">Content marketing costs time, not money. That's the whole point.</div>
+    </div>
+  </div>
+</section>
+
+<div style="text-align:center; padding:60px 20px 80px; color:var(--text-muted); font-size:13px;">
+  Bitool Marketing Plan &mdash; April 2026
+</div>
+
+</body>
+</html>

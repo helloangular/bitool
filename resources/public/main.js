@@ -193,9 +193,7 @@ document.addEventListener('DOMContentLoaded', function () {
       for (const conn of data.connections) {
         if (!conn.treeParent) continue;
         if (!grouped[conn.treeParent]) grouped[conn.treeParent] = [];
-        const child = { label: conn.label, conn_id: conn.conn_id };
-        if (conn.dbtype) child.dbtype = conn.dbtype;
-        if (conn.nodetype) child.nodetype = conn.nodetype;
+        const child = { ...conn };
         grouped[conn.treeParent].push(child);
       }
       // Build new treeItems with deep-copied parent nodes so smart-tree detects changes
@@ -341,6 +339,26 @@ window.toggleLogic = function () {
     lambda.setAttribute("visibility", "close");
   } else {
     lambda.setAttribute("visibility", "open");
+  }
+}
+
+window.toggleTransformChat = function () {
+  const chat = document.querySelector('transform-chat');
+  if (!chat) return;
+  if (chat.hasAttribute('open')) {
+    chat.close();
+  } else {
+    chat.open();
+  }
+}
+
+window.toggleSessionControl = function () {
+  const panel = document.querySelector('session-control');
+  if (!panel) return;
+  if (panel.getAttribute("visibility") === "open") {
+    panel.setAttribute("visibility", "close");
+  } else {
+    panel.setAttribute("visibility", "open");
   }
 }
 

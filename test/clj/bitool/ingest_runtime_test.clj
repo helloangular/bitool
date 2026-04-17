@@ -8,6 +8,7 @@
     [bitool.ingest.checkpoint :as checkpoint]
     [bitool.ingest.runtime :as runtime]
     [bitool.operations :as operations]
+    [bitool.scripts.seed-sheetz-samsara-demo :as samsara-demo]
     [cheshire.core :as json]
     [clojure.core.async :as async]
     [clojure.string :as string]
@@ -61,6 +62,8 @@
                              :endpoint_configs [{:endpoint_name "trips"
                                                  :endpoint_url "/fleet/trips"
                                                  :load_type "incremental"
+                                                 :bronze_projection_mode "lean"
+                                                 :bronze_projection_auto true
                                                  :schema_mode "infer"
                                                  :schema_enforcement_mode "strict"
                                                  :circuit_breaker_enabled true
@@ -79,24 +82,38 @@
     (is (= "samara" (:api_name (g2/getData g' 2))))
     (is (= 1 (count (:endpoint_configs (g2/getData g' 2)))))
     (is (= "incremental" (get-in (g2/getData g' 2) [:endpoint_configs 0 :load_type])))
+    (is (= "lean" (get-in (g2/getData g' 2) [:endpoint_configs 0 :bronze_projection_mode])))
+    (is (= true (get-in (g2/getData g' 2) [:endpoint_configs 0 :bronze_projection_auto])))
     (is (= "infer" (get-in (g2/getData g' 2) [:endpoint_configs 0 :schema_mode])))
     (is (= "strict" (get-in (g2/getData g' 2) [:endpoint_configs 0 :schema_enforcement_mode])))
     (is (= 4 (get-in (g2/getData g' 2) [:endpoint_configs 0 :circuit_breaker_failure_threshold])))
     (is (= 0.15 (get-in (g2/getData g' 2) [:endpoint_configs 0 :bad_record_alert_ratio])))
     (is (= "https://api.example.com" (get item "base_url")))))
 
-(deftest save-api-treats-blank-bad-record-alert-ratio-as-unset
+(deftest save-api-rejects-invalid-bronze-projection-mode
   (let [g (base-graph 2 "Ap")]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"bad_record_alert_ratio must be a valid decimal"
+                          #"Unsupported bronze_projection_mode"
                           (g2/save-api g 2 {:api_name "samara"
                                             :endpoint_configs [{:endpoint_name "drivers"
                                                                 :endpoint_url "/fleet/drivers"
                                                                 :load_type "full"
-                                                                :schema_mode "manual"
+                                                                :schema_mode "infer"
                                                                 :pagination_strategy "none"
                                                                 :primary_key_fields ["id"]
-                                                                :bad_record_alert_ratio ""}]})))))
+                                                                :bronze_projection_mode "everything"}]})))))
+
+(deftest save-api-treats-blank-bad-record-alert-ratio-as-unset
+  (let [g (base-graph 2 "Ap")]
+    (let [g' (g2/save-api g 2 {:api_name "samara"
+                               :endpoint_configs [{:endpoint_name "drivers"
+                                                   :endpoint_url "/fleet/drivers"
+                                                   :load_type "full"
+                                                   :schema_mode "manual"
+                                                   :pagination_strategy "none"
+                                                   :primary_key_fields ["id"]
+                                                   :bad_record_alert_ratio ""}]})]
+      (is (nil? (get-in (g2/getData g' 2) [:endpoint_configs 0 :bad_record_alert_ratio]))))))
 
 (deftest save-api-does-not-add-target-or-mapping-nodes
   (let [g  (base-graph 2 "Ap")
@@ -199,6 +216,34 @@
     (is (= ["partition_date" "load_date"] (:partition_columns (g2/getData g' 2))))
     (is (= "111" (get item "silver_job_id")))
     (is (= true (get-in item ["options" :raw_payload])))))
+
+(deftest save-target-postgres-clears-databricks-only-fields
+  (let [g  (base-graph 2 "Tg")
+        g' (g2/save-target g 2 {:connection_id "473"
+                                :target_kind "postgresql"
+                                :catalog "bitool"
+                                :schema "public"
+                                :table_name "sheetz_samsara_demo_seed"
+                                :table_format "delta"
+                                :partition_columns "partition_date"
+                                :cluster_by "vehicle_id"
+                                :silver_job_id "111"
+                                :gold_job_id "222"
+                                :silver_job_params "{\"mode\":\"silver\"}"
+                                :gold_job_params "{\"mode\":\"gold\"}"
+                                :trigger_gold_on_success true})
+        tmap (g2/getData g' 2)]
+    (is (= "postgresql" (:target_kind tmap)))
+    (is (= "" (:catalog tmap)))
+    (is (= "public" (:schema tmap)))
+    (is (= "table" (:table_format tmap)))
+    (is (= [] (:partition_columns tmap)))
+    (is (= [] (:cluster_by tmap)))
+    (is (= "" (:silver_job_id tmap)))
+    (is (= "" (:gold_job_id tmap)))
+    (is (= {} (:silver_job_params tmap)))
+    (is (= {} (:gold_job_params tmap)))
+    (is (= false (:trigger_gold_on_success tmap)))))
 
 (deftest save-target-snowflake-fields-round-trip
   (let [g  (base-graph 2 "Tg")
@@ -1172,6 +1217,118 @@
           (is (= "endpoint_boom" (get-in (first (filter #(= "vehicles" (:endpoint_name %)) (:results out)))
                                          [:failure_class]))))))))
 
+(deftest run-api-node-unique-sheetz-samsara-endpoints-all-succeed-on-postgres-path
+  (let [routes           (@#'bitool.scripts.seed-sheetz-samsara-demo/unique-curated-routes)
+        endpoint-config  @#'bitool.scripts.seed-sheetz-samsara-demo/endpoint-config
+        endpoint-configs (mapv endpoint-config routes)
+        api-node         {:source_system "samsara"
+                          :base_url "http://localhost:3001"
+                          :auth_ref {:type "bearer" :token "mock-samsara-token"}
+                          :endpoint_configs endpoint-configs}]
+    (with-redefs-fn {#'db/getGraph (fn [_] {})
+                     #'g2/getData (fn [_ _] api-node)
+                     #'bitool.ingest.runtime/find-downstream-target (fn [_ _] {:connection_id 9
+                                                                               :schema "bronze"
+                                                                               :table_name ""})
+                     #'bitool.ingest.runtime/connection-dbtype (fn [_] "postgresql")
+                     #'db/create-dbspec-from-id (fn [_] {:dbtype "postgresql"
+                                                         :schema "bronze"})
+                     #'bitool.ingest.runtime/ensure-table! (fn [& _] nil)
+                     #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
+                     #'api/fetch-paged-async (fn [_]
+                                               {:pages (async/to-chan! [{:body {:data []}
+                                                                         :response {:status 200}}
+                                                                        {:stop-reason :eof
+                                                                         :state {}
+                                                                         :http-status 200}])
+                                                :errors (async/to-chan! [])
+                                                :cancel (fn [] nil)})
+                     #'bitool.ingest.runtime/collect-schema-sample! (fn [_ _]
+                                                                      {:sample-pages []
+                                                                       :terminal-msg nil})
+                     #'bitool.ingest.runtime/maybe-infer-endpoint-fields (fn [endpoint _] endpoint)
+                     #'bitool.ingest.runtime/ensure-unique-field-column-names! identity
+                     #'bitool.ingest.runtime/process-endpoint-stream! (fn [& _]
+                                                                        {:pages-fetched 1
+                                                                         :rows-extracted 0
+                                                                         :rows-written 0
+                                                                         :bad-records-total 0
+                                                                         :batch-seq 0
+                                                                         :manifests []
+                                                                         :retry-count 0
+                                                                         :changed-partition-dates []})
+                     #'bitool.ingest.runtime/with-batch-commit (fn [_ f] (f))
+                     #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] nil)
+                     #'operations/record-endpoint-freshness! (fn [& _] nil)}
+      (fn []
+        (let [out      (runtime/run-api-node! 99 2)
+              statuses (map :status (:results out))]
+          (is (= 49 (count routes)))
+          (is (= 49 (count endpoint-configs)))
+          (is (= 49 (count (:results out))))
+          (is (= "success" (:status out)))
+          (is (every? #{"success"} statuses)))))))
+
+(deftest run-api-node-retargets-stale-databricks-endpoint-table-name-for-postgres-target
+  (let [ensured-table* (atom nil)
+        endpoint       {:endpoint_name "users"
+                        :endpoint_url "/users"
+                        :enabled true
+                        :pagination_strategy "none"
+                        :selected_nodes []
+                        :primary_key_fields ["id"]
+                        :bronze_table_name "main.bronze.samsara_users_raw"}
+        api-node       {:source_system "samsara"
+                        :base_url "http://localhost:3001"
+                        :auth_ref {:type "bearer" :token "mock-samsara-token"}
+                        :endpoint_configs [endpoint]}]
+    (with-redefs-fn {#'db/getGraph (fn [_] {})
+                     #'g2/getData (fn [_ _] api-node)
+                     #'bitool.ingest.runtime/find-downstream-target (fn [_ _] {:connection_id 9
+                                                                               :target_kind "postgresql"
+                                                                               :schema "public"
+                                                                               :catalog "bitool"
+                                                                               :table_name ""})
+                     #'bitool.ingest.runtime/connection-dbtype (fn [_] "postgresql")
+                     #'db/create-dbspec-from-id (fn [_] {:dbtype "postgresql"
+                                                         :schema "public"
+                                                         :dbname "bitool"})
+                     #'bitool.ingest.runtime/ensure-table! (fn [_ table-name _ _]
+                                                             (reset! ensured-table* table-name)
+                                                             nil)
+                     #'bitool.ingest.runtime/fetch-checkpoint (fn [& _] nil)
+                     #'api/fetch-paged-async (fn [_]
+                                               {:pages (async/to-chan! [{:body {:data []}
+                                                                         :response {:status 200}}
+                                                                        {:stop-reason :eof
+                                                                         :state {}
+                                                                         :http-status 200}])
+                                                :errors (async/to-chan! [])
+                                                :cancel (fn [] nil)})
+                     #'bitool.ingest.runtime/collect-schema-sample! (fn [_ _]
+                                                                      {:sample-pages []
+                                                                       :terminal-msg nil})
+                     #'bitool.ingest.runtime/maybe-infer-endpoint-fields (fn [endpoint _] endpoint)
+                     #'bitool.ingest.runtime/ensure-unique-field-column-names! identity
+                     #'bitool.ingest.runtime/process-endpoint-stream! (fn [& _]
+                                                                        {:pages-fetched 1
+                                                                         :rows-extracted 0
+                                                                         :rows-written 0
+                                                                         :bad-records-total 0
+                                                                         :batch-seq 0
+                                                                         :manifests []
+                                                                         :retry-count 0
+                                                                         :changed-partition-dates []})
+                     #'bitool.ingest.runtime/with-batch-commit (fn [_ f] (f))
+                     #'bitool.ingest.runtime/load-rows! (fn [& _] nil)
+                     #'bitool.ingest.runtime/replace-row! (fn [& _] nil)
+                     #'operations/record-endpoint-freshness! (fn [& _] nil)}
+      (fn []
+        (let [out (runtime/run-api-node! 99 2)]
+          (is (= "success" (:status out)))
+          (is (= "public.samsara_users_raw" @ensured-table*)))))))
+
 (deftest run-api-node-targeted-endpoint-throws-instead-of-isolating-failure
   (let [endpoint-ok {:endpoint_name "trips"
                      :endpoint_url "/fleet/trips"
@@ -1691,6 +1848,32 @@
                  (mapv :column_name (get-in out [:results 0 :inferred_fields]))))
           (is (some #(= "$.data[].vehicle.id" (:path %))
                     (get-in out [:results 0 :schema_drift :new_fields]))))))))
+
+(deftest ensure-table-reruns-when-column-shape-changes
+  (#'bitool.ingest.runtime/clear-confirmed-table-cache!)
+  (let [calls (atom [])]
+    (with-redefs [bitool.ingest.runtime/cache-local-table-confirmed! (fn [& _] nil)
+                  db/create-table! (fn [_ _ table-name columns opts]
+                                     (swap! calls conj {:table-name table-name
+                                                        :columns (mapv :column_name columns)
+                                                        :opts opts})
+                                     nil)]
+      (#'bitool.ingest.runtime/ensure-table! 9
+                                            "public.fleet_vehicles"
+                                            [{:column_name "ingestion_id" :data_type "STRING" :is_nullable "NO"}]
+                                            {})
+      (#'bitool.ingest.runtime/ensure-table! 9
+                                            "public.fleet_vehicles"
+                                            [{:column_name "ingestion_id" :data_type "STRING" :is_nullable "NO"}]
+                                            {})
+      (#'bitool.ingest.runtime/ensure-table! 9
+                                            "public.fleet_vehicles"
+                                            [{:column_name "ingestion_id" :data_type "STRING" :is_nullable "NO"}
+                                             {:column_name "data_items_id" :data_type "STRING" :is_nullable "YES"}]
+                                            {})
+      (is (= 2 (count @calls)))
+      (is (= ["ingestion_id"] (:columns (first @calls))))
+      (is (= ["ingestion_id" "data_items_id"] (:columns (second @calls)))))))
 
 (deftest run-api-node-additive-schema-enforcement-widens-compatible-types
   (let [endpoint {:endpoint_name "trips"

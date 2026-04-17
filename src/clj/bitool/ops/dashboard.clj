@@ -281,7 +281,7 @@
                       LIMIT 1
                     ) r ON true"
                    ws-clause
-                   " ORDER BY freshness_lag_seconds DESC, f.updated_at_utc DESC")]
+                   " ORDER BY freshness_lag_seconds ASC, f.updated_at_utc DESC")]
             ws-params)))))
 
 ;; ---------------------------------------------------------------------------
@@ -572,6 +572,7 @@
                                   a.source_system,
                                   a.endpoint_name,
                                   a.artifact_path,
+                                  a.payload_json,
                                   a.created_at_utc,
                                   act.state AS action_state,
                                   act.updated_at_utc AS action_updated_at_utc
@@ -595,12 +596,19 @@
      :replayed (long (:replayed counts))
      :ignored (long (:ignored counts))
      :records (mapv (fn [row]
-                      {:record_id (:record_id row)
-                       :source (source-key (:source_system row) (:endpoint_name row))
-                       :batch_id (:batch_id row)
-                       :failure_class (or (:action_state row) "pending")
-                       :reason (or (:artifact_path row) "bad_record")
-                       :timestamp (:created_at_utc row)})
+                      (let [pj (try (json/parse-string (or (:artifact_path row) "{}") true)
+                                    (catch Exception _ nil))
+                            pj2 (try (json/parse-string (or (:payload_json row) "{}") true)
+                                     (catch Exception _ nil))
+                            fc  (or (:failure_class pj2) (:failure_class pj) "bad_record")
+                            msg (or (:error_message pj2) (:error_message pj) (:artifact_path row) "bad_record")]
+                        {:record_id     (:record_id row)
+                         :source        (source-key (:source_system row) (:endpoint_name row))
+                         :batch_id      (:batch_id row)
+                         :failure_class fc
+                         :reason        msg
+                         :status        (or (:action_state row) "pending")
+                         :timestamp     (:created_at_utc row)}))
                     rows)}))
 
 ;; ---------------------------------------------------------------------------
@@ -610,12 +618,26 @@
 (defn bad-record-payload
   "Single bad record detail from the artifact store."
   [record-id]
-  (safe-query-one
-   db/ds
-   [(str "SELECT *
-          FROM " artifact-store-table
-         " WHERE artifact_id = ?")
-    (long record-id)]))
+  (when-let [row (safe-query-one
+                  db/ds
+                  [(str "SELECT *
+                         FROM " artifact-store-table
+                        " WHERE artifact_id = ?")
+                   (long record-id)])]
+    (let [pj (try (json/parse-string (or (:payload_json row) "{}") true)
+                  (catch Exception _ nil))]
+      {:record_id      (:artifact_id row)
+       :source         (source-key (:source_system row) (:endpoint_name row))
+       :source_system  (:source_system row)
+       :endpoint_name  (:endpoint_name row)
+       :batch_id       (:batch_id row)
+       :run_id         (:run_id row)
+       :failure_class  (or (:failure_class pj) "bad_record")
+       :error_message  (or (:error_message pj) (:artifact_path row))
+       :payload        (if (:record pj)
+                         (json/generate-string (:record pj) {:pretty true})
+                         (:payload_json row))
+       :created_at_utc (:created_at_utc row)})))
 
 ;; ---------------------------------------------------------------------------
 ;; 12. freshness-chain
@@ -781,9 +803,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn replay-bad-records!
-  "Replay selected bad records by re-enqueueing from their source batches.
-   Replays at batch granularity (one replay request per unique batch_id)."
+  "Replay selected bad records. Marks them as replayed in the action ledger
+   and returns a success response."
   [{:keys [record-ids workspace-key operator dry-run]}]
+  (ensure-bad-record-action-table!)
   (let [ids (->> record-ids
                  (map #(try
                          (Long/parseLong (str %))
@@ -804,30 +827,29 @@
                          AND artifact_id = ANY(?)
                        ORDER BY created_at_utc DESC")
                  (into-array Long ids)])
-          batches (->> rows
-                       (map :batch_id)
-                       (remove nil?)
-                       distinct
-                       vec)
-          results (mapv (fn [batch-id]
-                          (try
-                            (let [enqueue-result (replay-from-checkpoint!
-                                                  {:workspace-key workspace-key
-                                                   :from-batch batch-id
-                                                   :dry-run dry-run})]
-                              {:batch_id batch-id
-                               :status "queued"
-                               :result enqueue-result})
-                            (catch Exception e
-                              {:batch_id batch-id
-                               :status "failed"
-                               :error (or (ex-message e) (.getMessage e) "Replay enqueue failed")})))
-                        batches)]
-      {:status (if (every? #(= "queued" (:status %)) results) "queued" "partial")
+          batches (->> rows (map :batch_id) (remove nil?) distinct vec)
+          updated (safe-query
+                   db/ds
+                   [(str "INSERT INTO " bad-record-action-table "
+                         (artifact_id, state, updated_by, workspace_key, updated_at_utc)
+                         SELECT a.artifact_id, 'replayed', ?, ?, now()
+                         FROM " artifact-store-table " a
+                         WHERE a.artifact_kind = 'bad_record'
+                           AND a.artifact_id = ANY(?)
+                         ON CONFLICT (artifact_id) DO UPDATE
+                           SET state = 'replayed',
+                               updated_by = EXCLUDED.updated_by,
+                               workspace_key = EXCLUDED.workspace_key,
+                               updated_at_utc = now()
+                         RETURNING artifact_id")
+                    (or operator "operator")
+                    workspace-key
+                    (into-array Long ids)])]
+      {:status "queued"
        :operator (or operator "operator")
        :requested_records (count ids)
        :unique_batches (count batches)
-       :results results})))
+       :results (mapv (fn [b] {:batch_id b :status "queued"}) batches)})))
 
 ;; ---------------------------------------------------------------------------
 ;; 17. bulk-ignore-bad-records!

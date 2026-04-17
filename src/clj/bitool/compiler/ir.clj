@@ -80,7 +80,11 @@
                                      (let [cfg (:when_not_matched_by_source materialization)]
                                        (cond-> {:action (:action cfg)}
                                          (seq (or (:condition cfg) "")) (assoc :condition (:condition cfg))
-                                         (seq (or (:assignments cfg) [])) (assoc :assignments (vec (:assignments cfg))))))]
+                                         (seq (or (:assignments cfg) [])) (assoc :assignments (vec (:assignments cfg))))))
+        cluster-by      (->> (or (:cluster_by materialization) [])
+                             (keep non-blank-str)
+                             vec)
+        partition-by    (some-> (:partition_by materialization) non-blank-str)]
     (when-not (valid-alias? source-alias)
       (throw (ex-info "Proposal source alias must be a valid SQL identifier"
                       {:status 400
@@ -119,6 +123,22 @@
                        (assoc :not_matched_condition (:not_matched_condition materialization))
                        (seq (or (:update_assignments materialization) []))
                        (assoc :update_assignments (vec (:update_assignments materialization)))
+                       partition-by
+                       (assoc :partition_by partition-by)
+                       (seq cluster-by)
+                       (assoc :cluster_by cluster-by)
+                       (some-> (:sf_load_method materialization) non-blank-str)
+                       (assoc :sf_load_method (:sf_load_method materialization))
+                       (some-> (:sf_stage_name materialization) non-blank-str)
+                       (assoc :sf_stage_name (:sf_stage_name materialization))
+                       (some-> (:sf_warehouse materialization) non-blank-str)
+                       (assoc :sf_warehouse (:sf_warehouse materialization))
+                       (some-> (:sf_file_format materialization) non-blank-str)
+                       (assoc :sf_file_format (:sf_file_format materialization))
+                       (some-> (:sf_on_error materialization) non-blank-str)
+                       (assoc :sf_on_error (:sf_on_error materialization))
+                       (contains? materialization :sf_purge)
+                       (assoc :sf_purge (boolean (:sf_purge materialization)))
                        when-not-matched-by-source
                        (assoc :when_not_matched_by_source when-not-matched-by-source))
      :target_warehouse (or (:target_warehouse proposal-json)

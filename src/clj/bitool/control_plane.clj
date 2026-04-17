@@ -1,6 +1,7 @@
 (ns bitool.control-plane
   (:require [bitool.config :as config]
             [bitool.db :as db]
+            [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as string]
             [clojure.tools.logging :as log]
@@ -14,16 +15,22 @@
 
 (def ^:private tenant-table "control_plane_tenant")
 (def ^:private workspace-table "control_plane_workspace")
+(def ^:private user-table "control_plane_user")
+(def ^:private workspace-member-table "control_plane_workspace_member")
 (def ^:private graph-workspace-table "control_plane_graph_workspace")
 (def ^:private graph-dependency-table "control_plane_graph_dependency")
 (def ^:private secret-store-table "control_plane_secret_store")
 (def ^:private audit-event-table "control_plane_audit_event")
 (def ^:private api-bronze-signoff-table "control_plane_api_bronze_signoff")
+(def ^:private connection-health-table "control_plane_connection_health")
 (def ^:dynamic execution-run-table "execution_run")
 
 (def ^:private default-tenant-key "default")
 (def ^:private default-workspace-key "default")
+(def ^:private default-admin-username "admin")
 (defonce ^:private control-plane-ready? (atom false))
+
+(declare workspace-context)
 
 (defn- db-opts
   [conn]
@@ -36,6 +43,38 @@
 
 (defn- now-utc []
   (java.time.Instant/now))
+
+(defn- normalize-roles
+  [roles]
+  (->> (cond
+         (nil? roles) []
+         (string? roles) (string/split roles #",")
+         (sequential? roles) roles
+         :else [roles])
+       (map #(some-> % str string/trim string/lower-case))
+       (remove string/blank?)
+       distinct
+       vec))
+
+(defn- encode-roles
+  [roles]
+  (json/generate-string (normalize-roles roles)))
+
+(defn- decode-roles
+  [value]
+  (cond
+    (string/blank? (some-> value str)) []
+    (sequential? value) (normalize-roles value)
+    :else
+    (try
+      (normalize-roles (json/parse-string (str value) true))
+      (catch Exception _
+        []))))
+
+(defn- with-global-roles
+  [row]
+  (when row
+    (assoc row :global_roles (decode-roles (:global_roles_json row)))))
 
 (defn- parse-bool-env
   [k default-value]
@@ -160,6 +199,23 @@
                       "active BOOLEAN NOT NULL DEFAULT TRUE, "
                       "created_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
                       "updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT now())")
+                 (str "CREATE TABLE IF NOT EXISTS " user-table " ("
+                      "username VARCHAR(128) PRIMARY KEY, "
+                      "display_name TEXT NULL, "
+                      "email TEXT NULL, "
+                      "global_roles_json TEXT NOT NULL DEFAULT '[]', "
+                      "active BOOLEAN NOT NULL DEFAULT TRUE, "
+                      "created_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                      "updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT now())")
+                 (str "CREATE TABLE IF NOT EXISTS " workspace-member-table " ("
+                      "id BIGSERIAL PRIMARY KEY, "
+                      "workspace_key VARCHAR(128) NOT NULL REFERENCES " workspace-table "(workspace_key) ON DELETE CASCADE, "
+                      "username VARCHAR(128) NOT NULL REFERENCES " user-table "(username) ON DELETE CASCADE, "
+                      "role VARCHAR(32) NOT NULL DEFAULT 'viewer', "
+                      "active BOOLEAN NOT NULL DEFAULT TRUE, "
+                      "created_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                      "updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                      "UNIQUE (workspace_key, username))")
                  (str "CREATE TABLE IF NOT EXISTS " graph-workspace-table " ("
                       "graph_id INTEGER PRIMARY KEY, "
                       "workspace_key VARCHAR(128) NOT NULL REFERENCES " workspace-table "(workspace_key), "
@@ -209,8 +265,18 @@
                       "created_at_utc TIMESTAMPTZ NOT NULL DEFAULT now())")
                  (str "CREATE INDEX IF NOT EXISTS idx_control_plane_audit_event_created "
                       "ON " audit-event-table " (created_at_utc DESC, event_type)")
+                 (str "CREATE INDEX IF NOT EXISTS idx_control_plane_workspace_member_workspace "
+                      "ON " workspace-member-table " (workspace_key, role, username)")
+                 (str "CREATE INDEX IF NOT EXISTS idx_control_plane_workspace_member_username "
+                      "ON " workspace-member-table " (username, workspace_key)")
                  (str "CREATE INDEX IF NOT EXISTS idx_control_plane_api_bronze_signoff_created "
                       "ON " api-bronze-signoff-table " (created_at_utc DESC, environment, release_tag)")
+                 (str "CREATE TABLE IF NOT EXISTS " connection-health-table " ("
+                      "conn_id INTEGER PRIMARY KEY REFERENCES connection(id) ON DELETE CASCADE, "
+                      "status VARCHAR(32) NOT NULL DEFAULT 'unknown', "
+                      "checked_at_utc TIMESTAMPTZ NULL, "
+                      "error_message TEXT NULL, "
+                      "updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT now())")
                  (str "ALTER TABLE " tenant-table
                       " ADD COLUMN IF NOT EXISTS max_concurrent_requests INTEGER NOT NULL DEFAULT 10")
                  (str "ALTER TABLE " tenant-table
@@ -219,6 +285,8 @@
                       " ADD COLUMN IF NOT EXISTS weight INTEGER NOT NULL DEFAULT 1")
                  (str "ALTER TABLE " tenant-table
                       " ADD COLUMN IF NOT EXISTS metering_enabled BOOLEAN NOT NULL DEFAULT TRUE")
+                 (str "ALTER TABLE " user-table
+                      " ADD COLUMN IF NOT EXISTS global_roles_json TEXT NOT NULL DEFAULT '[]'")
                  (str "ALTER TABLE " secret-store-table
                       " ADD COLUMN IF NOT EXISTS secret_encoding VARCHAR(32) NOT NULL DEFAULT 'plaintext'")]]
           (jdbc/execute! db/ds [sql-str]))
@@ -238,8 +306,180 @@
           default-workspace-key
           default-tenant-key
           "Default workspace"])
+        (jdbc/execute!
+         db/ds
+         [(str "INSERT INTO " user-table "
+                (username, display_name, email, global_roles_json, active, updated_at_utc)
+                VALUES (?, ?, ?, ?, TRUE, now())
+                ON CONFLICT (username) DO NOTHING")
+          default-admin-username
+          "Bitool Admin"
+          nil
+          (encode-roles ["admin" "api.ops" "api.audit" "secrets.write"])])
+        (jdbc/execute!
+         db/ds
+         [(str "INSERT INTO " workspace-member-table "
+                (workspace_key, username, role, active, updated_at_utc)
+                VALUES (?, ?, ?, TRUE, now())
+                ON CONFLICT (workspace_key, username) DO NOTHING")
+          default-workspace-key
+          default-admin-username
+          "admin"])
         (reset! control-plane-ready? true))))
   nil)
+
+(defn upsert-user!
+  [{:keys [username display_name email global_roles active]
+    :or {active true}}]
+  (ensure-control-plane-tables!)
+  (let [username (non-blank-str username)]
+    (when-not username
+      (throw (ex-info "username is required" {:status 400})))
+    (jdbc/execute!
+     db/ds
+     [(str "INSERT INTO " user-table "
+            (username, display_name, email, global_roles_json, active, updated_at_utc)
+            VALUES (?, ?, ?, ?, ?, now())
+            ON CONFLICT (username) DO UPDATE
+            SET display_name = EXCLUDED.display_name,
+                email = EXCLUDED.email,
+                global_roles_json = EXCLUDED.global_roles_json,
+                active = EXCLUDED.active,
+                updated_at_utc = now()")
+      username
+      (or (non-blank-str display_name) username)
+      (non-blank-str email)
+      (encode-roles global_roles)
+      (boolean active)])
+    (with-global-roles
+      (jdbc/execute-one!
+       (db-opts db/ds)
+       [(str "SELECT * FROM " user-table " WHERE username = ?") username]))))
+
+(defn get-user
+  [username]
+  (ensure-control-plane-tables!)
+  (when-let [row (jdbc/execute-one!
+                  (db-opts db/ds)
+                  [(str "SELECT * FROM " user-table " WHERE username = ?")
+                   (non-blank-str username)])]
+    (with-global-roles row)))
+
+(defn list-users
+  []
+  (ensure-control-plane-tables!)
+  (->> (jdbc/execute! (db-opts db/ds)
+                      [(str "SELECT * FROM " user-table " ORDER BY username ASC")])
+       (mapv with-global-roles)))
+
+(defn upsert-workspace-member!
+  [{:keys [workspace_key username role active]
+    :or {role "viewer"
+         active true}}]
+  (ensure-control-plane-tables!)
+  (let [workspace-key (or (non-blank-str workspace_key) default-workspace-key)
+        username      (non-blank-str username)
+        role          (-> (or (non-blank-str role) "viewer") string/lower-case)]
+    (when-not username
+      (throw (ex-info "username is required" {:status 400})))
+    (when-not (contains? #{"viewer" "editor" "admin"} role)
+      (throw (ex-info "role must be viewer, editor, or admin"
+                      {:status 400
+                       :role role})))
+    (when-not (get-user username)
+      (throw (ex-info "User not found" {:status 404 :username username})))
+    (workspace-context workspace-key {:required? true})
+    (jdbc/execute!
+     db/ds
+     [(str "INSERT INTO " workspace-member-table "
+            (workspace_key, username, role, active, updated_at_utc)
+            VALUES (?, ?, ?, ?, now())
+            ON CONFLICT (workspace_key, username) DO UPDATE
+            SET role = EXCLUDED.role,
+                active = EXCLUDED.active,
+                updated_at_utc = now()")
+      workspace-key
+      username
+      role
+      (boolean active)])
+    (jdbc/execute-one!
+     (db-opts db/ds)
+     [(str "SELECT wm.*, u.display_name, u.email
+            FROM " workspace-member-table " wm
+            JOIN " user-table " u ON u.username = wm.username
+            WHERE wm.workspace_key = ? AND wm.username = ?")
+      workspace-key
+      username])))
+
+(defn workspace-member
+  [workspace-key username]
+  (ensure-control-plane-tables!)
+  (let [workspace-key (or (non-blank-str workspace-key) default-workspace-key)
+        username (non-blank-str username)]
+    (when (and username workspace-key)
+    (jdbc/execute-one!
+     (db-opts db/ds)
+     [(str "SELECT wm.*, u.display_name, u.email, u.global_roles_json
+            FROM " workspace-member-table " wm
+            JOIN " user-table " u ON u.username = wm.username
+            WHERE wm.workspace_key = ? AND wm.username = ?")
+      workspace-key
+      username]))))
+
+(defn list-workspace-members
+  [workspace-key]
+  (ensure-control-plane-tables!)
+  (jdbc/execute!
+   (db-opts db/ds)
+   [(str "SELECT wm.*, u.display_name, u.email, u.global_roles_json
+          FROM " workspace-member-table " wm
+          JOIN " user-table " u ON u.username = wm.username
+          WHERE wm.workspace_key = ?
+          ORDER BY wm.role DESC, wm.username ASC")
+    (or (non-blank-str workspace-key) default-workspace-key)]))
+
+(defn user-workspace-memberships
+  [username]
+  (ensure-control-plane-tables!)
+  (jdbc/execute!
+   (db-opts db/ds)
+   [(str "SELECT wm.workspace_key, wm.role, wm.active, w.workspace_name, w.tenant_key
+          FROM " workspace-member-table " wm
+          JOIN " workspace-table " w ON w.workspace_key = wm.workspace_key
+          WHERE wm.username = ?
+          ORDER BY wm.workspace_key ASC")
+    (non-blank-str username)]))
+
+(defn record-connection-health!
+  [{:keys [conn_id status error_message]}]
+  (ensure-control-plane-tables!)
+  (let [conn-id (long conn_id)
+        status  (-> (or (non-blank-str status) "unknown") string/lower-case)]
+    (jdbc/execute!
+     db/ds
+     [(str "INSERT INTO " connection-health-table "
+            (conn_id, status, checked_at_utc, error_message, updated_at_utc)
+            VALUES (?, ?, now(), ?, now())
+            ON CONFLICT (conn_id) DO UPDATE
+            SET status = EXCLUDED.status,
+                checked_at_utc = EXCLUDED.checked_at_utc,
+                error_message = EXCLUDED.error_message,
+                updated_at_utc = now()")
+      conn-id
+      status
+      (non-blank-str error_message)])
+    (jdbc/execute-one!
+     (db-opts db/ds)
+     [(str "SELECT * FROM " connection-health-table " WHERE conn_id = ?") conn-id])))
+
+(defn get-connection-health
+  [conn-id]
+  (ensure-control-plane-tables!)
+  (when conn-id
+    (jdbc/execute-one!
+     (db-opts db/ds)
+     [(str "SELECT * FROM " connection-health-table " WHERE conn_id = ?")
+      (long conn-id)])))
 
 (defn upsert-tenant!
   [{:keys [tenant_key tenant_name max_concurrent_requests max_queued_requests weight active metering_enabled]
@@ -440,7 +680,8 @@
                        :expected_version expected-version
                        :current_version current-version
                        :status 409})))
-    (let [saved     (db/insert-graph! tx g)
+    (let [versioned-g (assoc-in g [:a :v] (long (or current-version 0)))
+          saved     (db/insert-graph! tx versioned-g)
           saved-id  (get-in saved [:a :id])
           workspace (if-let [requested-workspace (non-blank-str workspace-key)]
                       (:workspace_key (workspace-context* tx requested-workspace {:required? true}))

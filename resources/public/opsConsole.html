@@ -4,10 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bitool — Operations Console</title>
-  <link rel="stylesheet" href="opsConsole.css">
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-  </style>
+  <link rel="stylesheet" href="opsConsole.css?v=20260410">
 </head>
 <body class="ops-body">
 
@@ -90,10 +87,6 @@
     </div>
     <select class="ops-select" id="pipelineSelect">
       <option>All Pipelines</option>
-      <option>orders-api-bronze</option>
-      <option>kafka-events-bronze</option>
-      <option>sftp-mainframe-bronze</option>
-      <option>github-prs-bronze</option>
     </select>
     <select class="ops-select" id="timeRange">
       <option>Last 1 hour</option>
@@ -317,6 +310,26 @@
         </div>
       </div>
 
+      <!-- API Sources -->
+      <div class="ops-panel">
+        <div class="ops-panel-header">
+          <div class="ops-panel-title"><span class="panel-icon">&#127760;</span> API Sources</div>
+        </div>
+        <div class="table-wrap">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>Endpoint</th><th>Source</th><th>Target Table</th>
+                <th>Last Run</th><th>Duration</th><th>Rows</th>
+                <th>Freshness</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="apiSourceBody">
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Kafka Sources -->
       <div class="ops-panel">
         <div class="ops-panel-header">
@@ -351,26 +364,6 @@
               </tr>
             </thead>
             <tbody id="fileSourceBody">
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- API Sources -->
-      <div class="ops-panel">
-        <div class="ops-panel-header">
-          <div class="ops-panel-title"><span class="panel-icon">&#127760;</span> API Sources</div>
-        </div>
-        <div class="table-wrap">
-          <table class="ops-table">
-            <thead>
-              <tr>
-                <th>Endpoint</th><th>Source</th><th>Target Table</th>
-                <th>Last Run</th><th>Duration</th><th>Rows</th>
-                <th>Freshness</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="apiSourceBody">
             </tbody>
           </table>
         </div>
@@ -705,9 +698,6 @@
       <div class="ops-panel">
         <div class="ops-panel-header">
           <div class="ops-panel-title"><span class="panel-icon">&#9733;</span> Medallion Freshness Chain</div>
-          <select class="ops-select">
-            <option>orders-api</option><option>events-stream</option>
-          </select>
         </div>
         <div class="freshness-chain" id="freshnessChain"></div>
       </div>
@@ -908,8 +898,24 @@
     </div>
 
   </div><!-- /ops-content -->
+
+  <!-- ══════════════════════════════════════════════════════
+       CORRELATION DRILL-DOWN OVERLAY
+       ══════════════════════════════════════════════════════ -->
+  <div id="correlationOverlay" class="ops-overlay" style="display:none">
+    <div class="ops-overlay-panel">
+      <div class="ops-panel-header">
+        <div class="ops-panel-title"><span class="panel-icon">&#128269;</span> <span id="correlationTitle">Request Correlation</span></div>
+        <button class="ops-btn sm" onclick="document.getElementById('correlationOverlay').style.display='none'">Close</button>
+      </div>
+      <div class="ops-panel-body padded" id="correlationContent">
+        <div style="color:var(--text-secondary);padding:16px">Loading...</div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /ops-main -->
 
-<script src="opsConsole.js"></script>
+<script src="opsConsole.js?v=20260410"></script>
 </body>
 </html>

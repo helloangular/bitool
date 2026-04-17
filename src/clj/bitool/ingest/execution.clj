@@ -557,13 +557,18 @@
                        :status 409})))))
 
 (defn- enqueue-request!
-  [request-kind graph-id node-id {:keys [environment endpoint-name trigger-type request-params max-retries workspace-key request-key-override tx-context-resolver]}]
+  [request-kind graph-id node-id {:keys [environment endpoint-name trigger-type request-params max-retries workspace-key request-key-override tx-context-resolver force-new?]}]
   (let [environment                (or environment "default")
         endpoint-name              (normalize-endpoint-name endpoint-name)
         trigger-type               (or trigger-type "manual")
-        request-key                (or request-key-override
-                                       (string/join "::" [(name request-kind) graph-id node-id environment (or endpoint-name "")]))
         request-id                 (UUID/randomUUID)
+        request-key                (or request-key-override
+                                       (string/join "::" [(name request-kind)
+                                                          graph-id
+                                                          node-id
+                                                          environment
+                                                          (or endpoint-name "")
+                                                          (when force-new? (str request-id))]))
         run-id                     (UUID/randomUUID)
         request-params             (or request-params {})
         max-retries                (max 0 (int (or max-retries (default-max-retries request-kind))))
@@ -619,9 +624,11 @@
           (validate-enqueue-context! graph-id workspace-context)
           (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" (:tenant_key workspace-context)])
           (jdbc/execute! tx ["SELECT pg_advisory_xact_lock(hashtext(?))" (:workspace_key workspace-context)])
-          (if-let [existing (active-request-by-key tx request-key)]
+          (if-let [existing (when-not force-new?
+                              (active-request-by-key tx request-key))]
             (request->response existing)
-            (if-let [overlap (when (contains? #{:api :kafka :file} request-kind)
+            (if-let [overlap (when (and (not force-new?)
+                                        (contains? #{:api :kafka :file} request-kind))
                                (active-source-request-overlap tx request-kind graph-id node-id environment endpoint-name))]
               (if (nil? endpoint-name)
                 (throw (ex-info (str (string/upper-case (name request-kind))
@@ -726,6 +733,7 @@
   (enqueue-request! :api graph-id api-node-id
                     {:environment (:environment opts)
                      :endpoint-name endpoint-name
+                     :force-new? (:force-new? opts)
                      :trigger-type (:trigger-type opts)
                      :workspace-key (:workspace-key opts)
                      :max-retries (:max-retries opts)
@@ -1362,6 +1370,14 @@
   (let [request-params (parse-json-safe (:request_params request-row))
         request-kind  (:request_kind request-row)
         handler       (plugins/resolve-execution-handler request-kind)]
+    (log/error "Execution worker starting request"
+               {:request_id (:request_id request-row)
+                :run_id (find-run-id (:request_id request-row))
+                :request_kind request-kind
+                :graph_id (:graph_id request-row)
+                :node_id (:node_id request-row)
+                :endpoint_name (:endpoint_name request-row)
+                :trigger_type (:trigger_type request-row)})
     (when-not handler
       (throw (ex-info "Unsupported execution request kind" {:request_kind request-kind
                                                             :failure_class "config_error"})))
@@ -1458,6 +1474,38 @@
                  :run-id run-id
                  :status status}))))
 
+(defn- chain-next-step!
+  "If the just-completed request carries a `:chain` payload in its request_params,
+   enqueue the next step (silver_release or gold_release) and forward the rest
+   of the chain. Steps run sequentially; failure to advance is logged but never
+   propagated to the worker."
+  [request-row]
+  (try
+    (let [params (parse-json-safe (:request_params request-row))
+          chain  (or (:chain params) (get params "chain"))
+          steps  (when chain (or (:steps chain) (get chain "steps")))]
+      (when (seq steps)
+        (let [created-by (or (:created_by chain) (get chain "created_by") "system")
+              [next-step & rest-steps] steps
+              next-kind  (keyword (or (:kind next-step) (get next-step "kind")))
+              binding    (or (:binding next-step) (get next-step "binding"))
+              next-chain (when (seq rest-steps)
+                           {:chain {:steps      (vec rest-steps)
+                                    :created_by created-by}})
+              opts       {:trigger-type   "auto-chain"
+                          :created-by     created-by
+                          :workspace-key  (:workspace_key request-row)
+                          :request-params next-chain}]
+          (case next-kind
+            :silver_release (enqueue-silver-release-request! binding opts)
+            :gold_release   (enqueue-gold-release-request! binding opts)
+            (log/warn "Unknown chain step kind, skipping"
+                      {:kind next-kind
+                       :request_id (:request_id request-row)})))))
+    (catch Exception e
+      (log/error e "Failed to advance auto-publish chain"
+                 {:request_id (:request_id request-row)}))))
+
 (defn process-next-request!
   []
   (sweep-expired-leases! (parse-int-env :execution-lease-sweeper-max-per-poll 5))
@@ -1496,7 +1544,8 @@
                                  true))]
               ((:stop heartbeat))
               (when completed?
-                (maybe-record-usage! request-row run-id "succeeded" nil result))
+                (maybe-record-usage! request-row run-id "succeeded" nil result)
+                (chain-next-step! request-row))
               {:processed? completed?
                :request_id (str (:request_id request-row))
                :run_id (str run-id)

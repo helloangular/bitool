@@ -105,6 +105,25 @@ class PatternMatchEditor extends HTMLElement {
         container.querySelector('input[name="group"]').value = "";
     }
 
+    clearHeaderInputs() {
+        const firstSection = this.shadowRoot.querySelector('.section');
+        firstSection.querySelectorAll('input[type="text"], select').forEach((el) => {
+            el.remove();
+        });
+    }
+
+    loadHeaders(headers = []) {
+        this.clearHeaderInputs();
+        const firstSection = this.shadowRoot.querySelector('.section');
+        headers.forEach((value) => {
+            const input = document.createElement("input");
+            input.type = "text";
+            input.classList.add("margin-left");
+            input.value = value || "";
+            firstSection.insertBefore(input, this.addColumnBtn);
+        });
+    }
+
     collectData() {
         const branches = [];
         // First pattern from main fields
@@ -137,6 +156,7 @@ class PatternMatchEditor extends HTMLElement {
     loadData(data) {
         const branches = data.branches || [];
         while (this.list.firstChild) this.list.removeChild(this.list.firstChild);
+        this.loadHeaders(data.headers || []);
 
         if (branches.length > 0) {
             this.shadowRoot.querySelector('input[name="guard"]').value = branches[0].guard || "";

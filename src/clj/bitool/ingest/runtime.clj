@@ -21,7 +21,8 @@
             [clojure.tools.logging :as log]
             [mount.core :as mount]
             [next.jdbc :as jdbc]
-            [next.jdbc.result-set :as rs])
+            [next.jdbc.result-set :as rs]
+            [taoensso.telemere :as tel])
   (:import [java.security MessageDigest]
            [java.math BigInteger]
            [java.nio.file Files]
@@ -620,8 +621,40 @@
       (re-matches #"^[a-z_].*" sanitized) sanitized
       :else (str "t_" sanitized))))
 
+(defn- target-dbtype
+  [target]
+  (some-> (or (:target_kind target)
+              (:dbtype target))
+          str
+          string/lower-case))
+
+(defn- table-name-parts
+  [table-name]
+  (let [table-name (some-> table-name str string/trim)]
+    (when (seq table-name)
+      (let [parts (->> (string/split table-name #"\.")
+                       (remove string/blank?)
+                       vec)]
+        {:part_count (count parts)
+         :parts parts
+         :table (peek parts)}))))
+
+(defn- normalize-explicit-endpoint-table-name
+  [target table-name]
+  (let [{:keys [part_count table]} (table-name-parts table-name)
+        dbtype (target-dbtype target)]
+    (cond
+      (string/blank? (str table-name)) nil
+      (and (contains? #{"postgresql" "mysql" "oracle" "sqlserver"} dbtype)
+           (= 3 part_count))
+      (db/fully-qualified-table-name target table)
+      :else
+      (str table-name))))
+
 (defn- endpoint->table-name [target endpoint]
-  (or (non-blank-str (:bronze_table_name endpoint))
+  (or (when-let [explicit (non-blank-str (:bronze_table_name endpoint))]
+        (some-> (normalize-explicit-endpoint-table-name target explicit)
+                non-blank-str))
       (when-let [target-table (non-blank-str (:table_name target))]
         (db/fully-qualified-table-name target target-table))
       (db/fully-qualified-table-name target (auto-endpoint-table-name endpoint))))
@@ -1422,20 +1455,38 @@
 (defonce ^:private tables-confirmed-per-run (atom #{}))
 (defonce ^:private current-run-id-for-cache (atom nil))
 
+(defn- table-shape-signature
+  [columns opts]
+  {:columns (mapv (fn [{:keys [column_name data_type is_nullable]}]
+                    {:column_name column_name
+                     :data_type data_type
+                     :is_nullable is_nullable})
+                  (vec (or columns [])))
+   :partition-columns (vec (or (:partition-columns opts) []))})
+
+(defn- invalidate-confirmed-table-cache!
+  [conn-id table-name]
+  (let [qualified-table-name (validated-qualified-table-name table-name)]
+    (swap! tables-confirmed-per-run
+           (fn [entries]
+             (set (remove (fn [entry]
+                            (and (= conn-id (nth entry 0 nil))
+                                 (= qualified-table-name (nth entry 1 nil))))
+                          entries))))
+    (delete-local-table-confirmed! conn-id qualified-table-name)
+    nil))
+
 (defn- ensure-table! [conn-id table-name columns opts]
   (when-not conn-id
     (throw (ex-info "Target connection_id is missing or invalid"
                     {:table_name table-name
                      :status 400})))
   (let [qualified-table-name (validated-qualified-table-name table-name)
-        cache-key [conn-id qualified-table-name]]
+        cache-key [conn-id qualified-table-name (table-shape-signature columns opts)]]
     (when-not (contains? @tables-confirmed-per-run cache-key)
-      (if (local-table-confirmed? conn-id qualified-table-name)
-        (swap! tables-confirmed-per-run conj cache-key)
-        (do
-          (db/create-table! conn-id nil qualified-table-name columns opts)
-          (swap! tables-confirmed-per-run conj cache-key)
-          (cache-local-table-confirmed! conn-id qualified-table-name))))))
+      (db/create-table! conn-id nil qualified-table-name columns opts)
+      (swap! tables-confirmed-per-run conj cache-key)
+      (cache-local-table-confirmed! conn-id qualified-table-name))))
 
 (defn clear-confirmed-table-cache!
   []
@@ -1502,19 +1553,31 @@
   (jdbc/with-options conn {:builder-fn rs/as-unqualified-lower-maps}))
 
 (defn- insert-rows-in-current-opts!
-  [opts table-name rows]
+  [opts table-name rows & {:keys [databricks?]}]
   (when (seq rows)
     (let [table-name    (validated-qualified-table-name table-name)
           row-keys      (vec (keys (first rows)))
-          column-names  (mapv (comp validated-sql-identifier key-name) row-keys)
-          row-count     (count rows)
-          col-count     (count column-names)
-          row-values-sql (str "(" (string/join ", " (repeat col-count "?")) ")")
-          sql-str       (str "INSERT INTO " table-name
-                             " (" (string/join ", " column-names) ") VALUES "
-                             (string/join ", " (repeat row-count row-values-sql)))
-          flat-params   (vec (mapcat (fn [row] (mapv #(get row %) row-keys)) rows))]
-      (jdbc/execute! opts (into [sql-str] flat-params)))))
+          column-names  (mapv (comp validated-sql-identifier key-name) row-keys)]
+      (if databricks?
+        ;; Databricks JDBC cannot bind null params without type hints,
+        ;; so we build literal SQL values instead of using ? placeholders.
+        (let [row-literals (fn [row]
+                             (str "(" (string/join ", "
+                                       (mapv #(databricks-sql-literal-local (get row %)) row-keys))
+                                  ")"))
+              sql-str     (str "INSERT INTO " table-name
+                               " (" (string/join ", " column-names) ") VALUES "
+                               (string/join ", " (map row-literals rows)))]
+          (jdbc/execute! opts [sql-str]))
+        ;; Standard parameterized insert for other warehouses
+        (let [row-count     (count rows)
+              col-count     (count column-names)
+              row-values-sql (str "(" (string/join ", " (repeat col-count "?")) ")")
+              sql-str       (str "INSERT INTO " table-name
+                                 " (" (string/join ", " column-names) ") VALUES "
+                                 (string/join ", " (repeat row-count row-values-sql)))
+              flat-params   (vec (mapcat (fn [row] (mapv #(get row %) row-keys)) rows))]
+          (jdbc/execute! opts (into [sql-str] flat-params)))))))
 
 (defn- load-rows! [conn-id table-name rows]
   (when (seq rows)
@@ -1567,7 +1630,8 @@
         :sf_on_error (get-in *row-load-context* [:target :sf_on_error])
         :sf_purge (get-in *row-load-context* [:target :sf_purge])})
       (if *batch-sql-opts*
-      (insert-rows-in-current-opts! (sql-opts conn-id) table-name rows)
+      (insert-rows-in-current-opts! (sql-opts conn-id) table-name rows
+                                    :databricks? (databricks-target? conn-id))
       (db/load-rows! conn-id nil table-name rows (key->col (first rows))))))))
 
 (defn- fetch-checkpoint [conn-id table-name source-system endpoint-name]
@@ -1595,10 +1659,17 @@
 
 (defn- replace-row! [conn-id table-name key-cols row]
   (let [table-name  (validated-qualified-table-name table-name)
-        where-sql  (string/join " AND " (map #(str (validated-sql-identifier %) " = ?") key-cols))
-        where-vals (mapv row key-cols)
-        opts       (sql-opts conn-id)]
-    (jdbc/execute! opts (into [(str "DELETE FROM " table-name " WHERE " where-sql)] where-vals))
+        opts        (sql-opts conn-id)]
+    (if (databricks-target? conn-id)
+      (let [where-sql (string/join " AND "
+                                   (map #(str (validated-sql-identifier %)
+                                              " = "
+                                              (databricks-sql-literal-local (row %)))
+                                        key-cols))]
+        (jdbc/execute! opts [(str "DELETE FROM " table-name " WHERE " where-sql)]))
+      (let [where-sql  (string/join " AND " (map #(str (validated-sql-identifier %) " = ?") key-cols))
+            where-vals (mapv row key-cols)]
+        (jdbc/execute! opts (into [(str "DELETE FROM " table-name " WHERE " where-sql)] where-vals))))
     (load-rows! conn-id table-name [row])))
 
 (defn- update-row-by-key!
@@ -1637,8 +1708,7 @@
       (catch java.sql.SQLException e
         ;; Table may not exist yet (first run or dropped externally) — safe to skip
         (if (re-find #"(?i)TABLE_OR_VIEW_NOT_FOUND|does not exist|42P01" (.getMessage e))
-          (do (swap! tables-confirmed-per-run disj [conn-id table-name])
-              (delete-local-table-confirmed! conn-id table-name)
+          (do (invalidate-confirmed-table-cache! conn-id table-name)
               nil)
           (throw e))))))
 
@@ -4386,33 +4456,76 @@
                            :retry-count (or (get-in page [:response :retry_count])
                                             (get-in page [:response :retry-count]))}}))))
 
+(defn- log-endpoint-run-start!
+  [{:keys [graph-id node-id source-kind source-system endpoint-name run-id request-url replay-run-id]}]
+  (log/error "Endpoint ingestion started"
+             {:graph_id graph-id
+              :node_id node-id
+              :source_kind (some-> source-kind name)
+              :source_system source-system
+              :endpoint_name endpoint-name
+              :run_id run-id
+              :request_url request-url
+              :replay_source_run_id replay-run-id}))
+
+(defn- log-endpoint-run-finish!
+  [{:keys [graph-id node-id source-kind source-system endpoint-name run-id status
+           rows-written rows-extracted bad-records pages-fetched retry-count
+           duration-ms failure-class error]}]
+  (log/error "Endpoint ingestion finished"
+             (cond-> {:graph_id graph-id
+                      :node_id node-id
+                      :source_kind (some-> source-kind name)
+                      :source_system source-system
+                      :endpoint_name endpoint-name
+                      :run_id run-id
+                      :status status
+                      :rows_written (long (or rows-written 0))
+                      :rows_extracted (long (or rows-extracted 0))
+                      :bad_records (long (or bad-records 0))
+                      :pages_fetched (long (or pages-fetched 0))
+                      :retry_count (long (or retry-count 0))
+                      :duration_ms (long (or duration-ms 0))}
+               failure-class (assoc :failure_class failure-class)
+               error (assoc :error error))))
+
+(defn- log-api-run-stage!
+  [{:keys [graph-id api-node-id stage status endpoint-count extra]}]
+  (log/error "API ingest run stage"
+             (merge {:graph_id graph-id
+                     :api_node_id api-node-id
+                     :stage stage
+                     :status status}
+                    (when (some? endpoint-count)
+                      {:endpoint_count endpoint-count})
+                    (or extra {}))))
+
 (defn- log-api-run-summary!
   [{:keys [graph-id api-node-id source-system status run-timings results]}]
-  (when (ingest-summary-logging-enabled?)
-    (let [rows-written (reduce + 0 (map #(long (or (:rows_written %) 0)) results))
-          bad-records  (reduce + 0 (map #(long (or (:bad_records %) 0)) results))
-          batches      (reduce + 0 (map #(long (or (:batch_count %) 0)) results))
-          batch-commit (reduce + 0 (map #(long (or (get-in % [:timings :batch_commit_ms]) 0)) results))
-          checkpoint   (reduce + 0 (map #(long (or (get-in % [:timings :checkpoint_lookup_ms]) 0)) results))
-          snapshot     (reduce + 0 (map #(long (or (get-in % [:timings :schema_snapshot_ms]) 0)) results))
-          endpoint-ms  (reduce + 0 (map #(long (or (get-in % [:timings :endpoint_total_ms]) 0)) results))
-          stale-skips  (reduce + 0 (map #(long (or (get-in % [:timings :stale_batch_skip_count]) 0)) results))
-          endpoint-names (mapv :endpoint_name results)]
-      (log/debug "API ingest run summary"
-                 {:graph_id graph-id
-                  :api_node_id api-node-id
-                  :source_system source-system
-                  :status status
-                  :run_total_ms (long (or (:run_total_ms run-timings) 0))
-                  :endpoints_total_ms (long (or (:endpoints_total_ms run-timings) endpoint-ms))
-                  :rows_written rows-written
-                  :bad_records bad-records
-                  :batch_count batches
-                  :batch_commit_ms batch-commit
-                  :checkpoint_lookup_ms checkpoint
-                  :schema_snapshot_ms snapshot
-                  :stale_batch_skip_count stale-skips
-                  :endpoint_names endpoint-names}))))
+  (let [rows-written (reduce + 0 (map #(long (or (:rows_written %) 0)) results))
+        bad-records  (reduce + 0 (map #(long (or (:bad_records %) 0)) results))
+        batches      (reduce + 0 (map #(long (or (:batch_count %) 0)) results))
+        batch-commit (reduce + 0 (map #(long (or (get-in % [:timings :batch_commit_ms]) 0)) results))
+        checkpoint   (reduce + 0 (map #(long (or (get-in % [:timings :checkpoint_lookup_ms]) 0)) results))
+        snapshot     (reduce + 0 (map #(long (or (get-in % [:timings :schema_snapshot_ms]) 0)) results))
+        endpoint-ms  (reduce + 0 (map #(long (or (get-in % [:timings :endpoint_total_ms]) 0)) results))
+        stale-skips  (reduce + 0 (map #(long (or (get-in % [:timings :stale_batch_skip_count]) 0)) results))
+        endpoint-names (mapv :endpoint_name results)]
+    (log/error "API ingest run summary"
+               {:graph_id graph-id
+                :api_node_id api-node-id
+                :source_system source-system
+                :status status
+                :run_total_ms (long (or (:run_total_ms run-timings) 0))
+                :endpoints_total_ms (long (or (:endpoints_total_ms run-timings) endpoint-ms))
+                :rows_written rows-written
+                :bad_records bad-records
+                :batch_count batches
+                :batch_commit_ms batch-commit
+                :checkpoint_lookup_ms checkpoint
+                :schema_snapshot_ms snapshot
+                :stale_batch_skip_count stale-skips
+                :endpoint_names endpoint-names})))
 
 (defn- apply-replay-pages
   [run-id source-system request-url started-at endpoint buffer state pages]
@@ -5162,6 +5275,12 @@
   ([graph-id api-node-id] (run-api-node! graph-id api-node-id {}))
   ([graph-id api-node-id {:keys [endpoint-name] :as replay-opts}]
   (reset-table-cache-for-run! (str graph-id "-" api-node-id "-" (System/currentTimeMillis)))
+  (log-api-run-stage! {:graph-id graph-id
+                       :api-node-id api-node-id
+                       :stage "run_start"
+                       :status "started"
+                       :extra {:endpoint_name endpoint-name
+                               :replay_source_run_id (replay-source-run-id replay-opts)}})
   (let [run-start       (now-nanos)
          run-timings*   (volatile! {})
          run-time-step! (fn [k f]
@@ -5169,24 +5288,64 @@
                                 result  (f)]
                             (vswap! run-timings* assoc k (elapsed-ms started))
                             result))
+         _             (log-api-run-stage! {:graph-id graph-id
+                                            :api-node-id api-node-id
+                                            :stage "graph_load"
+                                            :status "started"})
          g             (run-time-step! :graph_load_ms #(db/getGraph graph-id))
+         _             (log-api-run-stage! {:graph-id graph-id
+                                            :api-node-id api-node-id
+                                            :stage "graph_load"
+                                            :status "completed"})
+         _             (log-api-run-stage! {:graph-id graph-id
+                                            :api-node-id api-node-id
+                                            :stage "api_node_load"
+                                            :status "started"})
          api-node      (run-time-step! :api_node_load_ms #(g2/getData g api-node-id))
+         _             (log-api-run-stage! {:graph-id graph-id
+                                            :api-node-id api-node-id
+                                            :stage "api_node_load"
+                                            :status "completed"})
+         _             (log-api-run-stage! {:graph-id graph-id
+                                            :api-node-id api-node-id
+                                            :stage "target_resolution"
+                                            :status "started"})
          target        (run-time-step! :target_resolution_ms #(find-downstream-target g api-node-id))
+         _             (log-api-run-stage! {:graph-id graph-id
+                                            :api-node-id api-node-id
+                                            :stage "target_resolution"
+                                            :status "completed"
+                                            :extra {:target_type (:table_type target)}})
+         _             (log-api-run-stage! {:graph-id graph-id
+                                            :api-node-id api-node-id
+                                            :stage "connection_resolution"
+                                            :status "started"})
          conn-id       (run-time-step! :target_connection_resolution_ms
                                        #(require-target-connection-id! target
                                                                        "No downstream target connection found for API node"
                                                                        {:graph_id graph-id
                                                                         :api_node_id api-node-id}))
+         _             (log-api-run-stage! {:graph-id graph-id
+                                            :api-node-id api-node-id
+                                            :stage "connection_resolution"
+                                            :status "completed"
+                                            :extra {:connection_id conn-id}})
          source-system (or (:source_system api-node) "samara")
          auth          (run-time-step! :auth_resolution_ms #(resolve-auth-ref (:auth_ref api-node)))
          endpoints     (run-time-step! :endpoint_selection_ms
                                        (fn []
                                          (->> (:endpoint_configs api-node)
-                                              (filter :enabled)
-                                              (filter (fn [cfg]
-                                                        (if endpoint-name
-                                                          (= endpoint-name (:endpoint_name cfg))
+                                             (filter :enabled)
+                                             (filter (fn [cfg]
+                                                       (if endpoint-name
+                                                         (= endpoint-name (:endpoint_name cfg))
                                                           true))))))
+         _               (log-api-run-stage! {:graph-id graph-id
+                                              :api-node-id api-node-id
+                                              :stage "endpoint_selection"
+                                              :status "completed"
+                                              :endpoint-count (count endpoints)
+                                              :extra {:endpoint_name endpoint-name}})
          checkpoint-table (validated-qualified-table-name (audit-table target conn-id "ingestion_checkpoint"))
          run-detail-table (validated-qualified-table-name (audit-table target conn-id "endpoint_run_detail"))
          bad-records-table (validated-qualified-table-name (audit-table target conn-id "bad_records"))
@@ -5205,26 +5364,141 @@
                        {:graph_id graph-id
                         :api_node_id api-node-id
                         :endpoint_name endpoint-name})))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "audit_table_setup"
+                          :status "started"
+                          :endpoint-count (count endpoints)})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "checkpoint_table_ensure"
+                          :status "started"
+                          :extra {:table checkpoint-table}})
      (run-time-step! :checkpoint_table_ensure_ms
                      #(ensure-table! conn-id checkpoint-table checkpoint/ingestion-checkpoint-columns {}))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "checkpoint_table_ensure"
+                          :status "completed"
+                          :extra {:table checkpoint-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "checkpoint_migration"
+                          :status "started"
+                          :extra {:table checkpoint-table}})
      (run-time-step! :checkpoint_migration_ms
                      #(ensure-checkpoint-columns! conn-id checkpoint-table))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "checkpoint_migration"
+                          :status "completed"
+                          :extra {:table checkpoint-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "run_detail_table_ensure"
+                          :status "started"
+                          :extra {:table run-detail-table}})
      (run-time-step! :run_detail_table_ensure_ms
                      #(ensure-table! conn-id run-detail-table endpoint-run-detail-columns {}))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "run_detail_table_ensure"
+                          :status "completed"
+                          :extra {:table run-detail-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "bad_records_table_ensure"
+                          :status "started"
+                          :extra {:table bad-records-table}})
      (run-time-step! :bad_records_table_ensure_ms
                      #(ensure-table! conn-id bad-records-table bronze/bad-record-columns {}))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "bad_records_table_ensure"
+                          :status "completed"
+                          :extra {:table bad-records-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "bad_record_migration"
+                          :status "started"
+                          :extra {:table bad-records-table}})
      (run-time-step! :bad_record_migration_ms
                      #(ensure-bad-record-columns! conn-id bad-records-table))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "bad_record_migration"
+                          :status "completed"
+                          :extra {:table bad-records-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "manifest_table_ensure"
+                          :status "started"
+                          :extra {:table manifest-table}})
      (run-time-step! :manifest_table_ensure_ms
                      #(ensure-table! conn-id manifest-table batch-manifest-columns {}))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "manifest_table_ensure"
+                          :status "completed"
+                          :extra {:table manifest-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "manifest_migration"
+                          :status "started"
+                          :extra {:table manifest-table}})
      (run-time-step! :manifest_migration_ms
                      #(ensure-batch-manifest-columns! conn-id manifest-table))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "manifest_migration"
+                          :status "completed"
+                          :extra {:table manifest-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "schema_snapshot_table_ensure"
+                          :status "started"
+                          :extra {:table schema-snapshot-table}})
      (run-time-step! :schema_snapshot_table_ensure_ms
                      #(ensure-table! conn-id schema-snapshot-table endpoint-schema-snapshot-columns {}))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "schema_snapshot_table_ensure"
+                          :status "completed"
+                          :extra {:table schema-snapshot-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "schema_approval_table_ensure"
+                          :status "started"
+                          :extra {:table schema-approval-table}})
      (run-time-step! :schema_approval_table_ensure_ms
                      #(ensure-table! conn-id schema-approval-table endpoint-schema-approval-columns {}))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "schema_approval_table_ensure"
+                          :status "completed"
+                          :extra {:table schema-approval-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "schema_approval_migration"
+                          :status "started"
+                          :extra {:table schema-approval-table}})
      (run-time-step! :schema_approval_migration_ms
                      #(ensure-schema-approval-columns! conn-id schema-approval-table))
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "schema_approval_migration"
+                          :status "completed"
+                          :extra {:table schema-approval-table}})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "audit_table_setup"
+                          :status "completed"
+                          :endpoint-count (count endpoints)})
+     (log-api-run-stage! {:graph-id graph-id
+                          :api-node-id api-node-id
+                          :stage "endpoint_loop"
+                          :status "starting"
+                          :endpoint-count (count endpoints)})
      (let [results
            (mapv
             (fn [endpoint]
@@ -5266,6 +5540,15 @@
                circuit-admission*  (atom nil)
                circuit-completed?  (atom false)]
            (try
+             (log-endpoint-run-start!
+              {:graph-id graph-id
+               :node-id api-node-id
+               :source-kind :api
+               :source-system source-system
+               :endpoint-name (:endpoint_name endpoint)
+               :run-id run-id
+               :request-url request-url
+               :replay-run-id replay-run-id})
              (when-not replay-run-id
                (reset! circuit-admission* (begin-source-circuit-request! source-system endpoint)))
              (let [fetch-result         (when-not replay-run-id
@@ -5501,6 +5784,20 @@
                               @timings*
                               (:timings stream-state)
                               {:endpoint_total_ms (elapsed-ms endpoint-start)})]
+                 (log-endpoint-run-finish!
+                  {:graph-id graph-id
+                   :node-id api-node-id
+                   :source-kind :api
+                   :source-system source-system
+                   :endpoint-name (:endpoint_name endpoint)
+                   :run-id run-id
+                   :status status
+                   :rows-written (:rows-written stream-state)
+                   :rows-extracted (:rows-extracted stream-state)
+                   :bad-records (:bad-records-total stream-state)
+                   :pages-fetched (:pages-fetched stream-state)
+                   :retry-count retry-count
+                   :duration-ms (:endpoint_total_ms timings)})
                  {:endpoint_name (:endpoint_name endpoint)
                   :run_id run-id
                   :status status
@@ -5561,13 +5858,29 @@
                                                  :run_id run-id
                                                  :error_message error-message
                                                  :now finished-at})))
-                     (catch Exception persist-error
-                       (log/error persist-error
-                                  "Failed to persist endpoint-level failure details"
-                                  {:graph_id graph-id
+                    (catch Exception persist-error
+                      (log/error persist-error
+                                 "Failed to persist endpoint-level failure details"
+                                 {:graph_id graph-id
                                    :api_node_id api-node-id
                                    :endpoint_name (:endpoint_name endpoint)
                                    :run_id run-id})))
+                   (log-endpoint-run-finish!
+                    {:graph-id graph-id
+                     :node-id api-node-id
+                     :source-kind :api
+                     :source-system source-system
+                     :endpoint-name (:endpoint_name endpoint)
+                     :run-id run-id
+                     :status "failed"
+                     :rows-written 0
+                     :rows-extracted 0
+                     :bad-records 0
+                     :pages-fetched 0
+                     :retry-count 0
+                     :duration-ms (elapsed-ms endpoint-start)
+                     :failure-class failure-class
+                     :error error-message})
                    {:endpoint_name (:endpoint_name endpoint)
                     :run_id run-id
                     :status "failed"
@@ -5662,6 +5975,7 @@
            (fn [config]
              (let [run-id         (str (UUID/randomUUID))
                    started-at     (now-utc)
+                   endpoint-start (now-nanos)
                    endpoint-name  (:endpoint_name config)
                    request-url    (source-run-request-url source-kind config)
                    checkpoint-row (fetch-checkpoint conn-id checkpoint-table source-system endpoint-name)
@@ -5669,6 +5983,14 @@
                    cancel*        (atom nil)
                    errors-ch*     (atom nil)]
                (try
+                 (log-endpoint-run-start!
+                  {:graph-id graph-id
+                   :node-id node-id
+                   :source-kind source-kind
+                   :source-system source-system
+                   :endpoint-name endpoint-name
+                   :run-id run-id
+                   :request-url request-url})
                  (when (string/blank? (str table-name-raw))
                    (throw (ex-info "Source config is missing bronze_table_name and target table_name"
                                    {:endpoint_name endpoint-name
@@ -5792,6 +6114,20 @@
                                                                     :changed_partition_dates committed-partition-dates})
                                          (catch Exception e
                                            {:trigger_error (.getMessage e)})))]
+                     (log-endpoint-run-finish!
+                      {:graph-id graph-id
+                       :node-id node-id
+                       :source-kind source-kind
+                       :source-system source-system
+                       :endpoint-name endpoint-name
+                       :run-id run-id
+                       :status status
+                       :rows-written (:rows-written stream-state)
+                       :rows-extracted (:rows-extracted stream-state)
+                       :bad-records (:bad-records-total stream-state)
+                       :pages-fetched (:pages-fetched stream-state)
+                       :retry-count retry-count
+                       :duration-ms (elapsed-ms endpoint-start)})
                      {:endpoint_name endpoint-name
                       :run_id run-id
                       :status status
@@ -5806,19 +6142,37 @@
                       :errors (count errors)}))
                  (catch Throwable t
                    (if continue-on-config-failure?
-                     {:endpoint_name endpoint-name
-                      :run_id run-id
-                      :status "failed"
-                      :rows_written 0
-                      :bad_records 0
-                      :batch_count 0
-                      :manifests []
-                      :retry_count 0
-                      :stop_reason nil
-                      :job_triggers nil
-                      :errors 1
-                      :failure_class (or (:failure_class (ex-data t)) "source_run_error")
-                      :error (or (ex-message t) (.getMessage t) "Source execution failed")}
+                     (let [failure-class (or (:failure_class (ex-data t)) "source_run_error")
+                           error-message (or (ex-message t) (.getMessage t) "Source execution failed")]
+                       (log-endpoint-run-finish!
+                        {:graph-id graph-id
+                         :node-id node-id
+                         :source-kind source-kind
+                         :source-system source-system
+                         :endpoint-name endpoint-name
+                         :run-id run-id
+                         :status "failed"
+                         :rows-written 0
+                         :rows-extracted 0
+                         :bad-records 0
+                         :pages-fetched 0
+                         :retry-count 0
+                         :duration-ms (elapsed-ms endpoint-start)
+                         :failure-class failure-class
+                         :error error-message})
+                       {:endpoint_name endpoint-name
+                        :run_id run-id
+                        :status "failed"
+                        :rows_written 0
+                        :bad_records 0
+                        :batch_count 0
+                        :manifests []
+                        :retry_count 0
+                        :stop_reason nil
+                        :job_triggers nil
+                        :errors 1
+                        :failure_class failure-class
+                        :error error-message})
                      (throw t)))
                  (finally
                    (cleanup-fetch-stream! @cancel* @errors-ch*)))))

@@ -1,6 +1,7 @@
 (ns bitool.pipeline.routes
   "API routes for intent-based pipeline creation."
   (:require [bitool.pipeline.intent :as intent]
+            [bitool.pipeline.deploy :as deploy]
             [bitool.pipeline.planner :as planner]
             [bitool.pipeline.compiler :as compiler]
             [bitool.pipeline.preview :as preview]
@@ -10,6 +11,8 @@
             [clojure.string :as string]
             [clojure.walk :as walk]
             [clojure.tools.logging :as log]))
+
+(def ^:private max-text-length 4000)
 
 (defn- apply-direct-edit
   "Try to apply common spec edits directly without LLM. Returns updated spec or nil."
@@ -64,6 +67,70 @@
   {:status  status
    :headers {"Content-Type" "application/json"}
    :body    (json/generate-string {:ok false :error error :message msg})})
+
+(defn- parse-bool-param
+  [value default]
+  (cond
+    (nil? value) default
+    (instance? Boolean value) value
+    :else
+    (let [normalized (some-> value str string/trim string/lower-case)]
+      (cond
+        (#{"true" "1" "yes" "on"} normalized) true
+        (#{"false" "0" "no" "off"} normalized) false
+        :else default))))
+
+(defn- parse-optional-int
+  [value]
+  (when (some? value)
+    (cond
+      (integer? value) value
+      :else (Integer/parseInt (str value)))))
+
+(defn- graph-id-of [result]
+  (or (get-in result [:bronze :graph_id])
+      (get-in result [:bronze :graph-id])
+      (:graph_id result)
+      (:graph-id result)))
+
+(defn- graph-version-of [result]
+  (or (get-in result [:scheduler :graph_version])
+      (get-in result [:scheduler :graph-version])
+      (get-in result [:bronze :graph_version])
+      (get-in result [:bronze :graph-version])
+      (:graph_version result)
+      (:graph-version result)
+      (:version result)))
+
+(defn- resolve-intent-and-spec
+  [params]
+  (let [spec     (some-> (or (:spec params) (get params "spec")) walk/keywordize-keys)
+        text     (some-> (or (:text params) (get params "text")) str)
+        input    (some-> text string/trim)
+        use-mock (parse-bool-param (or (:use_mock params) (get params "use_mock")) false)]
+    (cond
+      spec
+      {:intent nil
+       :spec spec}
+
+      (seq input)
+      (do
+        (when (> (count input) max-text-length)
+          (throw (ex-info "text is too long" {:status 413
+                                              :error "payload_too_large"
+                                              :max_length max-text-length})))
+        (let [intent (if use-mock
+                       (intent/parse-intent-mock input)
+                       (try
+                         (intent/parse-intent input)
+                         (catch Exception llm-err
+                           (log/warn llm-err "LLM intent parse failed during deploy, falling back to mock parser")
+                           (intent/parse-intent-mock input))))]
+          {:intent intent
+           :spec (planner/plan-pipeline intent)}))
+
+      :else
+      (throw (ex-info "spec or text is required" {:status 400 :error "bad_request"})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Route handlers
@@ -132,7 +199,7 @@
   (try
     (let [params        (merge (:params request) (:body-params request))
           spec          (or (:spec params) (get params "spec"))
-          connection-id (some-> (:connection_id params) int)
+          connection-id (parse-optional-int (:connection_id params))
           created-by    (or (:created_by params)
                             (get-in request [:session :user])
                             "system")
@@ -147,6 +214,50 @@
         (error-response (or (:status d) 400) (or (:error d) "bad_request") (ex-message e))))
     (catch Exception e
       (log/error e "Pipeline apply failed")
+      (error-response 500 "internal_error" (.getMessage e)))))
+
+(defn deploy-pipeline
+  "POST /pipeline/deploy
+   Body: {spec?: PipelineSpec, text?: string, connection_id?: int,
+          publish_releases?: bool, execute_releases?: bool, attach_schedule?: bool,
+          auto_publish?: bool}
+   `auto_publish=true` enqueues Bronze and chains Silver/Gold execution through
+   the worker queue (no manual review). Returns an end-to-end deployment summary."
+  [request]
+  (try
+    (let [params            (merge (:params request) (:body-params request))
+          {:keys [intent spec]} (resolve-intent-and-spec params)
+          created-by        (or (:created_by params)
+                                (get-in request [:session :user])
+                                "system")
+          connection-id     (parse-optional-int (:connection_id params))
+          publish-releases  (parse-bool-param (or (:publish_releases params) (get params "publish_releases")) true)
+          execute-releases  (parse-bool-param (or (:execute_releases params) (get params "execute_releases")) false)
+          attach-schedule   (parse-bool-param (or (:attach_schedule params) (get params "attach_schedule")) true)
+          auto-publish      (parse-bool-param (or (:auto_publish params) (get params "auto_publish")) false)
+          result            (deploy/deploy-pipeline! spec
+                                                    {:created-by created-by
+                                                     :connection-id connection-id
+                                                     :publish-releases publish-releases
+                                                     :execute-releases execute-releases
+                                                     :attach-schedule attach-schedule
+                                                     :auto-publish auto-publish})
+          prev              (preview/generate-preview spec)
+          gid               (graph-id-of result)
+          ver               (graph-version-of result)]
+      (-> (ok {:intent intent
+               :spec spec
+               :preview prev
+               :text (preview/preview-text prev)
+               :result result})
+          (assoc :session (assoc (:session request)
+                                 :gid gid
+                                 :ver ver))))
+    (catch clojure.lang.ExceptionInfo e
+      (let [d (ex-data e)]
+        (error-response (or (:status d) 400) (or (:error d) "bad_request") (ex-message e))))
+    (catch Exception e
+      (log/error e "Pipeline deploy failed")
       (error-response 500 "internal_error" (.getMessage e)))))
 
 (defn list-connectors
@@ -228,6 +339,7 @@
    ["/edit"                    {:post edit-pipeline}]
    ["/preview"                 {:post preview-pipeline}]
    ["/apply"                   {:post apply-pipeline}]
+   ["/deploy"                  {:post deploy-pipeline}]
    ["/connectors"              {:get list-connectors}]
    ["/connectors/:system"      {:get get-connector}]
    ["/metric-packages"         {:get list-metric-packages}]

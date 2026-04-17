@@ -865,3 +865,89 @@
               (is (contains? #{"succeeded" "timed_out"} (:status request-row)))
               (is (= (:status request-row) (:status run-row)))
               (is (not= "recovering_orphan" (:status request-row))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Phase 3 — chain-next-step! advances the auto-publish chain
+;; ---------------------------------------------------------------------------
+
+(deftest chain-next-step-enqueues-silver-then-forwards-remaining-chain
+  ;; A Bronze success carrying a {:chain {:steps [silver, gold]}} payload should
+  ;; enqueue the silver step and forward the gold step as that silver's chain.
+  (let [silver-calls (atom [])
+        gold-calls   (atom [])]
+    (with-redefs [execution/enqueue-silver-release-request!
+                  (fn [binding opts]
+                    (swap! silver-calls conj [binding opts])
+                    {:request_id "silver-req"})
+                  execution/enqueue-gold-release-request!
+                  (fn [binding opts]
+                    (swap! gold-calls conj [binding opts])
+                    {:request_id "gold-req"})]
+      (#'execution/chain-next-step!
+       {:request_id "bronze-req"
+        :workspace_key "ws-1"
+        :request_params (json/generate-string
+                         {:chain {:steps [{:kind "silver_release"
+                                            :binding {:mode "pinned" :pinned_release_id 110}}
+                                           {:kind "gold_release"
+                                            :binding {:mode "pinned" :pinned_release_id 220}}]
+                                  :created_by "harish"}})})
+      (is (= 1 (count @silver-calls)) "silver_release should be enqueued exactly once")
+      (is (zero? (count @gold-calls)) "gold should NOT be enqueued in this hop")
+      (let [[binding opts] (first @silver-calls)]
+        (is (= {:mode "pinned" :pinned_release_id 110} binding))
+        (is (= "auto-chain" (:trigger-type opts)))
+        (is (= "harish" (:created-by opts)))
+        (is (= "ws-1" (:workspace-key opts)))
+        ;; The remaining gold step is forwarded as the next chain. Kind stays
+        ;; as a string here — chain-next-step! re-coerces with `keyword` on the
+        ;; next hop, so this is normal.
+        (let [forwarded (get-in opts [:request-params :chain :steps])]
+          (is (= 1 (count forwarded)))
+          (is (= "gold_release" (:kind (first forwarded))))
+          (is (= 220 (get-in (first forwarded) [:binding :pinned_release_id]))))))))
+
+(deftest chain-next-step-enqueues-gold-when-only-gold-remains
+  (let [gold-calls (atom [])]
+    (with-redefs [execution/enqueue-silver-release-request!
+                  (fn [_ _] (throw (ex-info "should not be called" {})))
+                  execution/enqueue-gold-release-request!
+                  (fn [binding opts]
+                    (swap! gold-calls conj [binding opts])
+                    {:request_id "gold-req"})]
+      (#'execution/chain-next-step!
+       {:request_id "silver-req"
+        :request_params (json/generate-string
+                         {:chain {:steps [{:kind "gold_release"
+                                            :binding {:mode "pinned" :pinned_release_id 220}}]
+                                  :created_by "harish"}})})
+      (is (= 1 (count @gold-calls)))
+      (let [[_ opts] (first @gold-calls)]
+        ;; Last hop — no further chain to forward
+        (is (nil? (:request-params opts)))))))
+
+(deftest chain-next-step-no-op-when-no-chain
+  ;; Requests without a :chain payload (the common path) must not invoke any
+  ;; enqueue function and must not throw.
+  (with-redefs [execution/enqueue-silver-release-request!
+                (fn [_ _] (throw (ex-info "should not be called" {})))
+                execution/enqueue-gold-release-request!
+                (fn [_ _] (throw (ex-info "should not be called" {})))]
+    (is (nil? (#'execution/chain-next-step!
+               {:request_id "req-no-chain"
+                :request_params nil})))
+    (is (nil? (#'execution/chain-next-step!
+               {:request_id "req-empty-chain"
+                :request_params (json/generate-string {:chain {:steps []}})})))))
+
+(deftest chain-next-step-swallows-enqueue-failure
+  ;; A failure in chain advancement must not propagate — the parent run already
+  ;; succeeded, and chain failure is logged but never marks the parent failed.
+  (with-redefs [execution/enqueue-silver-release-request!
+                (fn [_ _] (throw (RuntimeException. "boom")))]
+    (is (nil? (#'execution/chain-next-step!
+               {:request_id "bronze-req"
+                :request_params (json/generate-string
+                                 {:chain {:steps [{:kind "silver_release"
+                                                    :binding {:mode "pinned"
+                                                              :pinned_release_id 110}}]}})})))))

@@ -192,6 +192,14 @@
           <span class="tooltiptext">Intent-Based Pipeline Builder</span>
         </div>
         <div class="tooltip">
+          <button onclick="toggleTransformChat()" class="btn-text">AI Graph</button>
+          <span class="tooltiptext">Generate Transform Graph</span>
+        </div>
+        <div class="tooltip">
+          <button onclick="toggleSessionControl()" class="btn-text">Session</button>
+          <span class="tooltiptext">Sign in and switch workspace</span>
+        </div>
+        <div class="tooltip">
           <button onclick="toggleModeling()" class="btn-text">Modeling</button>
           <span class="tooltiptext">Medallion Modeling Console</span>
         </div>
@@ -329,13 +337,13 @@
   <file-source-component style="height: 100vh; width: 70%; position: fixed; top: 0;right: 0;background-color: white;">
   </file-source-component>
 
-  <api-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 70%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
+  <api-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 86%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
   </api-component>
 
-  <api-connection-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 70%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
+  <api-connection-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 86%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
   </api-connection-component>
 
-  <endpoint-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 70%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
+  <endpoint-component style="height: calc(100vh - var(--toolbar-h, 48px)); width: 86%; position: fixed; top: var(--toolbar-h, 48px);right: 0;background-color: white; z-index: 100;">
   </endpoint-component>
 
   <modeling-console style="height: 100vh; width: 80%; position: fixed; top: 0; right: 0; background-color: white;">
@@ -405,6 +413,8 @@
   <workflow-dialog id="wfDialog"></workflow-dialog>
   <db-config-form-modal></db-config-form-modal>
   <connector-config-modal></connector-config-modal>
+  <session-control style="display:none; height: 100vh; width: 30%; position: fixed; top: 0; right: 0; background-color: white; z-index: 120;"></session-control>
+  <transform-chat></transform-chat>
   
   <script type="module" src="customWebComponent.js"></script>
   <script type="module" src="workflowDialog.js"></script>
@@ -452,7 +462,9 @@
   <script type="module" src="webhookComponent.js"></script>
   <script type="module" src="modelingConsole.js"></script>
   <script type="module" src="connectorConfigModal.js"></script>
+  <script type="module" src="sessionControl.js"></script>
   <script type="module" src="pipelineChatComponent.js"></script>
+  <script type="module" src="transformChatComponent.js"></script>
 
   <pipeline-chat></pipeline-chat>
 

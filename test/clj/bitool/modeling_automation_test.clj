@@ -1038,6 +1038,44 @@
     (is (re-find #"MERGE INTO `demo_project`\.`silver`\.`trip`" (:compiled_sql result)))
     (is (re-find #"bronze\.`distanceMiles` AS `distanceMiles`" (:select_sql result)))))
 
+(deftest compiler-emits-bigquery-physical-layout-for-table-replace
+  (let [result (compiler/compile-model {:target-warehouse :bigquery
+                                        :proposal-json {:target_table "demo_project.gold.trip_daily"
+                                                        :columns [{:target_column "event_date"
+                                                                   :expression "DATE(bronze.`event_time`)"
+                                                                   :type "DATE"
+                                                                   :source_columns ["event_time"]}
+                                                                  {:target_column "region"
+                                                                   :expression "bronze.`region`"
+                                                                   :type "STRING"
+                                                                   :source_columns ["region"]}
+                                                                  {:target_column "trip_count"
+                                                                   :expression "COUNT(*)"
+                                                                   :type "INTEGER"}]
+                                                        :group_by ["event_date" "region"]
+                                                        :materialization {:mode "table_replace"
+                                                                          :partition_by "event_date"
+                                                                          :cluster_by ["region"]}}
+                                        :source-table "demo_project.silver.trip"})]
+    (is (re-find #"CREATE OR REPLACE TABLE `demo_project`\.`gold`\.`trip_daily` PARTITION BY `event_date` CLUSTER BY `region` AS" (:compiled_sql result)))
+    (is (= "event_date" (get-in result [:sql_ir :materialization :partition_by])))
+    (is (= ["region"] (get-in result [:sql_ir :materialization :cluster_by])))))
+
+(deftest compiler-emits-snowflake-clustering-for-table-replace
+  (let [result (compiler/compile-model {:target-warehouse :snowflake
+                                        :proposal-json {:target_table "sheetz_telematics.gold.trip_daily"
+                                                        :columns [{:target_column "event_date"
+                                                                   :expression "CAST(silver.event_time AS DATE)"
+                                                                   :type "DATE"}
+                                                                  {:target_column "region"
+                                                                   :expression "silver.region"
+                                                                   :type "STRING"}]
+                                                        :materialization {:mode "table_replace"
+                                                                          :cluster_by ["region"]}}
+                                        :source-table "sheetz_telematics.silver.trip"})]
+    (is (re-find #"CREATE OR REPLACE TABLE \"sheetz_telematics\"\.\"gold\"\.\"trip_daily\" CLUSTER BY \(\"region\"\) AS" (:compiled_sql result)))
+    (is (= ["region"] (get-in result [:sql_ir :materialization :cluster_by])))))
+
 (deftest compiler-emits-postgresql-sql-for-postgresql-target
   (let [result (compiler/compile-model {:target-warehouse :postgresql
                                         :proposal-json {:target_table "bitool.public.silver_trip"
@@ -1505,6 +1543,74 @@
           (is (= "silver_intermediate" (:graph-kind @captured-artifact)))
           (is (= 22 (:proposal-id @captured-artifact))))))))
 
+(deftest build-silver-gil-preserves-snowflake-target-settings
+  (let [gil (#'bitool.modeling.automation/build-silver-gil
+             {:proposal-row {:proposal_id 22
+                             :target_model "silver_trip"}
+              :proposal-json {:target_table "analytics.silver.trip"
+                              :columns [{:target_column "trip_id"
+                                         :expression "bronze.trip_id"
+                                         :type "STRING"
+                                         :nullable false
+                                         :source_columns ["trip_id"]}]
+                              :mappings [{:target_column "trip_id"
+                                          :expression "bronze.trip_id"
+                                          :source_columns ["trip_id"]}]
+                              :materialization {:mode "merge"
+                                                :keys ["trip_id"]
+                                                :cluster_by ["region"]}}
+              :source-table "analytics.bronze.trip_raw"
+              :source-system "samsara"
+              :target {:target_kind "snowflake"
+                       :connection_id 31
+                       :catalog "analytics"
+                       :sf_load_method "stage_copy"
+                       :sf_stage_name "@silver_stage"
+                       :sf_warehouse "COMPUTE_WH"
+                       :sf_file_format "CSV"
+                       :sf_on_error "CONTINUE"
+                       :sf_purge true}})
+        target-node (first (filter #(= "target" (:type %)) (:nodes gil)))]
+    (is (= ["region"] (get-in target-node [:config :cluster_by])))
+    (is (= "stage_copy" (get-in target-node [:config :sf_load_method])))
+    (is (= "@silver_stage" (get-in target-node [:config :sf_stage_name])))
+    (is (= "COMPUTE_WH" (get-in target-node [:config :sf_warehouse])))))
+
+(deftest build-gold-gil-preserves-bigquery-layout-settings
+  (let [gil (#'bitool.modeling.automation/build-gold-gil
+             {:proposal-row {:proposal_id 29
+                             :target_model "gold_trip_daily"}
+              :proposal-json {:target_table "demo_project.gold.trip_daily"
+                              :columns [{:target_column "event_date"
+                                         :expression "DATE(silver.event_time)"
+                                         :type "DATE"
+                                         :nullable false
+                                         :source_columns ["event_time"]}
+                                        {:target_column "region"
+                                         :expression "silver.region"
+                                         :type "STRING"
+                                         :nullable false
+                                         :source_columns ["region"]}]
+                              :mappings [{:target_column "event_date"
+                                          :expression "DATE(silver.event_time)"
+                                          :source_columns ["event_time"]}
+                                         {:target_column "region"
+                                          :expression "silver.region"
+                                          :source_columns ["region"]}]
+                              :group_by ["event_date" "region"]
+                              :materialization {:mode "table_replace"
+                                                :partition_by "event_date"
+                                                :cluster_by ["region"]}}
+              :source-table "demo_project.silver.trip"
+              :source-system "samsara"
+              :target {:target_kind "bigquery"
+                       :connection_id 88
+                       :catalog "demo_project"}})
+        target-node (first (filter #(= "target" (:type %)) (:nodes gil)))]
+    (is (= ["event_date"] (get-in target-node [:config :partition_columns])))
+    (is (= ["region"] (get-in target-node [:config :cluster_by])))
+    (is (= "table" (get-in target-node [:config :table_format])))))
+
 (deftest compile-silver-graph-artifact-builds-sql-from-gil
   (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
                    #'bitool.modeling.automation/graph-artifact-by-id (fn [_]
@@ -1706,6 +1812,160 @@
           (is (re-find #"CREATE TABLE IF NOT EXISTS" (second @captured-ddl)))
           (is (= ::pg-conn (first @captured-explain)))
           (is (re-find #"^EXPLAIN WITH source_rows AS" (second @captured-explain))))))))
+
+(deftest compile-silver-proposal-retargets-stale-databricks-bindings-to-current-postgresql-target
+  (let [captured-compile (atom nil)
+        captured-update  (atom nil)
+        graph            {:n {2 {:na {:btype "Ap"
+                                      :source_system "samsara"
+                                      :endpoint_configs [{:endpoint_name "fleet/vehicles"
+                                                          :enabled true
+                                                          :bronze_table_name "main.bronze.samsara_fleet_vehicles_raw"}]}
+                                  :e {3 {}}}
+                              3 {:na {:btype "Tg"
+                                      :target_kind "postgresql"
+                                      :connection_id 473
+                                      :catalog "bitool"
+                                      :schema "public"
+                                      :table_name "sheetz_samsara_demo_seed"}}}}]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-by-id (fn [_]
+                                                                   {:proposal_id 276
+                                                                    :layer "silver"
+                                                                    :target_model "silver_vehicle_master"
+                                                                    :profile_id 41
+                                                                    :source_graph_id 2451
+                                                                    :source_node_id 2
+                                                                    :source_endpoint_name "fleet/vehicles"
+                                                                    :proposal_json "{\"layer\":\"silver\",\"target_model\":\"silver_vehicle_master\",\"target_warehouse\":\"databricks\",\"target_table\":\"main.silver.silver_vehicle_master\",\"columns\":[{\"target_column\":\"vehicle_id\",\"type\":\"STRING\",\"nullable\":false,\"expression\":\"bronze.vehicle_id\",\"source_columns\":[\"vehicle_id\"]}],\"mappings\":[{\"target_column\":\"vehicle_id\",\"expression\":\"bronze.vehicle_id\",\"source_columns\":[\"vehicle_id\"]}],\"materialization\":{\"mode\":\"merge\",\"keys\":[\"vehicle_id\"]}}"})
+                     #'bitool.modeling.automation/schema-profile-by-id (fn [_]
+                                                                        {:profile_id 41
+                                                                         :profile_json "{\"field_types\":{\"vehicle_id\":{\"type\":\"STRING\"}}}"})
+                     #'db/getGraph (fn [_] graph)
+                     #'g2/getData (fn [g nid] (get-in g [:n nid :na]))
+                     #'compiler/compile-model (fn [payload]
+                                                (reset! captured-compile payload)
+                                                {:sql_ir {:materialization {:target (get-in payload [:proposal-json :target_table])}}
+                                                 :select_sql "SELECT 1"
+                                                 :compiled_sql "compiled"})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [_ attrs]
+                                                                           (reset! captured-update attrs)
+                                                                           nil)}
+      (fn []
+        (let [result (modeling/compile-silver-proposal! 276)]
+          (is (= "postgresql" (:target-warehouse @captured-compile)))
+          (is (= "public.samsara_fleet_vehicles_raw" (:source-table @captured-compile)))
+          (is (= "public.silver_vehicle_master" (get-in @captured-compile [:proposal-json :target_table])))
+          (is (= "postgresql" (get-in @captured-compile [:proposal-json :target_warehouse])))
+          (is (= "public.silver_vehicle_master" (get-in @captured-update [:proposal_json :target_table])))
+          (is (= "postgresql" (get-in @captured-update [:proposal_json :target_warehouse])))
+          (is (= "compiled" (:compiled_sql result))))))))
+
+(deftest compile-gold-proposal-retargets-stale-databricks-bindings-to-current-postgresql-target
+  (let [captured-compile (atom nil)
+        captured-update  (atom nil)
+        graph            {:n {2 {:na {:btype "Ap"
+                                      :source_system "samsara"}
+                                  :e {3 {}}}
+                              3 {:na {:btype "Tg"
+                                      :target_kind "postgresql"
+                                      :connection_id 473
+                                      :catalog "bitool"
+                                      :schema "public"
+                                      :table_name "sheetz_samsara_demo_seed"}}}}]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-by-id (fn [_]
+                                                                   {:proposal_id 278
+                                                                    :layer "gold"
+                                                                    :target_model "gold_fleet_utilization_daily"
+                                                                    :profile_id 51
+                                                                    :source_graph_id 2451
+                                                                    :source_node_id 2
+                                                                    :proposal_json "{\"layer\":\"gold\",\"target_model\":\"gold_fleet_utilization_daily\",\"target_warehouse\":\"databricks\",\"target_table\":\"main.gold.gold_fleet_utilization_daily\",\"source_model\":\"silver_vehicle_master\",\"source_table\":\"main.silver.silver_vehicle_master\",\"source_alias\":\"silver\",\"columns\":[{\"target_column\":\"vehicle_id\",\"type\":\"STRING\",\"nullable\":false,\"expression\":\"silver.vehicle_id\",\"source_columns\":[\"vehicle_id\"]}],\"mappings\":[{\"target_column\":\"vehicle_id\",\"expression\":\"silver.vehicle_id\",\"source_columns\":[\"vehicle_id\"]}],\"group_by\":[\"vehicle_id\"],\"materialization\":{\"mode\":\"merge\",\"keys\":[\"vehicle_id\"]}}"})
+                     #'bitool.modeling.automation/schema-profile-by-id (fn [_]
+                                                                        {:profile_id 51
+                                                                         :profile_json "{\"field_types\":{\"vehicle_id\":{\"type\":\"STRING\"}}}"})
+                     #'db/getGraph (fn [_] graph)
+                     #'g2/getData (fn [g nid] (get-in g [:n nid :na]))
+                     #'compiler/compile-model (fn [payload]
+                                                (reset! captured-compile payload)
+                                                {:sql_ir {:materialization {:target (get-in payload [:proposal-json :target_table])}}
+                                                 :select_sql "SELECT 1"
+                                                 :compiled_sql "compiled"})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [_ attrs]
+                                                                           (reset! captured-update attrs)
+                                                                           nil)}
+      (fn []
+        (let [result (modeling/compile-gold-proposal! 278)]
+          (is (= "postgresql" (:target-warehouse @captured-compile)))
+          (is (= "public.silver_vehicle_master" (:source-table @captured-compile)))
+          (is (= "public.gold_fleet_utilization_daily" (get-in @captured-compile [:proposal-json :target_table])))
+          (is (= "public.silver_vehicle_master" (get-in @captured-compile [:proposal-json :source_table])))
+          (is (= "public.gold_fleet_utilization_daily" (get-in @captured-update [:proposal_json :target_table])))
+          (is (= "public.silver_vehicle_master" (get-in @captured-update [:proposal_json :source_table])))
+          (is (= "compiled" (:compiled_sql result))))))))
+
+(deftest refresh-proposals-for-graph-target-updates-stale-bindings
+  (let [updates (atom [])]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-rows-for-graph (fn [_]
+                                                                            [{:proposal_id 276
+                                                                              :layer "silver"
+                                                                              :status "validated"
+                                                                              :target_model "silver_vehicle_master"
+                                                                              :proposal_json "{\"target_table\":\"main.silver.silver_vehicle_master\",\"target_warehouse\":\"databricks\"}"}
+                                                                             {:proposal_id 278
+                                                                              :layer "gold"
+                                                                              :status "draft"
+                                                                              :target_model "gold_fleet_utilization_daily"
+                                                                              :proposal_json "{\"target_table\":\"main.gold.gold_fleet_utilization_daily\",\"source_table\":\"main.silver.silver_vehicle_master\",\"target_warehouse\":\"databricks\"}"}])
+                     #'bitool.modeling.automation/resolve-proposal-context (fn [_]
+                                                                             {:proposal-json {:target_table "public.silver_vehicle_master"
+                                                                                              :target_warehouse "postgresql"}})
+                     #'bitool.modeling.automation/resolve-gold-proposal-context (fn [_]
+                                                                                  {:proposal-json {:target_table "public.gold_fleet_utilization_daily"
+                                                                                                   :source_table "public.silver_vehicle_master"
+                                                                                                   :target_warehouse "postgresql"}})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [proposal-id attrs]
+                                                                           (swap! updates conj [proposal-id attrs])
+                                                                           nil)}
+      (fn []
+        (let [result (modeling/refresh-proposals-for-graph-target! 2451 {:updated_by "alice"})]
+          (is (= 2 (count (:refreshed result))))
+          (is (= [276 {:proposal_json {:target_table "public.silver_vehicle_master"
+                                       :target_warehouse "postgresql"}
+                       :compiled_sql nil
+                       :status "draft"}]
+                 (first @updates)))
+          (is (= [278 {:proposal_json {:target_table "public.gold_fleet_utilization_daily"
+                                       :source_table "public.silver_vehicle_master"
+                                       :target_warehouse "postgresql"}
+                       :compiled_sql nil
+                       :status "draft"}]
+                 (second @updates))))))))
+
+(deftest refresh-proposals-for-graph-target-preserves-published-status
+  (let [updates (atom [])]
+    (with-redefs-fn {#'bitool.modeling.automation/ensure-modeling-tables! (fn [] true)
+                     #'bitool.modeling.automation/proposal-rows-for-graph (fn [_]
+                                                                            [{:proposal_id 341
+                                                                              :layer "silver"
+                                                                              :status "published"
+                                                                              :target_model "silver_vehicle_master"
+                                                                              :proposal_json "{\"target_table\":\"main.silver.silver_vehicle_master\",\"target_warehouse\":\"databricks\"}"}])
+                     #'bitool.modeling.automation/resolve-proposal-context (fn [_]
+                                                                             {:proposal-json {:target_table "public.silver_vehicle_master"
+                                                                                              :target_warehouse "postgresql"}})
+                     #'bitool.modeling.automation/update-model-proposal! (fn [proposal-id attrs]
+                                                                           (swap! updates conj [proposal-id attrs])
+                                                                           nil)}
+      (fn []
+        (let [result (modeling/refresh-proposals-for-graph-target! 2525 {:updated_by "alice"})]
+          (is (= 1 (count (:refreshed result))))
+          (is (= [[341 {:proposal_json {:target_table "public.silver_vehicle_master"
+                                        :target_warehouse "postgresql"}
+                        :compiled_sql nil}]]
+                 @updates)))))))
 
 (deftest execute-silver-release-triggers-databricks-job-and-persists-run
   (let [captured-update (atom nil)]

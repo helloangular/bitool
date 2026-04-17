@@ -5,9 +5,11 @@ const template = document.createElement("template");
 template.innerHTML = `
 <style>
   .rectangle-container {
-    width: 90px;
+    min-width: 90px;
+    width: auto;
+    max-width: 230px;
     height: 20px;
-    padding: 10px;
+    padding: 10px 14px;
     border: 1px solid #e2e4ea;
     border-radius: 8px;
     cursor: pointer;
@@ -16,8 +18,8 @@ template.innerHTML = `
     justify-content: center;
     text-align: center;
     overflow: hidden;
-    word-wrap: break-word;
-    white-space: normal;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     background: #ffffff;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     font-family: 'DM Sans', -apple-system, sans-serif;
@@ -346,11 +348,14 @@ class RectangleComponent extends HTMLElement {
   }
 
   updateAlias(btype, alias) {
-    const icon = getBtypeIcon(btype);
+    const isApiConnection = btype === getShortBtype("api-connection");
+    const isTarget = btype === getShortBtype("target");
+    const icon = (isApiConnection || isTarget) ? null : getBtypeIcon(btype);
     const aliasEl = this.shadow.querySelector("#alias-info");
     const isEndpointLike = btype === getShortBtype("endpoint") || btype === getShortBtype("webhook");
     const routeLabel = (this.endpointLabel || "").trim();
-    const displayLabel = routeLabel || alias;
+    const nodeLabel = isApiConnection ? "API" : (isTarget ? "Target" : alias);
+    const displayLabel = routeLabel || nodeLabel;
 
     // Apply btype-specific left accent color
     const btypeColors = {
@@ -394,11 +399,11 @@ class RectangleComponent extends HTMLElement {
       return;
     }
 
-    this.setAttribute("title", alias || "");
+    this.setAttribute("title", nodeLabel || "");
     if (icon) {
       aliasEl.innerHTML = icon;
     } else {
-      aliasEl.textContent = alias;
+      aliasEl.textContent = nodeLabel;
     }
   }
 }

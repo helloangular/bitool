@@ -5,6 +5,7 @@
     [bitool.handler :as handler]
     [bitool.ingest.execution]
     [bitool.ingest.scheduler]
+    [bitool.lifecycle :as lifecycle]
     [bitool.modeling.automation]
     [bitool.operations]
     [bitool.nrepl :as nrepl]
@@ -51,11 +52,17 @@
 
 
 (defn stop-app []
+  (lifecycle/mark-draining!)
+  (let [drain-ms (lifecycle/shutdown-drain-ms)]
+    (when (pos? drain-ms)
+      (log/info "Graceful shutdown: entering drain mode" {:drain_ms drain-ms})
+      (Thread/sleep drain-ms)))
   (doseq [component (:stopped (mount/stop))]
     (log/info component "stopped"))
   (shutdown-agents))
 
 (defn start-app [args]
+  (lifecycle/clear-draining!)
   (doseq [component (-> args
                         (parse-opts cli-options)
                         mount/start-with-args

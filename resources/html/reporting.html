@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitool AI Reporting</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;background:#f5f6f8;color:#1a1d26;overflow:hidden;height:100vh}
+    ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
+
+    .rpt-app{display:flex;height:100vh}
+    .rpt-sidebar{width:260px;background:#fafbfc;color:#1e293b;display:flex;flex-direction:column;flex-shrink:0;z-index:10;overflow-y:auto;border-right:1px solid #e5e7eb}
+    .rpt-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+    .rpt-brand{display:flex;align-items:center;gap:12px;padding:20px 20px 20px}
+    .rpt-logo{width:40px;height:40px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:#fff;flex-shrink:0}
+    .rpt-brand-name{font-weight:700;font-size:15px;letter-spacing:-0.3px}
+    .rpt-brand-sub{font-size:11px;color:#64748b;margin-top:1px}
+
+    .rpt-pipeline{margin:0 16px 16px;padding:12px 14px;background:#fff;border-radius:8px;border:1px solid #e5e7eb}
+    .rpt-pipeline-label{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-bottom:8px;font-weight:600}
+    .rpt-pipeline-flow{display:flex;align-items:center;gap:6px;font-size:11px}
+    .rpt-pip-badge{padding:2px 8px;border-radius:4px;font-weight:600;font-size:10px}
+    .rpt-pip-bronze{background:rgba(180,83,9,0.2);color:#d97706}
+    .rpt-pip-silver{background:rgba(148,163,184,0.15);color:#94a3b8}
+    .rpt-pip-gold{background:rgba(245,158,11,0.15);color:#fbbf24}
+    .rpt-pip-arrow{color:#6b7280;font-size:10px}
+
+    .rpt-nav{flex:1;padding:4px 8px;overflow-y:auto}
+    .rpt-nav-section{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#3b5998;padding:12px 12px 4px;margin-top:6px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none}
+    .rpt-nav-section:hover{color:#1e40af}
+    .rpt-nav-section::after{content:'\25BE';font-size:10px;transition:transform 0.2s}
+    .rpt-nav-section.collapsed::after{transform:rotate(-90deg)}
+    .rpt-nav-group{overflow:hidden;transition:max-height 0.25s ease;max-height:500px}
+    .rpt-nav-group.collapsed{max-height:0}
+    .rpt-nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;color:#334155;text-decoration:none;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.15s;border:1px solid transparent}
+    .rpt-nav-item:hover{background:rgba(99,102,241,0.08);color:#1e293b}
+    .rpt-nav-item.active{background:rgba(99,102,241,0.18);color:#4338ca;border-color:rgba(99,102,241,0.25);font-weight:600}
+    .rpt-nav-icon{width:20px;text-align:center;font-size:15px;flex-shrink:0}
+
+    .rpt-sidebar-footer{padding:16px 20px;border-top:1px solid #e5e7eb}
+    .rpt-back-link{display:flex;align-items:center;gap:8px;color:#94a3b8;text-decoration:none;font-size:12px;font-weight:500;margin-bottom:10px;transition:color 0.15s}
+    .rpt-back-link:hover{color:#e2e8f0}
+    .rpt-powered{font-size:10px;color:#475569}
+
+    .rpt-header{padding:16px 32px;border-bottom:1px solid #e2e4ea;background:#fff;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .rpt-title{font-size:20px;font-weight:700;letter-spacing:-0.3px}
+    .rpt-header-right{display:flex;align-items:center;gap:14px}
+    .rpt-time-picker{position:relative}
+    .rpt-time-btn{display:flex;align-items:center;gap:6px;padding:6px 14px;background:#f8fafc;border:1px solid #d1d5db;border-radius:8px;font-size:13px;font-weight:500;color:#334155;cursor:pointer;transition:all 0.15s;font-family:inherit}
+    .rpt-time-btn:hover{border-color:#6366f1;background:#eef2ff}
+    .rpt-time-icon{font-size:14px}
+    .rpt-time-arrow{font-size:9px;color:#94a3af;margin-left:2px}
+    .rpt-time-dropdown{display:none;position:absolute;top:calc(100% + 6px);right:0;background:#fff;border:1px solid #e2e4ea;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.12);z-index:200;min-width:320px;overflow:hidden}
+    .rpt-time-dropdown.open{display:flex}
+    .rpt-time-presets{flex:1;padding:8px;border-right:1px solid #f1f3f5}
+    .rpt-time-custom{width:180px;padding:8px}
+    .rpt-time-section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#94a3b8;padding:6px 8px 4px;margin-bottom:2px}
+    .rpt-time-opt{display:block;padding:7px 12px;border-radius:6px;font-size:12px;color:#334155;cursor:pointer;text-decoration:none;transition:all 0.1s}
+    .rpt-time-opt:hover{background:#eef2ff;color:#4338ca}
+    .rpt-time-opt.active{background:rgba(99,102,241,0.12);color:#4338ca;font-weight:600}
+    .rpt-time-row{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
+    .rpt-time-row label{font-size:11px;font-weight:600;color:#64748b}
+    .rpt-time-input{border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;font-size:11px;font-family:inherit;color:#334155;outline:none;width:100%;box-sizing:border-box}
+    .rpt-time-input:focus{border-color:#6366f1}
+    .rpt-time-apply{width:100%;padding:7px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:background 0.15s;font-family:inherit}
+    .rpt-time-apply:hover{background:#4f46e5}
+    .rpt-live-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;background:rgba(16,185,129,0.08);color:#059669;border-radius:20px;font-size:11px;font-weight:600}
+    .rpt-live-dot{width:6px;height:6px;background:#10b981;border-radius:50%;animation:rpt-pulse 2s infinite}
+    @keyframes rpt-pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+    .rpt-content{flex:1;overflow-y:auto;padding:24px 32px 40px}
+    .rpt-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:24px}
+    .rpt-kpi-card{background:#fff;border-radius:12px;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #eceef2;transition:box-shadow 0.2s,transform 0.2s}
+    .rpt-kpi-card:hover{box-shadow:0 4px 16px rgba(99,102,241,0.1);transform:translateY(-1px)}
+    .rpt-kpi-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+    .rpt-kpi-icon{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px}
+    .rpt-kpi-trend{font-size:11px;font-weight:600;display:flex;align-items:center;gap:2px}
+    .rpt-kpi-trend.up{color:#059669}.rpt-kpi-trend.down{color:#dc2626}
+    .rpt-kpi-value{font-size:26px;font-weight:700;line-height:1.1;letter-spacing:-0.5px;margin-bottom:3px}
+    .rpt-kpi-label{font-size:12px;color:#6b7280;font-weight:500}
+
+    .rpt-chart-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-bottom:24px}
+    .rpt-card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #eceef2;overflow:hidden}
+    .rpt-chart-card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #eceef2;overflow:hidden}
+    .rpt-chart-header{padding:16px 20px 0;display:flex;align-items:flex-start;justify-content:space-between}
+    .rpt-chart-title{font-size:14px;font-weight:600}
+    .rpt-chart-subtitle{font-size:11px;color:#8b91a3;margin-top:2px}
+    .rpt-chart-body{padding:8px 16px 16px;height:280px;position:relative}
+    .rpt-chart-full{grid-column:1/-1}
+
+    .rpt-insight-bar{display:flex;align-items:flex-start;gap:10px;padding:14px 18px;background:linear-gradient(135deg,rgba(99,102,241,0.06),rgba(139,92,252,0.06));border:1px solid rgba(99,102,241,0.12);border-radius:10px;margin-bottom:24px}
+    .rpt-insight-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+    .rpt-insight-text{font-size:13px;color:#4b5563;line-height:1.5}
+    .rpt-insight-text strong{color:#1a1d26}
+
+    .rpt-table-wrap{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #eceef2;overflow:hidden;margin-bottom:24px}
+    .rpt-table-title{font-size:14px;font-weight:600;padding:16px 20px 12px}
+    .rpt-table{width:100%;border-collapse:collapse;font-size:13px}
+    .rpt-table th{text-align:left;padding:8px 16px;background:#f8f9fb;border-bottom:2px solid #e2e4ea;font-weight:600;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px}
+    .rpt-table td{padding:10px 16px;border-bottom:1px solid #f3f4f6}
+    .rpt-table tr:last-child td{border-bottom:none}
+    .rpt-table tr:hover td{background:#f8f9fb}
+    .rpt-table .num{text-align:right;font-variant-numeric:tabular-nums}
+    .rpt-table .bar-cell{width:120px}
+    .rpt-table .mini-bar{height:6px;border-radius:3px;background:#e5e7eb}
+    .rpt-table .mini-bar-fill{height:100%;border-radius:3px}
+
+    .rpt-section-title{font-size:16px;font-weight:600;margin:8px 0 16px;display:flex;align-items:center;gap:8px}
+    .rpt-section-title .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+    .rpt-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;color:#8b91a3;gap:16px}
+    .rpt-spinner{width:36px;height:36px;border:3px solid #e2e4ea;border-top-color:#6366f1;border-radius:50%;animation:rpt-spin 0.7s linear infinite}
+    @keyframes rpt-spin{to{transform:rotate(360deg)}}
+    .rpt-error{text-align:center;padding:60px 20px;color:#dc2626}
+
+    .rpt-empty{text-align:center;padding:40px;color:#8b91a3;font-size:14px}
+
+    /* ── AI Chat Panel ── */
+    .rpt-ai-toggle{position:fixed;bottom:24px;right:24px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;cursor:pointer;box-shadow:0 4px 20px rgba(99,102,241,0.4);display:flex;align-items:center;justify-content:center;font-size:22px;z-index:100;transition:transform 0.2s,box-shadow 0.2s}
+    .rpt-ai-toggle:hover{transform:scale(1.08);box-shadow:0 6px 28px rgba(99,102,241,0.5)}
+
+    .rpt-ai-panel{position:fixed;bottom:88px;right:24px;width:440px;max-height:70vh;background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,0.15);z-index:100;display:none;flex-direction:column;overflow:hidden;border:1px solid #e2e4ea}
+    .rpt-ai-panel.open{display:flex}
+
+    .rpt-ai-header{padding:14px 18px;background:linear-gradient(135deg,#6366f1,#7c5cfc);color:#fff;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .rpt-ai-header-title{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
+    .rpt-ai-close{background:none;border:none;color:rgba(255,255,255,0.7);cursor:pointer;font-size:18px;padding:2px 6px;border-radius:4px}
+    .rpt-ai-close:hover{color:#fff;background:rgba(255,255,255,0.15)}
+
+    .rpt-ai-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;min-height:200px}
+    .rpt-ai-source{padding:12px 14px;border-bottom:1px solid #e2e4ea;background:#fafbfc;display:flex;flex-direction:column;gap:8px}
+    .rpt-ai-source-row{display:flex;align-items:center;gap:8px}
+    .rpt-ai-source-label{font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#64748b}
+    .rpt-ai-source-select{flex:1;border:1px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:12px;font-family:inherit;background:#fff;color:#1f2937;outline:none}
+    .rpt-ai-source-select:focus{border-color:#6366f1}
+    .rpt-ai-source-refresh{width:34px;height:34px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#6366f1;cursor:pointer;font-size:16px}
+    .rpt-ai-source-refresh:hover{background:#eef2ff;border-color:#c7d2fe}
+    .rpt-ai-source-meta{font-size:11px;color:#6b7280;line-height:1.4}
+    .rpt-ai-source-badges{display:flex;flex-wrap:wrap;gap:6px}
+    .rpt-ai-source-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#eef2ff;color:#4338ca;font-size:10px;font-weight:700;letter-spacing:0.3px}
+    .rpt-ai-source-badge-sub{color:#6366f1;font-weight:600}
+    .rpt-ai-scope{padding:0 14px 12px;border-bottom:1px solid #e2e4ea;background:#fafbfc}
+    .rpt-ai-scope details{border:1px solid #e2e4ea;border-radius:10px;background:#fff}
+    .rpt-ai-scope summary{cursor:pointer;list-style:none;padding:10px 12px;font-size:12px;font-weight:600;color:#374151;display:flex;align-items:center;justify-content:space-between}
+    .rpt-ai-scope summary::-webkit-details-marker{display:none}
+    .rpt-ai-scope-controls{display:flex;gap:8px;padding:0 12px 10px}
+    .rpt-ai-scope-btn{border:1px solid #d1d5db;border-radius:999px;background:#fff;color:#4f46e5;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer}
+    .rpt-ai-scope-btn:hover{background:#eef2ff}
+    .rpt-ai-scope-list{max-height:170px;overflow:auto;padding:0 12px 12px;display:flex;flex-direction:column;gap:6px}
+    .rpt-ai-scope-item{display:flex;align-items:center;gap:8px;font-size:12px;color:#374151}
+    .rpt-ai-scope-item input{margin:0}
+    .rpt-ai-scope-empty{padding:0 12px 12px;font-size:11px;color:#9ca3af}
+    .rpt-ai-saved{padding:0 14px 12px;border-bottom:1px solid #e2e4ea;background:#fafbfc}
+    .rpt-ai-saved details{border:1px solid #e2e4ea;border-radius:10px;background:#fff}
+    .rpt-ai-saved summary{cursor:pointer;list-style:none;padding:10px 12px;font-size:12px;font-weight:600;color:#374151;display:flex;align-items:center;justify-content:space-between}
+    .rpt-ai-saved summary::-webkit-details-marker{display:none}
+    .rpt-ai-saved-list{max-height:180px;overflow:auto;padding:0 12px 12px;display:flex;flex-direction:column;gap:8px}
+    .rpt-ai-saved-item{border:1px solid #eef2ff;border-radius:10px;padding:10px;background:#fafaff}
+    .rpt-ai-saved-title{font-size:12px;font-weight:700;color:#312e81}
+    .rpt-ai-saved-meta{font-size:11px;color:#6b7280;margin-top:3px}
+    .rpt-ai-saved-actions{display:flex;gap:8px;margin-top:8px}
+    .rpt-ai-saved-btn{border:1px solid #d1d5db;border-radius:999px;background:#fff;color:#4f46e5;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer}
+    .rpt-ai-saved-btn:hover{background:#eef2ff}
+    .rpt-ai-saved-btn.delete{color:#b91c1c;border-color:#fecaca}
+    .rpt-ai-saved-empty{padding:0 12px 12px;font-size:11px;color:#9ca3af}
+    .rpt-ai-train{padding:8px 14px;border-bottom:1px solid #e2e4ea;background:#fafbfc;display:flex;align-items:center;gap:10px}
+    .rpt-ai-train-btn{border:1px solid #d1d5db;border-radius:999px;background:#fff;color:#4f46e5;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;gap:5px}
+    .rpt-ai-train-btn:hover{background:#eef2ff;border-color:#c7d2fe}
+    .rpt-ai-train-btn:disabled{opacity:0.5;cursor:not-allowed}
+    .rpt-ai-train-btn.trained{background:#ecfdf5;color:#059669;border-color:#a7f3d0}
+    .rpt-ai-train-status{font-size:11px;color:#6b7280;flex:1}
+    .rpt-ai-msg{max-width:92%;padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.5;word-wrap:break-word}
+    .rpt-ai-msg.user{align-self:flex-end;background:#6366f1;color:#fff;border-bottom-right-radius:4px}
+    .rpt-ai-msg.ai{align-self:flex-start;background:#f3f4f6;color:#1a1d26;border-bottom-left-radius:4px}
+    .rpt-ai-msg .ai-sql{background:#1e1e2e;color:#a5b4fc;padding:8px 12px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11px;margin:8px 0 4px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+    .rpt-ai-msg .ai-meta{font-size:11px;color:#8b91a3;margin-top:6px}
+    .rpt-ai-msg .ai-pipeline-badge{display:inline-block;background:linear-gradient(135deg,#6366f1,#7c5cfc);color:#fff;font-size:10px;font-weight:600;padding:3px 10px;border-radius:12px;margin-bottom:6px;letter-spacing:0.5px}
+    .rpt-ai-msg .ai-open-report{display:inline-flex;align-items:center;gap:4px;background:#eef2ff;color:#6366f1;font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;text-decoration:none;margin:6px 0;transition:all 0.15s;border:1px solid rgba(99,102,241,0.2)}
+    .rpt-ai-msg .ai-open-report:hover{background:#6366f1;color:#fff}
+    .rpt-ai-msg .ai-save-report{display:inline-flex;align-items:center;gap:4px;background:#fff;color:#4f46e5;font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;text-decoration:none;margin:6px 0 6px 8px;transition:all 0.15s;border:1px solid #c7d2fe;cursor:pointer}
+    .rpt-ai-msg .ai-save-report:hover{background:#eef2ff}
+    .rpt-ai-msg .ai-isl-trace{margin:6px 0}
+    .rpt-ai-msg .ai-isl-trace summary{cursor:pointer;font-size:11px;color:#7c5cfc;font-weight:600;user-select:none}
+    .rpt-ai-msg .ai-isl-trace summary:hover{color:#a5b4fc}
+    .rpt-ai-msg .ai-isl-trace pre{background:#1a1a2e;color:#c4b5fd;padding:8px 12px;border-radius:6px;font-size:10px;margin-top:4px;overflow-x:auto;max-height:200px;overflow-y:auto}
+
+    .rpt-ai-thinking{display:flex;align-items:center;gap:6px;padding:10px 14px;font-size:12px;color:#8b91a3}
+    .rpt-ai-thinking .dot-pulse{display:flex;gap:4px}
+    .rpt-ai-thinking .dot-pulse span{width:6px;height:6px;border-radius:50%;background:#a5b4fc;animation:rpt-dot-pulse 1.4s infinite}
+    .rpt-ai-thinking .dot-pulse span:nth-child(2){animation-delay:0.2s}
+    .rpt-ai-thinking .dot-pulse span:nth-child(3){animation-delay:0.4s}
+    @keyframes rpt-dot-pulse{0%,80%,100%{opacity:0.3;transform:scale(0.8)}40%{opacity:1;transform:scale(1.1)}}
+
+    .rpt-ai-results{margin:8px 0;border:1px solid #e2e4ea;border-radius:8px;overflow:hidden;max-height:300px;overflow-y:auto}
+    .rpt-ai-results table{width:100%;border-collapse:collapse;font-size:11px}
+    .rpt-ai-results th{padding:6px 10px;background:#f8f9fb;border-bottom:1px solid #e2e4ea;text-align:left;font-weight:600;font-size:10px;color:#6b7280;text-transform:uppercase;position:sticky;top:0}
+    .rpt-ai-results td{padding:5px 10px;border-bottom:1px solid #f3f4f6;font-variant-numeric:tabular-nums}
+
+    .rpt-ai-input-wrap{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e2e4ea;background:#fafbfc}
+    .rpt-ai-input{flex:1;border:1px solid #d1d5db;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;transition:border-color 0.15s}
+    .rpt-ai-input:focus{border-color:#6366f1}
+    .rpt-ai-input::placeholder{color:#9ca3af}
+    .rpt-ai-send{width:36px;height:36px;border-radius:8px;background:#6366f1;color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s;flex-shrink:0}
+    .rpt-ai-send:hover{background:#4f46e5}
+    .rpt-ai-send:disabled{background:#d1d5db;cursor:not-allowed}
+
+    .rpt-ai-suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px;border-top:1px solid #e2e4ea;background:#fafbfc}
+    .rpt-ai-chip{padding:5px 10px;background:#eef2ff;color:#6366f1;border:1px solid rgba(99,102,241,0.15);border-radius:16px;font-size:11px;cursor:pointer;transition:all 0.15s;white-space:nowrap}
+    .rpt-ai-chip:hover{background:#6366f1;color:#fff}
+
+    .rpt-ai-chart-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:#eef2ff;color:#6366f1;border:1px solid rgba(99,102,241,0.15);border-radius:6px;font-size:11px;cursor:pointer;margin-top:6px;font-weight:500;transition:all 0.15s}
+    .rpt-ai-chart-btn:hover{background:#6366f1;color:#fff}
+    .rpt-report-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+    .rpt-report-toolbar-label{font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#6b7280}
+    .rpt-report-toolbar-select{border:1px solid #d1d5db;border-radius:999px;background:#fff;color:#312e81;padding:6px 12px;font-size:11px;font-weight:600}
+    .rpt-report-toolbar-btn{border:1px solid #d1d5db;border-radius:999px;background:#fff;color:#4f46e5;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer}
+    .rpt-report-toolbar-btn:hover{background:#eef2ff}
+
+    /* ── Bottom AI Input Bar (main surface) ── */
+    .rpt-ai-input-bar{border-top:1px solid #e2e4ea;background:#fff;flex-shrink:0}
+    .rpt-ai-input-bar .rpt-ai-input-wrap{padding:12px 32px}
+    .rpt-ai-input-bar .rpt-ai-suggestions{padding:0 32px 12px}
+
+    /* ── Sidebar data source (no longer in floating panel) ── */
+    .rpt-sidebar .rpt-ai-source{padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#fafbfc}
+    .rpt-sidebar .rpt-ai-scope{padding:0 16px 12px;border-bottom:1px solid #e5e7eb;background:#fafbfc}
+    .rpt-sidebar .rpt-ai-saved{padding:0 16px 12px;border-bottom:1px solid #e5e7eb;background:#fafbfc}
+    .rpt-sidebar .rpt-ai-train{padding:8px 16px;border-bottom:1px solid #e5e7eb;background:#fafbfc}
+
+    @media(max-width:1200px){.rpt-chart-grid{grid-template-columns:1fr}}
+    @media(max-width:900px){.rpt-sidebar{width:200px}.rpt-content{padding:16px}.rpt-ai-panel{width:calc(100vw - 48px);right:12px;bottom:76px}.rpt-ai-input-bar .rpt-ai-input-wrap{padding:12px 16px}.rpt-ai-input-bar .rpt-ai-suggestions{padding:0 16px 12px}}
+  </style>
+</head>
+<body>
+  <div class="rpt-app">
+    <aside class="rpt-sidebar">
+      <div class="rpt-brand">
+        <div class="rpt-logo">B</div>
+        <div>
+          <div class="rpt-brand-name">Bitool</div>
+          <div class="rpt-brand-sub">AI Reporting</div>
+        </div>
+      </div>
+
+      <!-- Data Source selection (was in AI panel overlay) -->
+      <div class="rpt-ai-source">
+        <div class="rpt-ai-source-label">Data Source</div>
+        <div class="rpt-ai-source-row">
+          <select class="rpt-ai-source-select" id="rpt-conn-select">
+            <option value="">Default demo dataset</option>
+          </select>
+          <button class="rpt-ai-source-refresh" id="rpt-refresh-schema" title="Refresh schema">&#8635;</button>
+        </div>
+        <div class="rpt-ai-source-meta" id="rpt-schema-meta">Connect a database or use the demo.</div>
+        <div class="rpt-ai-source-badges" id="rpt-schema-badges" style="display:none"></div>
+      </div>
+
+      <!-- Train AI -->
+      <div class="rpt-ai-train" id="rpt-train-section" style="display:none">
+        <button class="rpt-ai-train-btn" id="rpt-train-btn" type="button" title="Teach AI about your schema">&#9889; Train AI</button>
+        <span class="rpt-ai-train-status" id="rpt-train-status"></span>
+      </div>
+
+      <!-- Reporting Scope -->
+      <div class="rpt-ai-scope">
+        <details id="rpt-scope-details">
+          <summary>
+            <span>Reporting Scope</span>
+            <span id="rpt-scope-summary">All tables</span>
+          </summary>
+          <div class="rpt-ai-scope-controls">
+            <button class="rpt-ai-scope-btn" id="rpt-scope-suggest" type="button">Suggested</button>
+            <button class="rpt-ai-scope-btn" id="rpt-scope-all" type="button">Use All</button>
+            <button class="rpt-ai-scope-btn" id="rpt-scope-clear" type="button">Clear</button>
+          </div>
+          <div class="rpt-ai-scope-list" id="rpt-scope-list"></div>
+          <div class="rpt-ai-scope-empty" id="rpt-scope-empty" style="display:none">No scoped tables available yet.</div>
+        </details>
+      </div>
+
+      <!-- Saved Reports -->
+      <div class="rpt-ai-saved">
+        <details id="rpt-saved-details">
+          <summary>
+            <span>Saved Reports</span>
+            <span id="rpt-saved-summary">0 reports</span>
+          </summary>
+          <div class="rpt-ai-saved-list" id="rpt-saved-list"></div>
+          <div class="rpt-ai-saved-empty" id="rpt-saved-empty">No saved reports yet.</div>
+        </details>
+      </div>
+
+      <!-- Demo nav (shown when no connection) -->
+      <nav class="rpt-nav" id="rpt-demo-nav">
+        <div class="rpt-nav-section" data-cat="ops">Demo Dashboard</div>
+        <div class="rpt-nav-group" data-cat="ops">
+          <a class="rpt-nav-item active" data-view="executive"><span class="rpt-nav-icon">&#9673;</span>Executive Summary</a>
+          <a class="rpt-nav-item" data-view="fleet-util"><span class="rpt-nav-icon">&#9889;</span>Fleet Utilization</a>
+          <a class="rpt-nav-item" data-view="vehicle-activity"><span class="rpt-nav-icon">&#128663;</span>Vehicle Activity</a>
+          <a class="rpt-nav-item" data-view="fuel-eff"><span class="rpt-nav-icon">&#9981;</span>Fuel Efficiency</a>
+          <a class="rpt-nav-item" data-view="safety-dash"><span class="rpt-nav-icon">&#9888;</span>Safety Dashboard</a>
+        </div>
+      </nav>
+
+      <div class="rpt-sidebar-footer">
+        <a href="/" class="rpt-back-link">&larr; Back to BiTool</a>
+        <div class="rpt-powered">Powered by BiTool ISL Pipeline</div>
+      </div>
+    </aside>
+
+    <main class="rpt-main">
+      <header class="rpt-header">
+        <h1 class="rpt-title" id="rpt-title">AI Reporting</h1>
+        <div class="rpt-header-right">
+          <div class="rpt-time-picker" id="rpt-time-picker">
+            <button class="rpt-time-btn" id="rpt-time-btn">
+              <span class="rpt-time-icon">&#128339;</span>
+              <span class="rpt-time-label" id="rpt-time-label">Last 90 days</span>
+              <span class="rpt-time-arrow">&#9662;</span>
+            </button>
+            <div class="rpt-time-dropdown" id="rpt-time-dropdown">
+              <div class="rpt-time-presets">
+                <div class="rpt-time-section-title">Quick Ranges</div>
+                <a class="rpt-time-opt" data-range="7d">Last 7 days</a>
+                <a class="rpt-time-opt" data-range="30d">Last 30 days</a>
+                <a class="rpt-time-opt active" data-range="90d">Last 90 days</a>
+                <a class="rpt-time-opt" data-range="ytd">Year to date</a>
+                <a class="rpt-time-opt" data-range="all">All time</a>
+              </div>
+              <div class="rpt-time-custom">
+                <div class="rpt-time-section-title">Custom Range</div>
+                <div class="rpt-time-row">
+                  <label>From</label>
+                  <input type="datetime-local" id="rpt-time-from" class="rpt-time-input">
+                </div>
+                <div class="rpt-time-row">
+                  <label>To</label>
+                  <input type="datetime-local" id="rpt-time-to" class="rpt-time-input">
+                </div>
+                <button class="rpt-time-apply" id="rpt-time-apply">Apply</button>
+              </div>
+            </div>
+          </div>
+          <span class="rpt-live-badge"><span class="rpt-live-dot"></span>Live</span>
+        </div>
+      </header>
+      <div class="rpt-content" id="rpt-content">
+        <div class="rpt-loading">
+          <div class="rpt-spinner"></div>
+          <span>Loading...</span>
+        </div>
+      </div>
+      <!-- Persistent AI input bar at bottom of main area -->
+      <div class="rpt-ai-input-bar" id="rpt-ai-input-bar">
+        <div class="rpt-ai-input-wrap">
+          <input type="text" class="rpt-ai-input" id="rpt-ai-input" placeholder="Ask a question about your data..." autocomplete="off">
+          <button class="rpt-ai-send" id="rpt-ai-send">&#10148;</button>
+        </div>
+        <div class="rpt-ai-suggestions" id="rpt-ai-suggestions">
+          <span class="rpt-ai-chip" data-q="What tables do I have and what do they contain?">Explore tables</span>
+          <span class="rpt-ai-chip" data-q="Show me a summary of the largest table">Biggest table</span>
+          <span class="rpt-ai-chip" data-q="What are the trends over the last 30 days?">Recent trends</span>
+          <span class="rpt-ai-chip" data-q="Show the top 10 records by value">Top 10</span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Legacy AI panel toggle (hidden — AI is now the main surface) -->
+  <button class="rpt-ai-toggle" id="rpt-ai-toggle" title="Ask AI" style="display:none">&#9889;</button>
+
+  <!-- AI panel kept for message history (hidden overlay, opens on demand) -->
+  <div class="rpt-ai-panel" id="rpt-ai-panel">
+    <div class="rpt-ai-header">
+      <div class="rpt-ai-header-title">&#9889; Conversation History</div>
+      <button class="rpt-ai-close" id="rpt-ai-close">&times;</button>
+    </div>
+    <div class="rpt-ai-messages" id="rpt-ai-messages">
+      <div class="rpt-ai-msg ai">
+        Ask me anything about your data. I use an ISL pipeline to safely translate your question into a validated query — zero hallucination, zero raw SQL.
+      </div>
+    </div>
+  </div>
+
+  <script src="/reportingDashboard.js"></script>
+</body>
+</html>

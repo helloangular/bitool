@@ -1,6 +1,7 @@
 import EventHandler from "./library/eventHandler.js";
 import { request, customConfirm, getPanelItems } from "./library/utils.js";
 import { aiAssistCSS, renderAiLoading, renderAiCard, renderAiEditsCard, flattenEdits, bindAiEditActions, callAiEndpoint } from "./aiAssistCard.js";
+import "./semanticLayerComponent.js";
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -138,11 +139,14 @@ template.innerHTML = `
   .back-link:hover { text-decoration: underline; }
 
   /* Editable schema table */
+  .schema-table { table-layout: auto; }
   .schema-table input, .schema-table select {
     border: none; background: transparent; padding: 4px 6px; width: 100%; font-size: 13px;
   }
   .schema-table input:focus, .schema-table select:focus { background: #fff; border: 1px solid #2563eb; }
-  .schema-table td { padding: 2px 4px; }
+  .schema-table td { padding: 2px 4px; white-space: nowrap; }
+  .schema-table td:nth-child(6), .schema-table th:nth-child(6) { min-width: 380px; white-space: normal; }
+  .schema-table td:nth-child(6) input { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
   .schema-row-actions { display: flex; gap: 4px; }
   .schema-row-actions button { padding: 2px 6px; font-size: 11px; }
 
@@ -194,6 +198,8 @@ template.innerHTML = `
   .field-help { margin-top: 4px; font-size: 12px; color: #6b7280; }
 
   /* AI Assist (shared) */
+  .ai-trigger { position: relative; z-index: 2; }
+  .ai-trigger .ai-icon { pointer-events: none; }
   ${aiAssistCSS}
 </style>
 
@@ -223,6 +229,7 @@ template.innerHTML = `
     <button class="tab" data-tab="review">Review &amp; Approve</button>
     <button class="tab" data-tab="releases">Releases &amp; Execution</button>
     <button class="tab" data-tab="sql">SQL Preview</button>
+    <button class="tab" data-tab="semantic">Semantic Model</button>
   </div>
 
   <!-- ================ TAB: PROPOSALS ================ -->
@@ -254,7 +261,7 @@ template.innerHTML = `
           <select id="filterLimit">
             <option value="25">25</option>
             <option value="50">50</option>
-            <option value="100">100</option>
+            <option value="100" selected>100</option>
           </select>
         </div>
       </div>
@@ -262,8 +269,8 @@ template.innerHTML = `
         <thead>
           <tr>
             <th>ID</th>
+            <th>Target Model</th>
             <th>Source</th>
-            <th>Endpoint</th>
             <th>Layer</th>
             <th>Status</th>
             <th>Created By</th>
@@ -362,9 +369,9 @@ template.innerHTML = `
                 <th>Column Name</th>
                 <th>Data Type</th>
                 <th>Nullable</th>
-                <th>Primary Key</th>
+                <th id="schemaKeyHeader">Primary Key</th>
                 <th>Description</th>
-                <th>Source Expression</th>
+                <th id="schemaExprHeader">Source Expression</th>
                 <th></th>
               </tr>
             </thead>
@@ -475,7 +482,7 @@ template.innerHTML = `
       <!-- BRD Intake -->
       <div class="card" id="brdCard" style="display:none;">
         <h3>Business Requirements (BRD)</h3>
-        <p style="font-size:13px;color:#6b7280;margin:0 0 8px 0;">Paste a BRD or describe desired model fields, grain, and business logic. AI will generate a proposal from your requirements.</p>
+        <p id="brdDescription" style="font-size:13px;color:#6b7280;margin:0 0 8px 0;">Paste a BRD or describe desired model fields, grain, and business logic. AI will generate a proposal from your requirements.</p>
         <textarea id="brdText" rows="6" placeholder="Describe your requirements: business entity, required fields, grain, SLAs..."></textarea>
         <div style="margin-top:8px;display:flex;gap:8px;">
           <button class="ai-trigger" id="aiGenerateFromBrdBtn" type="button">
@@ -487,13 +494,17 @@ template.innerHTML = `
 
       <!-- Gold Mart Suggestions -->
       <div class="card" id="goldMartCard" style="display:none;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h3>Mart Design</h3>
-          <button class="ai-trigger" id="aiSuggestGoldMartBtn" type="button">
-            <span class="ai-icon">&#9733;</span> Suggest mart improvements
-          </button>
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" id="goldMartHeader">
+          <h3 style="margin:0;">Mart Design <span id="goldMartToggleIcon" style="font-size:12px;color:#6b7280;">&#9660;</span></h3>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="ai-trigger" id="aiSuggestGoldMartBtn" type="button">
+              <span class="ai-icon">&#9733;</span> Suggest mart design
+            </button>
+          </div>
         </div>
-        <div id="aiGoldMartResult"></div>
+        <div id="goldMartBody">
+          <div id="aiGoldMartResult"></div>
+        </div>
       </div>
 
       <div class="card" id="metricGlossaryCard" style="display:none;">
@@ -507,13 +518,17 @@ template.innerHTML = `
       </div>
 
       <div class="card" id="anomalyCard" style="display:none;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h3>Run / KPI Analysis</h3>
-          <button class="ai-trigger" id="aiExplainAnomalyBtn" type="button">
-            <span class="ai-icon">&#9733;</span> Why did this change?
-          </button>
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" id="anomalyHeader">
+          <h3 style="margin:0;">Run / KPI Analysis <span id="anomalyToggleIcon" style="font-size:12px;color:#6b7280;">&#9660;</span></h3>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="ai-trigger" id="aiExplainAnomalyBtn" type="button">
+              <span class="ai-icon">&#9733;</span> Why did this change?
+            </button>
+          </div>
         </div>
-        <div id="aiAnomalyResult"></div>
+        <div id="anomalyBody">
+          <div id="aiAnomalyResult"></div>
+        </div>
       </div>
 
       <!-- Compile output -->
@@ -645,7 +660,7 @@ template.innerHTML = `
         </div>
       </div>
       <p style="font-size:13px;color:#6b7280;margin:0 0 12px 0;">
-        Snowflake-dialect SQL compiled from the approved proposal. Includes DDL, DML (MERGE/INSERT), and materialization statements.
+        Compiled SQL from the approved proposal. Includes DDL, DML (MERGE/INSERT), and materialization statements.
       </p>
       <div id="sqlTabs" class="tabs" style="margin-bottom:12px;">
         <button class="tab active" data-sqltab="ddl">DDL</button>
@@ -654,6 +669,11 @@ template.innerHTML = `
       </div>
       <div class="sql-preview" id="sqlContent" style="min-height:200px;">-- No SQL available. Compile a proposal first.</div>
     </div>
+  </div>
+
+  <!-- ================ TAB: SEMANTIC MODEL ================ -->
+  <div class="tab-panel" data-panel="semantic">
+    <semantic-layer-component id="semanticLayer"></semantic-layer-component>
   </div>
 
   <div id="expressionModal" class="expr-modal">
@@ -921,6 +941,8 @@ class ModelingConsole extends HTMLElement {
     this.$detailStatus = q("#detailStatus");
     this.$backToList = q("#backToList");
     this.$schemaTitle = q("#schemaTitle");
+    this.$schemaKeyHeader = q("#schemaKeyHeader");
+    this.$schemaExprHeader = q("#schemaExprHeader");
     this.$schemaBody = q("#schemaBody");
     this.$addColumnBtn = q("#addColumnBtn");
     this.$saveSchemaBtn = q("#saveSchemaBtn");
@@ -950,18 +972,25 @@ class ModelingConsole extends HTMLElement {
     this.$aiSuggestTransformsBtn = q("#aiSuggestTransformsBtn");
     this.$aiTransformsResult = q("#aiTransformsResult");
     this.$brdCard = q("#brdCard");
+    this.$brdDescription = q("#brdDescription");
     this.$brdText = q("#brdText");
     this.$aiGenerateFromBrdBtn = q("#aiGenerateFromBrdBtn");
     this.$aiBrdResult = q("#aiBrdResult");
     this.$goldMartCard = q("#goldMartCard");
     this.$aiSuggestGoldMartBtn = q("#aiSuggestGoldMartBtn");
     this.$aiGoldMartResult = q("#aiGoldMartResult");
+    this.$goldMartHeader = q("#goldMartHeader");
+    this.$goldMartBody = q("#goldMartBody");
+    this.$goldMartToggleIcon = q("#goldMartToggleIcon");
     this.$metricGlossaryCard = q("#metricGlossaryCard");
     this.$aiGenerateMetricGlossaryBtn = q("#aiGenerateMetricGlossaryBtn");
     this.$aiMetricGlossaryResult = q("#aiMetricGlossaryResult");
     this.$anomalyCard = q("#anomalyCard");
     this.$aiExplainAnomalyBtn = q("#aiExplainAnomalyBtn");
     this.$aiAnomalyResult = q("#aiAnomalyResult");
+    this.$anomalyHeader = q("#anomalyHeader");
+    this.$anomalyBody = q("#anomalyBody");
+    this.$anomalyToggleIcon = q("#anomalyToggleIcon");
     this.$pipelineSteps = q("#pipelineSteps");
 
     this.$reviewEmpty = q("#reviewEmpty");
@@ -1107,7 +1136,15 @@ class ModelingConsole extends HTMLElement {
     }
     // AI Assist: P2-D — Suggest Gold Mart Design
     if (this.$aiSuggestGoldMartBtn) {
-      on(this.$aiSuggestGoldMartBtn, "click", () => this._aiSuggestGoldMart());
+      on(this.$aiSuggestGoldMartBtn, "click", (e) => { e.stopPropagation(); this._aiSuggestGoldMart(); });
+    }
+    if (this.$goldMartHeader) {
+      on(this.$goldMartHeader, "click", (e) => {
+        if (e.target.closest(".ai-trigger")) return;
+        const collapsed = this.$goldMartBody.style.display === "none";
+        this.$goldMartBody.style.display = collapsed ? "block" : "none";
+        this.$goldMartToggleIcon.innerHTML = collapsed ? "&#9660;" : "&#9654;";
+      });
     }
     // AI Assist: P3-C — Generate Metric Glossary
     if (this.$aiGenerateMetricGlossaryBtn) {
@@ -1116,6 +1153,14 @@ class ModelingConsole extends HTMLElement {
     // AI Assist: P3-D — Explain Run/KPI Anomaly
     if (this.$aiExplainAnomalyBtn) {
       on(this.$aiExplainAnomalyBtn, "click", () => this._aiExplainAnomaly());
+    }
+    if (this.$anomalyHeader) {
+      on(this.$anomalyHeader, "click", (e) => {
+        if (e.target.closest(".ai-trigger")) return; // don't toggle when clicking the AI button
+        const collapsed = this.$anomalyBody.style.display === "none";
+        this.$anomalyBody.style.display = collapsed ? "block" : "none";
+        this.$anomalyToggleIcon.innerHTML = collapsed ? "&#9660;" : "&#9654;";
+      });
     }
   }
 
@@ -1175,6 +1220,8 @@ class ModelingConsole extends HTMLElement {
     this.$newProposalHelp.textContent = cfg.newProposalHelp;
     this.$proposalsEmptyText.textContent = cfg.emptyCopy;
     this.$schemaTitle.textContent = `${cfg.layerLabel} Schema`;
+    this.$schemaKeyHeader.textContent = cfg.layer === "gold" ? "Grain Key" : "Primary Key";
+    this.$schemaExprHeader.textContent = cfg.layer === "gold" ? "Aggregation" : "Source Expression";
     this.$mappingSubtitle.textContent = `${cfg.sourceLabel} → ${cfg.layerLabel} field mapping with type coercions and transformations.`;
     this.$reviewSchemaTitle.textContent = `Proposed ${cfg.layerLabel} Schema`;
     this.$silverProposalFields.style.display = cfg.layer === "silver" ? "grid" : "none";
@@ -1789,6 +1836,10 @@ class ModelingConsole extends HTMLElement {
     if (tab === "releases") this._loadReleases();
     if (tab === "review") this._renderReview();
     if (tab === "sql") this._renderSqlTab();
+    if (tab === "semantic") {
+      const sem = this.shadowRoot.querySelector("#semanticLayer");
+      if (sem) sem.loadModels();
+    }
   }
 
   _switchSqlTab(subtab) {
@@ -1837,8 +1888,8 @@ class ModelingConsole extends HTMLElement {
       const safeStatus = this._esc(p.status || "draft");
       tr.innerHTML = `
         <td>${this._esc(p.proposal_id || p.id || "--")}</td>
+        <td>${this._esc(p.target_model || "--")}</td>
         <td>${this._esc(p.source_node_id || p.api_node_id || "--")}</td>
-        <td>${this._esc(this._proposalSourceName(p))}</td>
         <td>${this._esc(layer)}</td>
         <td><span class="badge ${badgeClass(p.status)}">${safeStatus}</span></td>
         <td>${this._esc(p.created_by || "--")}</td>
@@ -1937,6 +1988,11 @@ class ModelingConsole extends HTMLElement {
       this._renderDetail();
       this._setDetailStatus("");
 
+      // Scroll detail panel to top
+      this.$detailContent.scrollTop = 0;
+      const shell = this.shadowRoot.querySelector(".shell");
+      if (shell) shell.scrollTop = 0;
+
       // Try loading compile artifact
       if (["compiled", "validated", "approved", "published"].includes(p.status)) {
         this._loadCompileArtifact(proposalId);
@@ -1957,14 +2013,26 @@ class ModelingConsole extends HTMLElement {
     this.$detailTitle.textContent = `Proposal #${p.proposal_id || p.id} — ${this._proposalSourceName(p)}`;
     this.$detailMeta.textContent = `Layer: ${cfg.layerLabel} | Status: ${p.status || "draft"}${latestValidationStatus} | Source node: ${p.source_node_id || p.api_node_id || "--"} | Created: ${fmtDate(this._proposalCreatedAt(p))} | By: ${p.created_by || "--"}`;
 
+    this.$schemaTitle.textContent = `${cfg.layerLabel} Schema`;
+    this.$schemaKeyHeader.textContent = cfg.layer === "gold" ? "Grain Key" : "Primary Key";
+    this.$schemaExprHeader.textContent = cfg.layer === "gold" ? "Aggregation" : "Source Expression";
     this._renderPipeline(this.$pipelineSteps, p);
     this._renderSchema(p);
     this._renderProcessingPolicy(p);
     this._renderMapping(p);
     this._renderDetailActions(p);
     this._renderValidation(p);
+    // Hide processing policy for gold (not relevant to mart aggregation)
+    if (this.$processingPolicyCard) {
+      this.$processingPolicyCard.style.display = (p.layer === "gold") ? "none" : "block";
+    }
     // P2: Show BRD card always, show gold mart card for gold proposals
     if (this.$brdCard) this.$brdCard.style.display = "block";
+    if (this.$brdDescription) {
+      this.$brdDescription.textContent = p.layer === "gold"
+        ? "Describe KPIs, report requirements, aggregate definitions, and business logic. AI will generate a gold mart proposal."
+        : "Paste a BRD or describe desired model fields, grain, and business logic. AI will generate a proposal from your requirements.";
+    }
     if (this.$goldMartCard) {
       this.$goldMartCard.style.display = (p.layer === "gold") ? "block" : "none";
     }
@@ -2594,6 +2662,21 @@ class ModelingConsole extends HTMLElement {
     const p = this._currentProposal;
     if (!p) return;
     const pid = p.proposal_id || p.id;
+
+    // Auto-expand if collapsed
+    if (this.$goldMartBody) this.$goldMartBody.style.display = "block";
+    if (this.$goldMartToggleIcon) this.$goldMartToggleIcon.innerHTML = "&#9660;";
+
+    // Cache hit — show with brief loading pause
+    if (this._goldMartCache && this._goldMartCache.pid === pid) {
+      this.$aiSuggestGoldMartBtn.disabled = true;
+      this.$aiGoldMartResult.innerHTML = renderAiLoading("Analyzing mart design...");
+      await new Promise(r => setTimeout(r, 2000));
+      this.$aiGoldMartResult.innerHTML = this._goldMartCache.html;
+      this.$aiSuggestGoldMartBtn.disabled = false;
+      return;
+    }
+
     this.$aiSuggestGoldMartBtn.disabled = true;
     this.$aiGoldMartResult.innerHTML = renderAiLoading("Analyzing mart design...");
     try {
@@ -2604,9 +2687,11 @@ class ModelingConsole extends HTMLElement {
         source_table: proposal.source_table || null,
       });
       const edits = flattenEdits(result.edits);
-      this.$aiGoldMartResult.innerHTML = edits.length
+      const html = edits.length
         ? renderAiEditsCard(result, { title: "Mart Design Suggestions" })
         : renderAiCard(result, { title: "Mart Design Suggestions" });
+      this.$aiGoldMartResult.innerHTML = html;
+      this._goldMartCache = { pid, html };
       if (edits.length) {
         bindAiEditActions(this.$aiGoldMartResult, {
           edits,
@@ -2646,13 +2731,31 @@ class ModelingConsole extends HTMLElement {
     const p = this._currentProposal;
     if (!p) return;
     const pid = p.proposal_id || p.id;
+
+    // Expand body if collapsed
+    if (this.$anomalyBody) this.$anomalyBody.style.display = "block";
+    if (this.$anomalyToggleIcon) this.$anomalyToggleIcon.innerHTML = "&#9660;";
+
+    // If we already have a cached result, show it with a brief "Analyzing" pause
+    if (this._anomalyCache && this._anomalyCache.pid === pid) {
+      this.$aiExplainAnomalyBtn.disabled = true;
+      this.$aiAnomalyResult.innerHTML = renderAiLoading("Analyzing anomalies...");
+      await new Promise(r => setTimeout(r, 2000));
+      this.$aiAnomalyResult.innerHTML = this._anomalyCache.html;
+      this.$aiExplainAnomalyBtn.disabled = false;
+      return;
+    }
+
     this.$aiExplainAnomalyBtn.disabled = true;
     this.$aiAnomalyResult.innerHTML = renderAiLoading("Analyzing anomalies...");
     try {
       const payload = { proposal_id: pid };
       if (p.kpi_delta) payload.kpi_delta = p.kpi_delta;
       const result = await callAiEndpoint("/aiExplainRunOrKpiAnomaly", payload);
-      this.$aiAnomalyResult.innerHTML = renderAiCard(result, { title: "Anomaly Explanation" });
+      const html = renderAiCard(result, { title: "Anomaly Explanation" });
+      this.$aiAnomalyResult.innerHTML = html;
+      // Cache for re-open
+      this._anomalyCache = { pid, html };
     } catch (err) {
       this.$aiAnomalyResult.innerHTML = `<div class="ai-warnings">&#9888; ${this._esc(err.message || "AI request failed")}</div>`;
     } finally {

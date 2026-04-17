@@ -10,6 +10,8 @@
             [clojure.string :as string]))
 
 (def ^:private graph-name "Sheetz Samsara Analytics Demo")
+(def ^:private unique-graph-name "Sheetz Samsara Analytics Demo - Unique Endpoints")
+(def ^:private canonical-http-graph-name "Sheetz Samsara Analytics Demo - Canonical HTTP Endpoints")
 (def ^:private created-by "codex-demo-seed")
 
 (def ^:private extra-demo-routes
@@ -20,6 +22,62 @@
 
 (def ^:private singleton-routes
   #{"/me" "/user-roles"})
+
+(def ^:private unique-endpoint-paths
+  ["/fleet/vehicles"
+   "/fleet/vehicles/stats"
+   "/fleet/vehicles/locations"
+   "/fleet/vehicles/fuel-energy"
+   "/fleet/vehicles/:id/safety/score"
+   "/fleet/drivers"
+   "/fleet/drivers/:id/safety/score"
+   "/fleet/drivers/:id/tachograph-files"
+   "/fleet/drivers/vehicle-assignments"
+   "/fleet/document-types"
+   "/fleet/safety/events"
+   "/fleet/safety/scores/vehicles"
+   "/fleet/safety/scores/drivers"
+   "/fleet/hos/logs"
+   "/fleet/hos/violations"
+   "/fleet/hos/clocks"
+   "/fleet/trailers"
+   "/fleet/trailers/locations"
+   "/fleet/trailers/stats"
+   "/fleet/assets"
+   "/fleet/assets/locations"
+   "/fleet/assets/reefers/stats"
+   "/fleet/maintenance/dvirs"
+   "/fleet/defects"
+   "/fleet/routes"
+   "/fleet/dispatch/routes"
+   "/fleet/dispatch/jobs"
+   "/fleet/ifta/summary"
+   "/fleet/geofences"
+   "/addresses"
+   "/tags"
+   "/contacts"
+   "/webhooks"
+   "/fleet/documents"
+   "/alerts/configurations"
+   "/alerts"
+   "/industrial/data"
+   "/sensors/list"
+   "/sensors/temperature"
+   "/sensors/humidity"
+   "/sensors/door"
+   "/fleet/equipment"
+   "/fleet/equipment/locations"
+   "/fleet/equipment/stats"
+   "/gateways"
+   "/industrial/assets"
+   "/industrial/data-inputs"
+   "/users"
+   "/user-roles"])
+
+(def ^:private canonical-http-endpoint-paths
+  (->> unique-endpoint-paths
+       (remove #{"/webhooks" "/user-roles"})
+       vec))
 
 (def ^:private dynamic-endpoint-overrides
   {"fleet/vehicles"
@@ -200,7 +258,8 @@
 (def ^:private gold-patches
   {"gold_fleet_utilization_daily"
    {:semantic_grain "vehicle_day"
-    :depends_on ["silver_vehicle_master" "silver_dispatch_job"]
+    :source_model "silver_vehicle_stat"
+    :depends_on ["silver_vehicle_stat" "silver_dispatch_job"]
     :group_by ["vehicle_id" "event_date"]
     :materialization {:mode "merge" :keys ["vehicle_id" "event_date"]}
     :columns [{:target_column "vehicle_id" :type "STRING" :nullable false :role "dimension"
@@ -220,7 +279,8 @@
 
    "gold_driver_safety_daily"
    {:semantic_grain "driver_day"
-    :depends_on ["silver_driver_master"]
+    :source_model "silver_safety_event"
+    :depends_on ["silver_safety_event" "silver_driver_master"]
     :group_by ["driver_id" "event_date"]
     :materialization {:mode "merge" :keys ["driver_id" "event_date"]}
     :columns [{:target_column "driver_id" :type "STRING" :nullable true :role "dimension"
@@ -238,7 +298,8 @@
 
    "gold_fuel_efficiency_daily"
    {:semantic_grain "vehicle_day"
-    :depends_on ["silver_vehicle_master"]
+    :source_model "silver_vehicle_fuel_energy"
+    :depends_on ["silver_vehicle_fuel_energy"]
     :group_by ["vehicle_id" "event_date"]
     :materialization {:mode "merge" :keys ["vehicle_id" "event_date"]}
     :columns [{:target_column "vehicle_id" :type "STRING" :nullable false :role "dimension"
@@ -258,7 +319,8 @@
 
    "gold_cold_chain_compliance_daily"
    {:semantic_grain "sensor_day"
-    :depends_on ["silver_reefer_stat"]
+    :source_model "silver_temperature_reading"
+    :depends_on ["silver_temperature_reading" "silver_reefer_stat"]
     :group_by ["sensor_id" "event_date"]
     :materialization {:mode "merge" :keys ["sensor_id" "event_date"]}
     :columns [{:target_column "sensor_id" :type "STRING" :nullable false :role "dimension"
@@ -278,7 +340,8 @@
 
    "gold_asset_health_daily"
    {:semantic_grain "vehicle_day"
-    :depends_on ["silver_defect_event" "silver_vehicle_master"]
+    :source_model "silver_dvir_event"
+    :depends_on ["silver_dvir_event" "silver_defect_event" "silver_vehicle_master"]
     :group_by ["vehicle_id" "event_date"]
     :materialization {:mode "merge" :keys ["vehicle_id" "event_date"]}
     :columns [{:target_column "vehicle_id" :type "STRING" :nullable true :role "dimension"
@@ -323,6 +386,16 @@
 
 (defn- curated-routes []
   (vec (concat (business-get-routes) extra-demo-routes)))
+
+(defn- unique-curated-routes []
+  (->> (business-get-routes)
+       (filter #(some #{(:path %)} unique-endpoint-paths))
+       vec))
+
+(defn- canonical-http-routes []
+  (->> (business-get-routes)
+       (filter #(some #{(:path %)} canonical-http-endpoint-paths))
+       vec))
 
 (defn- endpoint-name [path]
   (string/replace-first path #"^/" ""))
@@ -480,9 +553,22 @@
                {:name "avg_fuel_economy_mpg"} {:name "total_idle_hours"}]
     :dimensions [{:name "vehicle_id"} {:name "event_date"}]}])
 
-(defn- pipeline-spec [connection-id]
-  {:pipeline-id "sheetz_samsara_analytics_demo"
-   :pipeline-name graph-name
+(defn- pipeline-spec [{:keys [connection-id endpoint-mode]
+                       :or {endpoint-mode :all}}]
+  (let [unique-only?   (= endpoint-mode :unique-only)
+        canonical?     (= endpoint-mode :canonical-http)
+        endpoint-routes (cond
+                          canonical? (canonical-http-routes)
+                          unique-only? (unique-curated-routes)
+                          :else (curated-routes))]
+    {:pipeline-id (cond
+                    canonical? "sheetz_samsara_analytics_demo_canonical_http"
+                    unique-only? "sheetz_samsara_analytics_demo_unique"
+                    :else "sheetz_samsara_analytics_demo")
+   :pipeline-name (cond
+                    canonical? canonical-http-graph-name
+                    unique-only? unique-graph-name
+                    :else graph-name)
    :bronze-nodes [{:node-ref "api1"
                    :node-type "api-connection"
                    :config {:name "Sheetz Samsara API"
@@ -491,7 +577,7 @@
                             :specification_url "https://raw.githubusercontent.com/samsarahq/api-docs/master/swagger.json"
                             :base_url "http://localhost:3001"
                             :auth_ref {:type "bearer" :token "mock-samsara-token"}
-                            :endpoint_configs (mapv endpoint-config (curated-routes))}}
+                            :endpoint_configs (mapv endpoint-config endpoint-routes)}}
                   {:node-ref "tg1"
                    :node-type "target"
                    :config {:connection_id connection-id
@@ -506,8 +592,14 @@
    :silver-proposals (silver-plans)
    :gold-models (gold-plans)
    :assumptions ["Samsara demo source uses the local mock API on http://localhost:3001."
-                 "Bronze endpoint catalog includes 84 configured endpoints for UI review."
-                 "Gold proposals are aligned to the five Sheetz demo report domains."]})
+                 (cond
+                   canonical?
+                   "Bronze endpoint catalog includes 47 canonical HTTP endpoints for the demo narrative."
+                   unique-only?
+                   "Bronze endpoint catalog includes only unique-by-shape Samsara endpoints."
+                   :else
+                   "Bronze endpoint catalog includes 84 configured endpoints for UI review.")
+                 "Gold proposals are aligned to the five Sheetz demo report domains."]}))
 
 (defn- persist-target-config!
   [graph-id target-node-id connection-id]
@@ -545,9 +637,11 @@
   (control-plane/assign-graph-workspace! graph-id "default" created-by))
 
 (defn seed-demo!
-  [{:keys [connection-id]
-    :or {connection-id 478}}]
-  (let [spec          (pipeline-spec nil)
+  [{:keys [connection-id endpoint-mode]
+    :or {connection-id 478
+         endpoint-mode :all}}]
+  (let [spec          (pipeline-spec {:connection-id nil
+                                      :endpoint-mode endpoint-mode})
         bronze        (pipeline-compiler/apply-bronze! spec {:created-by created-by})
         graph-id      (:graph_id bronze)
         _             (ensure-workspace! graph-id)
@@ -563,12 +657,18 @@
      :api_node_id (:api_node_id bronze)
      :target_node_id (:target_node_id bronze)
      :connection_id connection-id
+     :endpoint_mode endpoint-mode
      :endpoint_count (count (get-in spec [:bronze-nodes 0 :config :endpoint_configs]))
      :silver_models (mapv #(select-keys % [:proposal_id :target_model :status]) silver-result)
      :gold_models (mapv #(select-keys % [:proposal_id :target_model :status]) gold-result')}))
 
 (defn -main [& args]
   (let [connection-id (some-> (first args) Long/parseLong)
-        result (seed-demo! {:connection-id (or connection-id 478)})]
+        endpoint-mode (case (some-> (second args) string/lower-case)
+                        "unique" :unique-only
+                        "canonical" :canonical-http
+                        :all)
+        result (seed-demo! {:connection-id (or connection-id 478)
+                            :endpoint-mode endpoint-mode})]
     (pp/pprint result)
     (shutdown-agents)))

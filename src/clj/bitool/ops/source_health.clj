@@ -117,7 +117,7 @@
                          AND LOWER(f.source_system) NOT LIKE '%file%'
                          AND LOWER(f.source_system) NOT LIKE '%mainframe%'"
                        ws-clause
-                       " ORDER BY freshness_lag_seconds DESC, f.updated_at_utc DESC")]
+                       " ORDER BY freshness_lag_seconds ASC, f.updated_at_utc DESC")]
                  ws-params))]
       (mapv (fn [row]
               (assoc row

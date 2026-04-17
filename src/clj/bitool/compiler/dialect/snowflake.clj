@@ -31,6 +31,17 @@
          (map :expression)
          vec)))
 
+(defn- snowflake-cluster-exprs
+  [cluster-by]
+  (->> (or cluster-by [])
+       (keep (fn [value]
+               (let [value (some-> value str string/trim)]
+                 (when (seq value)
+                   (if (re-matches #"[A-Za-z_][A-Za-z0-9_]*" value)
+                     (quote-ident value)
+                     value)))))
+       vec))
+
 (defn compile-select-sql
   [sql-ir]
   (let [source-relation (get-in sql-ir [:sources 0 :relation])
@@ -48,10 +59,11 @@
 
 (defn compile-materialization-sql
   [sql-ir select-sql]
-  (let [{:keys [mode target keys]} (:materialization sql-ir)
+  (let [{:keys [mode target keys cluster_by]} (:materialization sql-ir)
         target-table              (qualified-ident target)
         target-columns            (mapv :target_column (:select sql-ir))
-        quoted-target-columns     (mapv quote-ident target-columns)]
+        quoted-target-columns     (mapv quote-ident target-columns)
+        cluster-exprs             (snowflake-cluster-exprs cluster_by)]
     (case mode
       "merge"
       (let [update-set (string/join ", "
@@ -71,7 +83,10 @@
              ")"))
 
       "table_replace"
-      (str "CREATE OR REPLACE TABLE " target-table " AS " select-sql)
+      (str "CREATE OR REPLACE TABLE " target-table
+           (when (seq cluster-exprs)
+             (str " CLUSTER BY (" (string/join ", " cluster-exprs) ")"))
+           " AS " select-sql)
 
       "append"
       (str "INSERT INTO " target-table " ("

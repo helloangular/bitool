@@ -3,7 +3,7 @@ import FollowUpLine from "./library/follow-up-line.js";
 import PanZoom from "./library/pan-zoom.js";
 import SvgConnector from "./library/svg-connector.js";
 import {getPanelItems, request, setPanelItems} from "./library/utils.js";
-import { addTableMetadata, findItemData, getTreeItems, mapItems, updateTreeItems } from "./library/tree-store.js";
+import { addTableMetadata, findItemData, findItemDataByPath, getTreeItems, mapItems, updateItemByPath, updateTreeItems } from "./library/tree-store.js";
 import { populateAttributes, renderTree } from "./library/tree-view.js";
 import { attachTreeContextMenu } from "./library/tree-context-menu.js";
 import "./source/modules/smart.button.js";
@@ -38,6 +38,7 @@ class TreeComponent extends HTMLElement {
     this.isResizing = false;
     this._columnListObserver = null;
     this.fromAnchor = null;
+    this._lazyLoads = new Set();
   }
 
   _connectorDebugEnabled() {
@@ -48,6 +49,10 @@ class TreeComponent extends HTMLElement {
     if (this._connectorDebugEnabled()) {
       console.warn("[TreeConnector]", ...args);
     }
+  }
+
+  _treeDebug(...args) {
+    console.log("[TreeLazyDebug]", ...args);
   }
 
   connectedCallback() {
@@ -125,6 +130,32 @@ class TreeComponent extends HTMLElement {
 
     EventHandler.on(this.form, "submit", (event) => this.createConnection(event), false, "Tree");
     EventHandler.on(document, "api-connection-saved", (event) => this.handleApiConnectionSaved(event), false, "Tree");
+    EventHandler.on(this.tree, "click", (event) => {
+      const target = event.target?.closest?.("smart-tree-item, smart-tree-items-group");
+      this._treeDebug("click", {
+        targetTag: target?.tagName || null,
+        label: target?.label || null,
+        path: target?.path ?? null,
+        lazyKind: target?.getAttribute?.("data-lazy_kind") || null,
+        connId: target?.getAttribute?.("data-conn_id") || null,
+        schema: target?.getAttribute?.("data-schema") || null,
+      });
+    }, false, "Tree");
+    EventHandler.on(this.tree, "expanding", (event) => {
+      this._treeDebug("expanding-event", {
+        detailPath: event?.detail?.path ?? null,
+        itemPath: event?.detail?.item?.path ?? null,
+        label: event?.detail?.label ?? event?.detail?.item?.label ?? null,
+        childrenCount: Array.isArray(event?.detail?.children) ? event.detail.children.length : null,
+      });
+      this.handleTreeExpanding(event);
+    }, false, "Tree");
+    EventHandler.on(this.tree, "expand", (event) => {
+      this._treeDebug("expand-event", {
+        detailPath: event?.detail?.path ?? null,
+        label: event?.detail?.label ?? event?.detail?.item?.label ?? null,
+      });
+    }, false, "Tree");
 
     EventHandler.on(this.droppableArea, 'pointerdown', (ev) => {
       if (!this.dragging && !this.activeRect) {
@@ -563,9 +594,23 @@ class TreeComponent extends HTMLElement {
     if (!this.tree) return;
     const treeItems = getTreeItems();
     if (!Array.isArray(treeItems)) return;
-    renderTree(this.tree, treeItems, {
+    const expandedPaths = Array.from(this.tree.querySelectorAll("smart-tree-items-group"))
+      .filter((element) => element.expanded && element.path !== undefined && element.path !== null)
+      .map((element) => String(element.path));
+    const renderedItems = expandedPaths.reduce(
+      (items, path) => updateItemByPath(path, items, (item) => ({ ...item, expanded: true })),
+      treeItems
+    );
+    this._treeDebug("renderItems", {
+      rootCount: treeItems.length,
+      expandedPaths,
+    });
+    renderTree(this.tree, renderedItems, {
       populateAttributes: (elements, items) =>
-        populateAttributes(elements, items, findItemData),
+        populateAttributes(elements, items, (element, sourceItems) =>
+          (element?.path !== undefined && element?.path !== null
+            ? findItemDataByPath(element.path, sourceItems)
+            : findItemData(element?.label, sourceItems))),
       onContextMenuReady: () => attachTreeContextMenu(this.tree, {
         dialog: this.dialog,
         showDialog: this.showDialog.bind(this),
@@ -597,6 +642,95 @@ class TreeComponent extends HTMLElement {
         element.setAttribute("draggable", "true");
         EventHandler.on(element, "dragstart", this.handleDragStart.bind(this), false, "Tree-items");
       });
+  }
+
+  async handleTreeExpanding(event) {
+    const itemPath = event?.detail?.path ?? event?.detail?.item?.path;
+    if (itemPath === undefined || itemPath === null) {
+      this._treeDebug("expand-skip-no-path", {
+        detail: event?.detail || null,
+      });
+      return;
+    }
+
+    const itemData = findItemDataByPath(itemPath);
+    this._treeDebug("expand-resolve", {
+      itemPath,
+      itemData,
+    });
+    if (!itemData?.lazy || itemData.loaded) {
+      this._treeDebug("expand-skip", {
+        itemPath,
+        reason: !itemData ? "missing-item" : (!itemData.lazy ? "not-lazy" : "already-loaded"),
+      });
+      return;
+    }
+
+    const loadKey = String(itemPath);
+    if (this._lazyLoads.has(loadKey)) {
+      this._treeDebug("expand-skip-inflight", { loadKey });
+      return;
+    }
+    this._lazyLoads.add(loadKey);
+    this._treeDebug("expand-request-start", {
+      loadKey,
+      body: {
+        conn_id: itemData.conn_id,
+        lazy_kind: itemData.lazy_kind,
+        db_name: itemData.db_name,
+        schema: itemData.schema,
+        table_name: itemData.table_name,
+      }
+    });
+
+    try {
+      const data = await request("/getConnectionTreeChildren", {
+        method: "POST",
+        body: {
+          conn_id: itemData.conn_id,
+          lazy_kind: itemData.lazy_kind,
+          db_name: itemData.db_name,
+          schema: itemData.schema,
+          table_name: itemData.table_name,
+        }
+      });
+      this._treeDebug("expand-request-success", {
+        loadKey,
+        itemCount: Array.isArray(data?.items) ? data.items.length : null,
+        labels: Array.isArray(data?.items) ? data.items.slice(0, 10).map((item) => item?.label) : null,
+      });
+
+      updateTreeItems((treeItems) =>
+        updateItemByPath(itemPath, treeItems, (item) => ({
+          ...item,
+          items: Array.isArray(data?.items) ? data.items : [],
+          expanded: true,
+          loaded: true,
+        }))
+      );
+      this.renderItems();
+    } catch (error) {
+      this._treeDebug("expand-request-error", {
+        loadKey,
+        error,
+      });
+      console.error("Error loading tree children:", error);
+      updateTreeItems((treeItems) =>
+        updateItemByPath(itemPath, treeItems, (item) => ({
+          ...item,
+          items: [{
+            label: "Failed to load",
+            disabled: true,
+          }],
+          expanded: false,
+          loaded: false,
+        }))
+      );
+      this.renderItems();
+    } finally {
+      this._lazyLoads.delete(loadKey);
+      this._treeDebug("expand-request-finish", { loadKey });
+    }
   }
 
   async handleApiConnectionSaved(event) {
@@ -658,7 +792,7 @@ class TreeComponent extends HTMLElement {
           addTableMetadata(
             data["tree-data"],
             data["conn-id"],
-            data["tree-data"]["items"][0]["label"]
+            formData.get("schema")
           )
         );
       });
@@ -681,14 +815,17 @@ class TreeComponent extends HTMLElement {
         }));
     }
 
-    const BASE_WIDTH = 110;
+    const NARROW_WIDTH = 110;
+    const TABLE_WIDTH = 160;
     const WIDE_WIDTH = 230;
     const HEIGHT = 50;
     const H_SPACE = 50;
     const V_SPACE = 30;
 
     function nodeWidth(node) {
-      return ["Ep", "Wh"].includes(node?.btype) ? WIDE_WIDTH : BASE_WIDTH;
+      if (["Ep", "Wh"].includes(node?.btype)) return WIDE_WIDTH;
+      if (["T", "V"].includes(node?.btype)) return TABLE_WIDTH;
+      return NARROW_WIDTH;
     }
 
     function treeDepth(node) {

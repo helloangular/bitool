@@ -33,6 +33,14 @@
                       (str expression " AS " (quote-ident target_column)))
                     (:select sql-ir))))
 
+(defn- bigquery-partition-expr
+  [value]
+  (let [value (some-> value str string/trim)]
+    (when (seq value)
+      (if (re-matches #"[A-Za-z_][A-Za-z0-9_]*" value)
+        (quote-ident value)
+        value))))
+
 (defn compile-select-sql
   [sql-ir]
   (let [source-relation (get-in sql-ir [:sources 0 :relation])
@@ -50,7 +58,7 @@
 
 (defn compile-materialization-sql
   [sql-ir select-sql]
-  (let [{:keys [mode target keys]} (:materialization sql-ir)
+  (let [{:keys [mode target keys partition_by cluster_by]} (:materialization sql-ir)
         target-table          (qualified-ident target)
         target-columns        (mapv :target_column (:select sql-ir))
         quoted-target-columns (mapv quote-ident target-columns)]
@@ -73,7 +81,12 @@
              ")"))
 
       "table_replace"
-      (str "CREATE OR REPLACE TABLE " target-table " AS " select-sql)
+      (str "CREATE OR REPLACE TABLE " target-table
+           (when-let [partition-expr (bigquery-partition-expr partition_by)]
+             (str " PARTITION BY " partition-expr))
+           (when (seq cluster_by)
+             (str " CLUSTER BY " (string/join ", " (map quote-ident cluster_by))))
+           " AS " select-sql)
 
       "append"
       (str "INSERT INTO " target-table " ("

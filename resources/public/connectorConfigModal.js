@@ -205,6 +205,58 @@ const FORMS = {
   },
 };
 
+const QUICK_TEMPLATES = {
+  postgresql: [
+    {
+      label: "Local Postgres",
+      description: "Common local dev defaults",
+      values: { host: "localhost", port: 5432, schema: "public", username: "postgres" }
+    }
+  ],
+  snowflake: [
+    {
+      label: "Analytics Warehouse",
+      description: "Starter Snowflake warehouse shape",
+      values: { schema: "PUBLIC", warehouse: "COMPUTE_WH", role: "SYSADMIN" }
+    }
+  ],
+  databricks: [
+    {
+      label: "SQL Warehouse",
+      description: "Databricks SQL endpoint starter",
+      values: { port: 443, catalog: "main", schema: "default" }
+    }
+  ],
+  bigquery: [
+    {
+      label: "US Dataset",
+      description: "Standard BigQuery project + region",
+      values: { schema: "US" }
+    }
+  ],
+  local_files: [
+    {
+      label: "CSV Drop Folder",
+      description: "Watched local CSV directory",
+      values: { transport: "local", format: "csv", has_header: true, poll_interval_seconds: 60 }
+    }
+  ],
+  remote_files: [
+    {
+      label: "S3 Landing Zone",
+      description: "Starter S3 file ingest",
+      values: { transport: "s3", format: "csv", encoding: "UTF-8" }
+    }
+  ],
+  kafka_stream: [
+    {
+      label: "Plaintext Dev Cluster",
+      description: "Local or non-TLS Kafka defaults",
+      values: { security_protocol: "PLAINTEXT", auto_offset_reset: "earliest", max_poll_records: 500 }
+    }
+  ]
+};
+
 function buildTemplate() {
   const t = document.createElement("template");
   t.innerHTML = `
@@ -288,6 +340,63 @@ function buildTemplate() {
   .status { font-size: 11.5px; color: #8b91a3; min-height: 18px; margin-top: 4px; padding: 0 24px; font-weight: 500; }
   .status.error { color: #e5484d; }
   .status.success { color: #0fa968; }
+  .template-bar, .health-box {
+    margin: 0 24px 12px;
+    border: 1px solid #eceef2;
+    border-radius: 12px;
+    background: #fafbfc;
+    padding: 12px;
+  }
+  .template-bar[hidden], .health-box[hidden] { display: none; }
+  .template-title, .health-title {
+    margin: 0 0 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #5c6070;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .template-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .template-chip {
+    border: 1px solid #d9ddf4;
+    background: #eef2ff;
+    color: #3730a3;
+    border-radius: 999px;
+    padding: 7px 10px;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .template-chip:hover {
+    background: #e0e7ff;
+  }
+  .template-chip small {
+    display: block;
+    color: #5b5fc7;
+    font-weight: 500;
+  }
+  .health-meta {
+    font-size: 12px;
+    color: #5c6070;
+    line-height: 1.5;
+  }
+  .health-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .health-badge.ok { background: #dcfce7; color: #166534; }
+  .health-badge.error { background: #fee2e2; color: #991b1b; }
+  .health-badge.unknown { background: #eef2f7; color: #475467; }
 </style>
 <div class="backdrop">
   <div class="modal">
@@ -297,6 +406,14 @@ function buildTemplate() {
         <p id="modalSubtitle"></p>
       </div>
       <button id="closeX" type="button">&times;</button>
+    </div>
+    <div class="template-bar" id="templateBar" hidden>
+      <div class="template-title">Quick Connect</div>
+      <div class="template-list" id="templateList"></div>
+    </div>
+    <div class="health-box" id="healthBox" hidden>
+      <div class="health-title">Connection Health</div>
+      <div class="health-meta" id="healthMeta"></div>
     </div>
     <div class="modal-body" id="modalBody"></div>
     <div class="status" id="statusText"></div>
@@ -335,6 +452,10 @@ class ConnectorConfigModal extends HTMLElement {
     const q = (s) => this.shadowRoot.querySelector(s);
     this.$title = q("#modalTitle");
     this.$subtitle = q("#modalSubtitle");
+    this.$templateBar = q("#templateBar");
+    this.$templateList = q("#templateList");
+    this.$healthBox = q("#healthBox");
+    this.$healthMeta = q("#healthMeta");
     this.$body = q("#modalBody");
     this.$status = q("#statusText");
     this.$saveBtn = q("#saveBtn");
@@ -359,9 +480,12 @@ class ConnectorConfigModal extends HTMLElement {
     if (!config) { console.error("Unknown connector form type:", formType); return; }
     this._formType = formType;
     this._treeLabel = treeLabel;
+    this._editConnId = null;
     this.$title.textContent = config.title;
     this.$subtitle.textContent = config.subtitle;
     this._renderFields(config.fields);
+    this._renderTemplates();
+    this._renderHealth(null);
     this.$status.textContent = "";
     this.$status.className = "status";
     this.setAttribute("open", "");
@@ -382,18 +506,27 @@ class ConnectorConfigModal extends HTMLElement {
     this.$title.textContent = config.title + " (Edit)";
     this.$subtitle.textContent = config.subtitle;
     this._renderFields(config.fields);
+    this._renderTemplates();
     this.$status.textContent = "Loading...";
     this.$status.className = "status";
     this.setAttribute("open", "");
 
     try {
-      const data = await request(`/getConnectionDetail?conn_id=${connId}`);
+      const [data, healthResp] = await Promise.all([
+        request(`/getConnectionDetail?conn_id=${connId}`),
+        request(`/connectionHealth?conn_id=${connId}`).catch(() => ({ health: null }))
+      ]);
       for (const f of config.fields) {
         const el = this.$body.querySelector(`[name="${f.name}"]`);
         if (!el) continue;
         const val = data[f.name];
-        if (val != null) el.value = val;
+        if (el.type === "checkbox") {
+          el.checked = Boolean(val);
+        } else if (val != null) {
+          el.value = val;
+        }
       }
+      this._renderHealth(healthResp?.health || data?.health || null);
       this.$status.textContent = "";
     } catch (e) {
       this.$status.textContent = "Failed to load: " + (e.message || e);
@@ -444,6 +577,47 @@ class ConnectorConfigModal extends HTMLElement {
     return values;
   }
 
+  _renderTemplates() {
+    const templates = QUICK_TEMPLATES[this._formType] || [];
+    this.$templateList.innerHTML = "";
+    this.$templateBar.hidden = templates.length === 0;
+    templates.forEach((template) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "template-chip";
+      button.innerHTML = `${template.label}<small>${template.description || ""}</small>`;
+      button.addEventListener("click", () => this._applyTemplate(template.values || {}));
+      this.$templateList.appendChild(button);
+    });
+  }
+
+  _applyTemplate(values) {
+    Object.entries(values).forEach(([name, value]) => {
+      const el = this.$body.querySelector(`[name="${name}"]`);
+      if (!el) return;
+      if (el.type === "checkbox") el.checked = Boolean(value);
+      else el.value = value ?? "";
+    });
+    this.$status.textContent = "Quick connect template applied.";
+    this.$status.className = "status";
+  }
+
+  _renderHealth(health) {
+    if (!health) {
+      this.$healthBox.hidden = false;
+      this.$healthMeta.innerHTML = `<span class="health-badge unknown">unknown</span><div>No successful health check yet.</div>`;
+      return;
+    }
+    const status = String(health.status || "unknown").toLowerCase();
+    const checkedAt = health.checked_at_utc ? new Date(health.checked_at_utc).toLocaleString() : "never";
+    const errorText = health.error_message ? `<div>${health.error_message}</div>` : "";
+    this.$healthBox.hidden = false;
+    this.$healthMeta.innerHTML = `
+      <div><span class="health-badge ${status === "ok" ? "ok" : status === "error" ? "error" : "unknown"}">${status}</span></div>
+      <div>Last checked: ${checkedAt}</div>
+      ${errorText}`;
+  }
+
   async _save() {
     const config = FORMS[this._formType];
     if (!config) return;
@@ -487,7 +661,7 @@ class ConnectorConfigModal extends HTMLElement {
           newItem.conn_id = connId;
           if (config.dbtype) newItem.dbtype = config.dbtype;
           if (config.nodetype) newItem.nodetype = config.nodetype;
-          return mapItems(parent, treeItems, addTableMetadata(newItem, connId, values.connection_name));
+          return mapItems(parent, treeItems, addTableMetadata(newItem, connId, values.schema));
         });
 
         const tree = document.querySelector("tree-component");
@@ -516,9 +690,19 @@ class ConnectorConfigModal extends HTMLElement {
       if (config?.dbtype) values.dbtype = config.dbtype;
       const testUrl = config?.testUrl || "/testConnectorConnection";
       await request(testUrl, { method: "POST", body: values });
+      const healthResponse = this._editConnId
+        ? await request(`/connectionHealth?conn_id=${this._editConnId}`).catch(() => null)
+        : null;
+      this._renderHealth(healthResponse?.health || { status: "ok", checked_at_utc: new Date().toISOString() });
       this.$status.textContent = "Connection successful.";
       this.$status.className = "status success";
     } catch (e) {
+      if (this._editConnId) {
+        const healthResponse = await request(`/connectionHealth?conn_id=${this._editConnId}`).catch(() => null);
+        if (healthResponse?.health) this._renderHealth(healthResponse.health);
+      } else {
+        this._renderHealth({ status: "error", checked_at_utc: new Date().toISOString(), error_message: e.message || String(e) });
+      }
       this.$status.textContent = "Connection failed: " + (e.message || e);
       this.$status.className = "status error";
     } finally {

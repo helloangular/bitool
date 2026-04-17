@@ -1,5 +1,6 @@
 (ns bitool.schema-drift-test
   (:require [bitool.ops.schema-drift :as schema-drift]
+            [bitool.ops.alerts :as alerts]
             [bitool.ops.routes :as ops-routes]
             [clojure.test :refer :all]
             [bitool.ingest.runtime :as ingest-runtime]
@@ -147,6 +148,7 @@
 (deftest notification-created-on-event-insert
   (let [notif-created (atom false)]
     (with-redefs [schema-drift/ensure-schema-drift-tables! (fn [])
+                  alerts/fire! (fn [_] nil)
                   jdbc/execute-one!
                   (fn [_ sql-vec]
                     (cond
@@ -168,6 +170,74 @@
         :enforcement-mode "permissive"
         :schema-hash-before "a" :schema-hash-after "b"})
       (is @notif-created))))
+
+(deftest ops-alert-fired-on-new-drift-event-only
+  (let [fired (atom [])]
+    (with-redefs [schema-drift/ensure-schema-drift-tables! (fn [])
+                  jdbc/execute-one!
+                  (fn [_ sql-vec]
+                    (cond
+                      (.contains ^String (first sql-vec) "SELECT event_id")
+                      nil
+
+                      (.contains ^String (first sql-vec) "INSERT INTO schema_drift_event")
+                      {:event_id 123}
+
+                      :else nil))
+                  jdbc/execute! (fn [_ _] nil)
+                  alerts/fire! (fn [alert]
+                                 (swap! fired conj alert)
+                                 {:alert_id "alert-1"})]
+      (schema-drift/persist-schema-drift-event!
+       {:workspace-key "ops"
+        :graph-id 11
+        :api-node-id 22
+        :endpoint-name "fleet/vehicles"
+        :source-system "samsara"
+        :run-id "run-1"
+        :drift {:new_fields [{:path "driver_id" :type "STRING"}]
+                :missing_fields []
+                :type_changes []}
+        :enforcement-mode "additive"
+        :schema-hash-before "before"
+        :schema-hash-after "after"})
+      (is (= 1 (count @fired)))
+      (is (= "schema_drift" (:alert-type (first @fired))))
+      (is (= "info" (:severity (first @fired))))
+      (is (= "schema_drift:ops:11:22:fleet/vehicles:123"
+             (:source-key (first @fired))))
+      (is (= 123 (get-in (first @fired) [:detail :event_id]))))))
+
+(deftest ops-alert-not-fired-when-drift-event-deduped
+  (let [fire-count (atom 0)]
+    (with-redefs [schema-drift/ensure-schema-drift-tables! (fn [])
+                  jdbc/execute-one!
+                  (fn [_ sql-vec]
+                    (cond
+                      (.contains ^String (first sql-vec) "SELECT event_id")
+                      {:event_id 123}
+
+                      (.contains ^String (first sql-vec) "INSERT INTO schema_drift_event")
+                      (throw (ex-info "insert should not happen" {}))
+
+                      :else nil))
+                  jdbc/execute! (fn [_ _] nil)
+                  alerts/fire! (fn [_]
+                                 (swap! fire-count inc)
+                                 nil)]
+      (schema-drift/persist-schema-drift-event!
+       {:workspace-key "ops"
+        :graph-id 11
+        :api-node-id 22
+        :endpoint-name "fleet/vehicles"
+        :source-system "samsara"
+        :drift {:new_fields [{:path "driver_id" :type "STRING"}]
+                :missing_fields []
+                :type_changes []}
+        :enforcement-mode "additive"
+        :schema-hash-before "before"
+        :schema-hash-after "after"})
+      (is (= 0 @fire-count)))))
 
 (deftest get-and-ack-drift-event-are-workspace-scoped
   (let [seen (atom [])]

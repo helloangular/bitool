@@ -7,11 +7,28 @@ const template = document.createElement("template");
 template.innerHTML = `
 <link rel="stylesheet" href="./source/styles/smart.default.css" />
 <style>
+  :host {
+    position: fixed;
+    top: var(--toolbar-h, 0px);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 250;
+    box-sizing: border-box;
+    padding: 16px;
+    background: rgba(15, 23, 42, 0.22);
+    overflow: auto;
+    align-items: center;
+    justify-content: center;
+  }
+
   .container {
     background: white;
     border-radius: 15px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18);
     overflow: auto;
+    width: min(1120px, calc(100vw - 32px));
+    max-height: calc(100vh - var(--toolbar-h, 0px) - 32px);
   }
 
   .content {
@@ -85,6 +102,11 @@ template.innerHTML = `
 
   .param-item smart-drop-down-list {
     width: 120px;
+    height: 35px;
+  }
+
+  .output-item input,
+  .output-item select {
     height: 35px;
   }
 
@@ -218,6 +240,9 @@ template.innerHTML = `
         <label for="returnExpression">Return Expression:</label>
         <textarea id="returnExpression" placeholder="d*d + e*e + a*b*c"
           style="width: 100%; height: 80px; border: 1px solid #ccc; border-radius: 4px; padding: 10px; font-family: 'Courier New', monospace; resize: vertical;"></textarea>
+        <div style="font-size: 12px; color: #666; margin-top: 8px;">
+          Use this for single-output logic. For multiple returned values, add expressions on each output row below.
+        </div>
 
         <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center;">
           <select id="functionCategory"
@@ -240,7 +265,7 @@ template.innerHTML = `
       </div>
 
       <div class="form-group">
-        <label>Output Columns (what this node produces for downstream nodes):</label>
+        <label>Return Outputs (what this node produces for downstream nodes):</label>
         <div class="outputs-container" id="outputsContainer"></div>
         <button class="btn btn-add" id="addOutputBtn">+ Add Output</button>
       </div>
@@ -336,8 +361,9 @@ class LambdaFunctionBuilder extends HTMLElement {
 
   attributeChangedCallback(name) {
     if (name === "visibility") {
+      const isOpen = this.getAttribute("visibility") === "open";
       this._updateVisibility();
-      if (this.style.display === "block") {
+      if (isOpen) {
         this._cacheElements();
         this._addListeners();
         this._loadFromRect();
@@ -381,7 +407,23 @@ class LambdaFunctionBuilder extends HTMLElement {
   }
 
   _updateVisibility() {
-    this.style.display = this.getAttribute("visibility") === "open" ? "block" : "none";
+    const isOpen = this.getAttribute("visibility") === "open";
+    this.style.display = isOpen ? "flex" : "none";
+    this.style.position = "fixed";
+    this.style.top = "var(--toolbar-h, 0px)";
+    this.style.right = "0";
+    this.style.bottom = "0";
+    this.style.left = "0";
+    this.style.width = "auto";
+    this.style.height = "auto";
+    this.style.transform = "none";
+    this.style.zIndex = "250";
+    this.style.background = "rgba(15, 23, 42, 0.22)";
+    this.style.padding = "16px";
+    this.style.boxSizing = "border-box";
+    this.style.overflow = "auto";
+    this.style.alignItems = "center";
+    this.style.justifyContent = "center";
   }
 
   /** Load saved function data from the selected rectangle */
@@ -436,11 +478,11 @@ class LambdaFunctionBuilder extends HTMLElement {
       this.addLetExpression('d', '3 * a + b');
       this.addLetExpression('e', '(d / 4) + c');
       sr.querySelector("#returnExpression").value = 'd * d + e * e + a * b * c';
-      this.addOutput("result", "double");
+      this.addOutput("result", "double", 'd * d + e * e + a * b * c');
     } else {
       fnParams.forEach(p => this.addParameter(p.param_type || "int", p.param_name || "", p.source_column || ""));
       fnLets.forEach(l => this.addLetExpression(l.variable || "", l.expression || ""));
-      fnOutputs.forEach(o => this.addOutput(o.output_name || "", o.data_type || "varchar"));
+      fnOutputs.forEach(o => this.addOutput(o.output_name || "", o.data_type || "varchar", o.expression || ""));
     }
 
     this.generateFunction();
@@ -487,13 +529,15 @@ class LambdaFunctionBuilder extends HTMLElement {
   }
 
   // --- Output column management ---
-  addOutput(name = '', dataType = 'varchar') {
+  addOutput(name = '', dataType = 'varchar', expression = '') {
     const container = this.shadowRoot.querySelector('#outputsContainer');
     const outDiv = document.createElement('div');
     outDiv.className = 'output-item';
     outDiv.innerHTML = `
       <input type="text" class="output-name" placeholder="output column name" value="${name}"
         style="flex:1;height:35px;border:1px solid #ccc;border-radius:4px;padding:5px;">
+      <input type="text" class="output-expression" placeholder="return expression" value="${expression}"
+        style="flex:2;height:35px;border:1px solid #ccc;border-radius:4px;padding:5px;">
       <select class="output-type" style="width:120px;height:35px;border:1px solid #ccc;border-radius:4px;padding:5px;">
         ${['varchar','int','double','float','boolean','date','json'].map(t =>
           `<option value="${t}" ${dataType === t ? 'selected' : ''}>${t}</option>`
@@ -535,7 +579,8 @@ class LambdaFunctionBuilder extends HTMLElement {
       if (name) {
         outputs.push({
           output_name: name,
-          data_type: item.querySelector('.output-type').value
+          data_type: item.querySelector('.output-type').value,
+          expression: item.querySelector('.output-expression').value.trim()
         });
       }
     });
@@ -566,57 +611,67 @@ class LambdaFunctionBuilder extends HTMLElement {
   _insertSelectedFunction() {
     const fn = this.functionListEl.value;
     if (!fn) return;
-    const returnExpr = this.shadowRoot.getElementById('returnExpression');
-    const pos = returnExpr.selectionStart || returnExpr.value.length;
-    const v = returnExpr.value;
-    returnExpr.value = v.slice(0, pos) + fn + '()' + v.slice(pos);
-    returnExpr.focus();
-    returnExpr.setSelectionRange(pos + fn.length + 1, pos + fn.length + 1);
+    const target = this._activeExpressionTarget();
+    const pos = target.selectionStart || target.value.length;
+    const v = target.value;
+    target.value = v.slice(0, pos) + fn + '()' + v.slice(pos);
+    target.focus();
+    target.setSelectionRange(pos + fn.length + 1, pos + fn.length + 1);
     this.functionListEl.value = '';
+  }
+
+  _activeExpressionTarget() {
+    const active = this.shadowRoot.activeElement;
+    if (active && (
+      active.id === 'returnExpression' ||
+      active.classList.contains('let-expression') ||
+      active.classList.contains('output-expression')
+    )) {
+      return active;
+    }
+    return this.shadowRoot.getElementById('returnExpression');
   }
 
   // --- Generate preview code ---
   generateFunction() {
     const data = this.collectData();
-    const { fn_name, fn_params, fn_lets, fn_return } = data;
+    const { fn_name, fn_params, fn_lets, fn_return, fn_outputs } = data;
     let code = '';
 
-    // Clojure style (let over lambda — the core pattern)
-    code += '<span class="keyword">;; Clojure — let over lambda</span>\n';
-    code += `(<span class="keyword">defn</span> <span class="function">${fn_name}</span> [`;
-    code += fn_params.map(p => `<span class="variable">${p.param_name}</span>`).join(' ');
-    code += ']\n';
-    if (fn_lets.length > 0) {
-      code += '  (<span class="keyword">let</span> [';
-      fn_lets.forEach((l, i) => {
-        const prefix = i === 0 ? '' : '        ';
-        code += `${prefix}<span class="variable">${l.variable}</span> <span class="string">${l.expression}</span>\n`;
+    code += '<span class="keyword">logic</span> <span class="function">' + fn_name + '</span>\n';
+
+    if (fn_params.length > 0) {
+      code += '\n<span class="keyword">inputs</span>\n';
+      fn_params.forEach((p) => {
+        const binding = p.source_column ? ` &larr; <span class="string">${p.source_column}</span>` : '';
+        code += `  <span class="variable">${p.param_name}</span>${binding}\n`;
       });
-      code += '       ]\n';
-      code += `    <span class="string">${fn_return}</span>))\n\n`;
-    } else {
-      code += `  <span class="string">${fn_return}</span>)\n\n`;
     }
 
-    // JavaScript
-    code += '<span class="keyword">// JavaScript</span>\n';
-    code += `<span class="keyword">const</span> <span class="variable">${fn_name}</span> <span class="operator">=</span> (`;
-    code += fn_params.map(p => `<span class="variable">${p.param_name}</span>`).join(', ');
-    code += ') <span class="operator">=></span> {\n';
-    fn_lets.forEach(l => {
-      code += `  <span class="keyword">const</span> <span class="variable">${l.variable}</span> <span class="operator">=</span> <span class="string">${l.expression}</span>;\n`;
-    });
-    code += `  <span class="keyword">return</span> <span class="string">${fn_return}</span>;\n};\n\n`;
+    if (fn_lets.length > 0) {
+      code += '\n<span class="keyword">assign</span>\n';
+      fn_lets.forEach((l) => {
+        code += `  <span class="variable">${l.variable}</span> <span class="operator">=</span> <span class="string">${l.expression}</span>\n`;
+      });
+    }
 
-    // Python
-    code += '<span class="keyword"># Python</span>\n';
-    code += `<span class="keyword">def</span> <span class="function">${fn_name}</span>(`;
-    code += fn_params.map(p => `<span class="variable">${p.param_name}</span>`).join(', ');
-    code += '):\n';
-    fn_lets.forEach(l => {
-      code += `  <span class="variable">${l.variable}</span> <span class="operator">=</span> <span class="string">${l.expression}</span>\n`;
-    });
-    code += `  <span class="keyword">return</span> <span class="string">${fn_return}</span>\n`;
+    code += '\n<span class="keyword">return</span>\n';
+    const outputExpressions = fn_outputs.filter(o => o.output_name && (o.expression || fn_return));
+    if (outputExpressions.length > 1) {
+      code += '  {\n';
+      outputExpressions.forEach((o) => {
+        const expr = o.expression || fn_return;
+        code += `    <span class="variable">${o.output_name}</span>: <span class="string">${expr}</span>\n`;
+      });
+      code += '  }\n';
+    } else if (outputExpressions.length === 1) {
+      const [output] = outputExpressions;
+      code += `  <span class="variable">${output.output_name}</span> <span class="operator">=</span> <span class="string">${output.expression || fn_return}</span>\n`;
+    } else if (fn_return) {
+      code += `  <span class="string">${fn_return}</span>\n`;
+    } else {
+      code += '  <span class="string">// add an output expression</span>\n';
+    }
 
     this.shadowRoot.getElementById('previewCode').innerHTML = code;
   }

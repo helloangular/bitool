@@ -94,6 +94,25 @@
                               :workspace-key "default"
                               :updated-by "alice"}))))))
 
+(deftest persist-graph-in-tx-uses-current-db-version-not-stale-graph-payload-version
+  (let [captured (atom nil)]
+    (with-redefs-fn {#'db/insert-graph! (fn [_ g]
+                                          (reset! captured g)
+                                          {:a {:id 99 :v (inc (get-in g [:a :v])) :name (get-in g [:a :name])}})
+                     #'bitool.control-plane/current-graph-version* (fn [_ _] 11)
+                     #'bitool.control-plane/graph-workspace-context* (fn [_ _]
+                                                                       {:workspace_key "default"})
+                     #'bitool.control-plane/assign-graph-workspace*! (fn [& _] nil)}
+      (fn []
+        (#'bitool.control-plane/persist-graph-in-tx!
+         :tx
+         {:a {:id 99 :v 3 :name "stale-ui-version"}}
+         {:graph-id 99
+          :expected-version nil
+          :workspace-key nil
+          :updated-by "alice"})
+        (is (= 11 (get-in @captured [:a :v])))))))
+
 (deftest graph-workspace-context-inherits-configured-default-workspace
   (with-redefs [control-plane/ensure-control-plane-tables! (fn [] true)
                 jdbc/execute-one! (fn [_ [_ lookup-id]]

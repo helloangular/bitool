@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitool User Guide — Complete BI Platform Reference</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --secondary: #7c3aed;
+      --accent: #059669;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #1e293b;
+      --text-light: #64748b;
+      --border: #e2e8f0;
+      --code-bg: #f1f5f9;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --success: #059669;
+      --sidebar-width: 280px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: var(--text); background: var(--bg); line-height: 1.7; }
+
+    /* Sidebar Navigation */
+    .sidebar {
+      position: fixed; left: 0; top: 0; bottom: 0; width: var(--sidebar-width);
+      background: var(--text); color: #cbd5e1; overflow-y: auto; padding: 1.5rem 0;
+      z-index: 100;
+    }
+    .sidebar-logo { padding: 0 1.5rem 1.5rem; border-bottom: 1px solid #334155; margin-bottom: 1rem; }
+    .sidebar-logo h2 { color: white; font-size: 1.3rem; letter-spacing: -0.02em; }
+    .sidebar-logo p { color: #94a3b8; font-size: 0.75rem; margin-top: 0.25rem; }
+    .sidebar a { display: block; padding: 0.4rem 1.5rem; color: #94a3b8; text-decoration: none; font-size: 0.85rem; transition: all 0.15s; }
+    .sidebar a:hover { color: white; background: rgba(255,255,255,0.05); }
+    .sidebar .section-label { padding: 1rem 1.5rem 0.4rem; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: #475569; font-weight: 700; }
+
+    /* Main Content */
+    .main { margin-left: var(--sidebar-width); padding: 2rem 3rem 4rem; max-width: 960px; }
+    h1 { font-size: 2.2rem; letter-spacing: -0.03em; margin-bottom: 0.5rem; color: var(--primary-dark); }
+    h2 { font-size: 1.6rem; letter-spacing: -0.02em; margin: 3rem 0 1rem; padding-top: 1rem; border-top: 2px solid var(--border); color: var(--text); }
+    h3 { font-size: 1.15rem; margin: 2rem 0 0.75rem; color: var(--text); }
+    h4 { font-size: 1rem; margin: 1.5rem 0 0.5rem; color: var(--text-light); font-weight: 600; }
+    p { margin-bottom: 1rem; }
+    ul, ol { margin: 0 0 1rem 1.5rem; }
+    li { margin-bottom: 0.3rem; }
+
+    .hero { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; padding: 2.5rem; border-radius: 12px; margin-bottom: 2rem; }
+    .hero h1 { color: white; border: none; margin: 0; }
+    .hero p { color: rgba(255,255,255,0.85); margin: 0.75rem 0 0; font-size: 1.1rem; }
+
+    code { background: var(--code-bg); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; }
+    pre { background: var(--text); color: #e2e8f0; padding: 1.25rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0 1.5rem; font-size: 0.85rem; line-height: 1.6; }
+    pre code { background: none; padding: 0; color: inherit; }
+
+    .callout { padding: 1rem 1.25rem; border-radius: 8px; margin: 1rem 0 1.5rem; border-left: 4px solid; }
+    .callout-info { background: #eff6ff; border-color: var(--primary); }
+    .callout-warning { background: #fffbeb; border-color: var(--warning); }
+    .callout-success { background: #ecfdf5; border-color: var(--success); }
+    .callout-danger { background: #fef2f2; border-color: var(--danger); }
+    .callout strong { display: block; margin-bottom: 0.25rem; }
+
+    .step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+    .step-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; }
+    .step-card .step-num { display: inline-block; width: 28px; height: 28px; line-height: 28px; text-align: center; border-radius: 50%; background: var(--primary); color: white; font-weight: 700; font-size: 0.85rem; margin-bottom: 0.75rem; }
+    .step-card h4 { margin: 0 0 0.5rem; color: var(--text); }
+    .step-card p { margin: 0; font-size: 0.9rem; color: var(--text-light); }
+
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; font-size: 0.9rem; }
+    th { background: var(--code-bg); text-align: left; padding: 0.6rem 0.8rem; border: 1px solid var(--border); font-weight: 600; }
+    td { padding: 0.5rem 0.8rem; border: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #fafbfc; }
+
+    .pipeline-diagram { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin: 1.5rem 0; text-align: center; font-family: monospace; font-size: 0.85rem; line-height: 2; overflow-x: auto; white-space: pre; }
+
+    .badge { display: inline-block; padding: 0.15em 0.6em; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .badge-blue { background: #dbeafe; color: #1e40af; }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .badge-purple { background: #f3e8ff; color: #6b21a8; }
+    .badge-orange { background: #ffedd5; color: #9a3412; }
+    .badge-red { background: #fee2e2; color: #991b1b; }
+
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .main { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar Navigation -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <h2>Bitool</h2>
+    <p>Complete BI User Guide</p>
+  </div>
+  <div class="section-label">Getting Started</div>
+  <a href="#overview">Platform Overview</a>
+  <a href="#quickstart">Quick Start (5 minutes)</a>
+  <a href="#connections">Connecting Data Sources</a>
+
+  <div class="section-label">Data Pipelines</div>
+  <a href="#bronze">Bronze Layer (Ingestion)</a>
+  <a href="#silver">Silver Layer (Cleaning)</a>
+  <a href="#gold">Gold Layer (Analytics)</a>
+  <a href="#intent-pipeline">Intent-to-Pipeline</a>
+
+  <div class="section-label">Visual Graph Editor</div>
+  <a href="#graph-editor">Graph Editor Overview</a>
+  <a href="#node-types">Node Types Reference</a>
+  <a href="#graph-intent">Text-to-Graph (GIL)</a>
+  <a href="#nl-transform">NL &rarr; Transform Graphs</a>
+  <a href="#scheduling">Scheduling (Cron)</a>
+
+  <div class="section-label">AI &amp; Reporting</div>
+  <a href="#schema-training">Schema Training &amp; Fingerprinting</a>
+  <a href="#ai-assistant">AI Assistant</a>
+  <a href="#ai-reporting">Zero-Config Reporting</a>
+  <a href="#isl-pipeline">ISL Pipeline</a>
+  <a href="#saved-reports">Saved Reports</a>
+
+  <div class="section-label">Semantic Layer</div>
+  <a href="#semantic-overview">Semantic Model Overview</a>
+  <a href="#auto-generate">Auto-Generate Models</a>
+  <a href="#measures">Measures &amp; Hierarchies</a>
+  <a href="#perspectives">Perspectives</a>
+  <a href="#nl-editing">Natural Language Editing</a>
+  <a href="#lazy-associations">Lazy Associations</a>
+
+  <div class="section-label">Governance</div>
+  <a href="#approval-workflow">Approval Workflow</a>
+  <a href="#rls">Row-Level Security</a>
+  <a href="#promotion">Model Promotion</a>
+  <a href="#impact-analysis">Impact Analysis</a>
+
+  <div class="section-label">Operations</div>
+  <a href="#ops-console">Operations Console</a>
+  <a href="#monitoring">Monitoring &amp; Alerts</a>
+  <a href="#schema-drift">Schema Drift</a>
+  <a href="#checkpoints">Checkpoints &amp; Replay</a>
+
+  <div class="section-label">Advanced</div>
+  <a href="#endpoint-authoring">Endpoint Authoring</a>
+  <a href="#multi-tenant">Multi-Tenancy</a>
+  <a href="#api-reference">API Reference</a>
+</nav>
+
+<!-- Main Content -->
+<div class="main">
+
+<!-- ================================================================== -->
+<!-- OVERVIEW -->
+<!-- ================================================================== -->
+<div class="hero" id="overview">
+  <h1>Bitool User Guide</h1>
+  <p>From business intent to verified data pipeline in minutes, not months. This guide covers every feature of the Bitool BI platform end-to-end.</p>
+</div>
+
+<h3>What is Bitool?</h3>
+<p>Bitool is a full-stack business intelligence platform that automates the entire data pipeline lifecycle: connecting to data sources, ingesting raw data (Bronze), cleaning and standardizing (Silver), building analytics models (Gold), and querying via AI-powered natural language reporting &mdash; all governed by a production-grade semantic layer.</p>
+
+<div class="callout callout-info">
+  <strong>Core Philosophy</strong>
+  The graph is the source of truth. SQL is a compiled artifact. AI proposes &mdash; deterministic compilers validate &mdash; humans verify visually. No hallucinated SQL ever reaches your database.
+</div>
+
+<div class="pipeline-diagram">
+Business Intent (plain English)
+        |
+        v
+  Visual Graph (editable, inspectable)
+        |
+        v
+  Compiled SQL (deterministic, auditable)
+        |
+        v
+  Warehouse Execution (PostgreSQL, Snowflake, Databricks, BigQuery)
+</div>
+
+<h3>Supported Platforms</h3>
+<table>
+  <tr><th>Category</th><th>Supported</th></tr>
+  <tr><td>Data Warehouses</td><td>PostgreSQL, Snowflake, Databricks, BigQuery, SQL Server, MySQL</td></tr>
+  <tr><td>Data Sources</td><td>REST APIs, PostgreSQL, MySQL, Oracle, SQL Server, Kafka, CSV/JSON files, Mainframe (EBCDIC copybook)</td></tr>
+  <tr><td>Authentication</td><td>Basic Auth, Bearer Token, API Key, OAuth 2.0</td></tr>
+  <tr><td>AI Engine</td><td>Claude (Anthropic) for intent understanding and NL reporting</td></tr>
+</table>
+
+<!-- ================================================================== -->
+<!-- QUICK START -->
+<!-- ================================================================== -->
+<h2 id="quickstart">Quick Start (5 Minutes)</h2>
+<p>Get from zero to your first AI-powered query in five steps.</p>
+
+<div class="step-grid">
+  <div class="step-card">
+    <div class="step-num">1</div>
+    <h4>Connect</h4>
+    <p>Click a data source type in the left panel (PostgreSQL, Snowflake, etc.) and enter credentials. Bitool tests the connection automatically.</p>
+  </div>
+  <div class="step-card">
+    <div class="step-num">2</div>
+    <h4>Explore</h4>
+    <p>Browse the connection tree to see schemas, tables, and columns. Bitool introspects your warehouse in real time.</p>
+  </div>
+  <div class="step-card">
+    <div class="step-num">3</div>
+    <h4>Ask</h4>
+    <p>Open the AI Reporting panel. Type a question in plain English: <em>"What are the top 10 customers by revenue this quarter?"</em></p>
+  </div>
+  <div class="step-card">
+    <div class="step-num">4</div>
+    <h4>Verify</h4>
+    <p>Review the generated ISL (validated query), the compiled SQL, and the results. Bitool never sends hallucinated SQL to your database.</p>
+  </div>
+  <div class="step-card">
+    <div class="step-num">5</div>
+    <h4>Save</h4>
+    <p>Click "Save Report" to persist the query. Saved reports can be re-executed with updated data at any time.</p>
+  </div>
+</div>
+
+<!-- ================================================================== -->
+<!-- CONNECTIONS -->
+<!-- ================================================================== -->
+<h2 id="connections">Connecting Data Sources</h2>
+
+<h3>Database Connections</h3>
+<p>The left panel shows all supported source types. Click any source to open the connection form:</p>
+<ol>
+  <li>Select database type (PostgreSQL, Snowflake, Databricks, BigQuery, SQL Server, MySQL, Oracle)</li>
+  <li>Enter host, port, database name, schema, and credentials</li>
+  <li>Click <strong>Test Connection</strong> to verify connectivity</li>
+  <li>Click <strong>Save</strong> &mdash; the connection appears in the tree navigator</li>
+</ol>
+
+<h3>API Connections</h3>
+<p>For REST API data sources (SaaS platforms, internal services):</p>
+<ol>
+  <li>Click <strong>API Connection</strong> in the Connection toolbar group</li>
+  <li>Enter the base URL and authentication details (API key, Bearer token, or OAuth 2.0)</li>
+  <li>Configure endpoints: specify the URL path, HTTP method, and response schema</li>
+  <li>Bitool auto-infers the response schema from a sample call</li>
+  <li>Configure pagination strategy: offset, cursor, or page-based</li>
+</ol>
+
+<h3>File &amp; Kafka Sources</h3>
+<table>
+  <tr><th>Source</th><th>Setup</th></tr>
+  <tr><td>CSV / JSON files</td><td>Upload or point to a file path. Bitool auto-detects schema, delimiter, encoding.</td></tr>
+  <tr><td>Mainframe (EBCDIC)</td><td>Upload a COBOL copybook. Bitool parses the copybook and generates a schema preview.</td></tr>
+  <tr><td>Kafka</td><td>Enter broker list, topic name, consumer group. Bitool connects and samples messages for schema inference.</td></tr>
+</table>
+
+<!-- ================================================================== -->
+<!-- BRONZE LAYER -->
+<!-- ================================================================== -->
+<h2 id="bronze">Bronze Layer (Raw Ingestion)</h2>
+
+<p>The Bronze layer captures raw data from any source into your warehouse with full fidelity. Every record is wrapped in a standard envelope with 16 system columns for lineage, replay, and auditing.</p>
+
+<h3>Bronze Envelope Columns</h3>
+<table>
+  <tr><th>Column</th><th>Purpose</th></tr>
+  <tr><td><code>_bitool_ingested_at</code></td><td>UTC timestamp of when the record was captured</td></tr>
+  <tr><td><code>_bitool_source</code></td><td>Source identifier (API name, file path, topic)</td></tr>
+  <tr><td><code>_bitool_batch_id</code></td><td>Batch identifier for replay and rollback</td></tr>
+  <tr><td><code>_bitool_checksum</code></td><td>Row-level checksum for deduplication</td></tr>
+  <tr><td><code>_bitool_raw_json</code></td><td>Full original payload preserved for re-processing</td></tr>
+</table>
+
+<h3>Running an Ingestion</h3>
+<ol>
+  <li>Select a configured source (API endpoint, file, Kafka topic)</li>
+  <li>Review the auto-inferred schema &mdash; approve or adjust column mappings</li>
+  <li>Choose ingestion mode: <strong>Full</strong> (complete re-extract) or <strong>Incremental</strong> (watermark-based)</li>
+  <li>Click <strong>Run</strong> &mdash; Bitool streams records in bounded batches with adaptive backpressure</li>
+</ol>
+
+<h3>Schema Approval</h3>
+<p>When Bitool first encounters a new API or file source, it infers the schema automatically. Before data reaches Bronze, the schema goes through an approval flow:</p>
+<ol>
+  <li><strong>Preview</strong>: View the inferred schema with data types and sample values</li>
+  <li><strong>Review</strong>: Approve, reject, or modify column names and types</li>
+  <li><strong>Promote</strong>: Approved schemas are promoted to the Bronze layer definition</li>
+</ol>
+
+<h3>Bad Record Handling</h3>
+<p>Records that fail schema validation or parsing are quarantined in a dead letter queue (DLQ), not dropped silently. You can:</p>
+<ul>
+  <li>View bad records in <strong>Operations &gt; Bad Records</strong></li>
+  <li>Inspect the failure reason for each record</li>
+  <li>Fix the schema or source, then <strong>Replay</strong> the bad records</li>
+</ul>
+
+<!-- ================================================================== -->
+<!-- SILVER LAYER -->
+<!-- ================================================================== -->
+<h2 id="silver">Silver Layer (Cleaning &amp; Standardization)</h2>
+
+<p>Silver transforms raw Bronze data into typed, deduplicated, business-ready entities. Bitool auto-proposes Silver schemas using AI &mdash; you review and approve.</p>
+
+<h3>Auto-Proposal</h3>
+<p>Click <strong>Propose Silver Schema</strong> on any Bronze table. Bitool analyzes the raw data and proposes:</p>
+<ul>
+  <li><strong>Entity classification</strong>: fact, dimension, reference, or snapshot</li>
+  <li><strong>Column roles</strong>: business_key, timestamp, measure, attribute, dimension</li>
+  <li><strong>Grain</strong>: The natural key that defines one row (e.g., <code>customer_id + order_date</code>)</li>
+  <li><strong>Primary keys</strong>: Inferred from uniqueness analysis</li>
+  <li><strong>Deduplication rules</strong>: Merge logic for handling duplicates</li>
+  <li><strong>Type casting</strong>: Raw strings converted to proper types (dates, numbers, booleans)</li>
+</ul>
+
+<div class="callout callout-success">
+  <strong>Confidence Scores</strong>
+  Every proposal carries a confidence score (0&ndash;1). Business key matches score 0.95, schema passthrough 0.85, count fallback 0.82. Low confidence = human review needed.
+</div>
+
+<h3>Review &amp; Execute</h3>
+<ol>
+  <li>Review the proposal &mdash; click any field to override the AI suggestion</li>
+  <li>Click <strong>Validate</strong> to check the proposal against your warehouse (DDL compatibility)</li>
+  <li>Click <strong>Publish</strong> then <strong>Execute</strong> to materialize the Silver table</li>
+</ol>
+
+<!-- ================================================================== -->
+<!-- GOLD LAYER -->
+<!-- ================================================================== -->
+<h2 id="gold">Gold Layer (Analytics Models)</h2>
+
+<p>Gold builds business-ready analytical models from Silver entities. These are the tables that power reports, dashboards, and the semantic layer.</p>
+
+<h3>Auto-Proposal</h3>
+<p>Click <strong>Propose Gold Schema</strong> to auto-generate:</p>
+<ul>
+  <li><strong>Aggregated measures</strong>: <code>SUM(revenue)</code>, <code>COUNT(*)</code>, <code>AVG(trip_miles)</code></li>
+  <li><strong>Time dimensions</strong>: Event dates bucketed by day, week, month, quarter, year</li>
+  <li><strong>Dimension keys</strong>: Group-by columns for slicing and dicing</li>
+  <li><strong>Mart tables</strong>: Pre-joined, denormalized views optimized for BI consumption</li>
+</ul>
+
+<h3>BRD-Driven Gold</h3>
+<p>For more complex analytics, upload a Business Requirements Document (BRD) and click <strong>Generate Gold from BRD</strong>. Bitool reads the requirements and proposes a complete Gold layer with measures, dimensions, and grain matching the stated business need.</p>
+
+<!-- ================================================================== -->
+<!-- INTENT TO PIPELINE -->
+<!-- ================================================================== -->
+<h2 id="intent-pipeline">Intent-to-Pipeline</h2>
+
+<p>The most powerful feature: describe your entire data pipeline in plain English and get a complete Bronze &rarr; Silver &rarr; Gold pipeline generated automatically.</p>
+
+<div class="callout callout-info">
+  <strong>Example Prompt</strong>
+  <em>"Connect to Samsara's fleet API. Pull vehicle locations, driver activity, and fuel transactions. Build a daily fleet utilization model and a driver safety scorecard."</em>
+</div>
+
+<p>Bitool generates:</p>
+<ul>
+  <li>API connections with authentication and pagination configured</li>
+  <li>Bronze tables with schema inference and watermark cursors</li>
+  <li>Silver entities with entity classification, dedup rules, and grain</li>
+  <li>Gold models with KPI aggregations, time dimensions, and mart structures</li>
+  <li>A visual graph showing the entire pipeline as connected nodes</li>
+</ul>
+
+<p>You can then edit any part of the generated pipeline visually or via text, and the system recompiles deterministically.</p>
+
+<!-- ================================================================== -->
+<!-- GRAPH EDITOR -->
+<!-- ================================================================== -->
+<h2 id="graph-editor">Visual Graph Editor</h2>
+
+<p>The graph editor is the primary authoring surface. Every data transformation is a visible node that you can click, inspect, and edit. The graph compiles to SQL deterministically.</p>
+
+<h3>Toolbar Groups</h3>
+<table>
+  <tr><th>Group</th><th>Actions</th></tr>
+  <tr><td>Model</td><td>New, Open, Undo, Redo, Preview compiled SQL</td></tr>
+  <tr><td>Transform</td><td>Filter, Projection, Function, Join, Union, Aggregation, Sort, Mapping, Conditionals, Logic Builder</td></tr>
+  <tr><td>Connection</td><td>API Connection, GraphQL Builder</td></tr>
+  <tr><td>Advanced</td><td>Endpoint, Response Builder, Validator</td></tr>
+</table>
+
+<h3>How It Works</h3>
+<ol>
+  <li>Drag a <strong>Table</strong> node from the left panel to start with a data source</li>
+  <li>Add transform nodes (Filter, Join, Aggregation, etc.) by clicking toolbar buttons</li>
+  <li>Connect nodes by dragging edges &mdash; data flows from left to right</li>
+  <li>Every node is configurable &mdash; click to set columns, conditions, expressions</li>
+  <li>The <strong>Output</strong> node (always present) defines what gets materialized or returned</li>
+  <li>Click <strong>Preview</strong> to see the compiled SQL at any time</li>
+</ol>
+
+<!-- ================================================================== -->
+<!-- NODE TYPES -->
+<!-- ================================================================== -->
+<h2 id="node-types">Node Types Reference</h2>
+
+<table>
+  <tr><th>Node</th><th>Code</th><th>Purpose</th></tr>
+  <tr><td>Table</td><td><code>T</code></td><td>Source table from a database connection</td></tr>
+  <tr><td>Join</td><td><code>J</code></td><td>SQL JOIN (inner, left, right, full) between two sources</td></tr>
+  <tr><td>Filter</td><td><code>Fi</code></td><td>WHERE clause &mdash; row filtering with conditions</td></tr>
+  <tr><td>Aggregation</td><td><code>A</code></td><td>GROUP BY with aggregate functions (SUM, COUNT, AVG, MIN, MAX)</td></tr>
+  <tr><td>Union</td><td><code>U</code></td><td>UNION / UNION ALL of multiple sources</td></tr>
+  <tr><td>Sort</td><td><code>S</code></td><td>ORDER BY with multi-column support</td></tr>
+  <tr><td>Projection</td><td><code>P</code></td><td>SELECT specific columns (column pruning)</td></tr>
+  <tr><td>Function</td><td><code>Fu</code></td><td>SQL scalar functions applied to columns</td></tr>
+  <tr><td>Mapping</td><td><code>M</code></td><td>Column renaming and type casting</td></tr>
+  <tr><td>Conditional</td><td><code>Cn</code></td><td>CASE WHEN / pattern-match branching</td></tr>
+  <tr><td>Logic Builder</td><td><code>Lo</code></td><td>Complex boolean logic with AND/OR/NOT trees</td></tr>
+  <tr><td>Target</td><td><code>Tg</code></td><td>Write results to a destination table (Snowflake, Databricks, PostgreSQL)</td></tr>
+  <tr><td>Endpoint</td><td><code>Ep</code></td><td>Source node for REST API endpoints with parameters</td></tr>
+  <tr><td>Response Builder</td><td><code>Rb</code></td><td>Shape output as JSON/XML for API responses</td></tr>
+  <tr><td>Validator</td><td><code>Va</code></td><td>Data quality checks (NOT NULL, range, format, uniqueness)</td></tr>
+  <tr><td>Output</td><td><code>O</code></td><td>Terminal node &mdash; defines what gets compiled and executed</td></tr>
+</table>
+
+<!-- ================================================================== -->
+<!-- TEXT TO GRAPH -->
+<!-- ================================================================== -->
+<h2 id="graph-intent">Text-to-Graph (GIL)</h2>
+
+<p>The Graph Intent Language (GIL) is the intermediate representation for all graph mutations. It lets you describe graph changes in English and have them compiled into visual graph nodes.</p>
+
+<h3>Workflow</h3>
+<ol>
+  <li>Click <strong>GIL &gt; From Natural Language</strong> in the toolbar</li>
+  <li>Type your intent: <em>"Join trips with drivers on driver_id. Filter to this month. Group by region and sum miles."</em></li>
+  <li>Bitool generates a GIL document (structured intent), validates it, and compiles it into graph nodes</li>
+  <li>Review the generated graph visually &mdash; edit any node if needed</li>
+  <li>Click <strong>Apply</strong> to commit the changes to your graph</li>
+</ol>
+
+<div class="callout callout-warning">
+  <strong>LLMs propose, compilers validate</strong>
+  GIL uses the same hallucination-prevention pattern as ISL: the AI generates a constrained intent document, a deterministic compiler validates every reference against the actual schema, and only valid mutations reach the graph. Invalid proposals are rejected with a clear error message.
+</div>
+
+<h3>GIL Pipeline</h3>
+<div class="pipeline-diagram">
+Natural Language  &rarr;  GIL Document  &rarr;  Normalize  &rarr;  Validate  &rarr;  Compile  &rarr;  Apply to Graph
+</div>
+
+<p>GIL handles node typing, graph structure, planning, persistence, and graph application. The <code>canonical-type</code> function maps semantic node names to internal btype codes (e.g., <code>"function"</code> &rarr; <code>"Fu"</code>), and <code>valid-edge?</code> enforces connectivity rules. Layout is computed automatically.</p>
+
+<h3>API Endpoints</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/gil/from-nl</code></td><td>Generate GIL from natural language</td></tr>
+  <tr><td>POST</td><td><code>/gil/validate</code></td><td>Validate a GIL document</td></tr>
+  <tr><td>POST</td><td><code>/gil/compile</code></td><td>Compile GIL (dry run)</td></tr>
+  <tr><td>POST</td><td><code>/gil/apply</code></td><td>Apply GIL mutations to graph</td></tr>
+</table>
+
+<!-- ================================================================== -->
+<!-- NL TO TRANSFORM GRAPHS -->
+<!-- ================================================================== -->
+<h2 id="nl-transform">NL &rarr; Transform Graphs</h2>
+
+<p>Beyond simple query-oriented graph mutations, Bitool supports generating complete <strong>transform graphs</strong> from natural language. This is the transform-side equivalent of the AI Reporting pipeline: instead of NL &rarr; ISL &rarr; SQL, it's NL &rarr; constrained transform GIL &rarr; graph &rarr; runtime execution.</p>
+
+<div class="callout callout-info">
+  <strong>What you can say</strong>
+  <em>"Create an API flow that normalizes customer input, assigns a risk score, branches on risk level, and returns a decision payload."</em><br>
+  <em>"Build an order transform that cleans fields, computes discounts, routes approvals, and shapes a final response."</em><br>
+  <em>"Generate a transform graph that validates input, routes priority orders, and returns JSON."</em>
+</div>
+
+<h3>How It Works</h3>
+<div class="pipeline-diagram">
+User NL  &rarr;  parse-text (LLM or deterministic fallback)  &rarr;  Semantic Plan
+     &rarr;  semantic-plan&rarr;GIL (constrained transform GIL)
+     &rarr;  validate-transform-gil (topology + data flow)
+     &rarr;  Preview (data/text)  &rarr;  Apply &rarr; Graph on Canvas
+</div>
+
+<ol>
+  <li>Open the <strong>Transform Chat</strong> panel</li>
+  <li>Describe the transform you want in plain English</li>
+  <li>The system calls the configured LLM provider (Anthropic first, OpenAI fallback), validates the generated GIL, and attempts a structured repair pass if the output is invalid</li>
+  <li>If the LLM output is unusable, a <strong>deterministic fallback library</strong> of 5 domain templates is used (order/customer, invoice, lead, customer mastering, eligibility)</li>
+  <li>Preview the generated graph with validation status</li>
+  <li>Click <strong>Apply Graph</strong> to render nodes on the canvas</li>
+</ol>
+
+<h3>Supported Transform Patterns</h3>
+<p>V1 supports linear transform chains using Logic and Conditional nodes:</p>
+<table>
+  <tr><th>Pattern</th><th>Use Case</th></tr>
+  <tr><td><code>Endpoint &rarr; Logic &rarr; Conditional &rarr; Logic &rarr; ResponseBuilder &rarr; Output</code></td><td>API flow: normalize, branch, compute, respond</td></tr>
+  <tr><td><code>Endpoint &rarr; Conditional &rarr; Logic &rarr; ResponseBuilder &rarr; Output</code></td><td>Route input to different processing paths</td></tr>
+  <tr><td><code>Endpoint &rarr; Logic &rarr; Logic &rarr; ResponseBuilder &rarr; Output</code></td><td>Multi-stage data transformation</td></tr>
+  <tr><td><code>Table &rarr; Logic &rarr; Conditional &rarr; Logic &rarr; Output</code></td><td>Batch transform with conditional routing</td></tr>
+</table>
+
+<h3>Logic Nodes (Fu)</h3>
+<p>Logic nodes support ordered assignments, expression evaluation, and multiple outputs. Each node has three phases:</p>
+<ul>
+  <li><strong>fn_params</strong> &mdash; binds input variables from upstream data</li>
+  <li><strong>fn_lets</strong> &mdash; ordered assignment rows (each can reference params + earlier assignments)</li>
+  <li><strong>fn_outputs</strong> &mdash; the values passed downstream</li>
+</ul>
+
+<h3>Conditional Nodes (C)</h3>
+<p>Conditional nodes support multiple evaluation styles:</p>
+<ul>
+  <li><strong>if-else</strong> &mdash; simple binary branching</li>
+  <li><strong>if-elif-else</strong> &mdash; ordered guard clauses</li>
+  <li><strong>case</strong> &mdash; exact-match switching</li>
+  <li><strong>cond</strong> &mdash; general condition list</li>
+  <li><strong>pattern-match</strong> &mdash; ordered pattern guards</li>
+</ul>
+
+<h3>Expression Language</h3>
+<p>Transform expressions support a rich set of built-in functions. The recommended v1 subset includes:</p>
+<pre><code>trim, upper, lower, concat, tonumber, toboolean, tostring, coalesce,
+contains, startswith, endswith, replace, round, length, if, isnull,
+isempty, min, max, sum</code></pre>
+<p>Operators: arithmetic (<code>+ - * / %</code>), comparison (<code>= != &lt; &gt; &lt;= &gt;=</code>), boolean (<code>&amp;&amp; || ! and or not</code>).</p>
+
+<h3>Validation &amp; Safety</h3>
+<ul>
+  <li><strong>Topology validation</strong>: Exactly 1 source, 1 output, linear chain only (no branching topologies in v1)</li>
+  <li><strong>Data flow validation</strong>: Every <code>source_column</code> reference must point to a known upstream stage output</li>
+  <li><strong>Repair loop</strong>: If the LLM generates invalid GIL, the system attempts one structured repair pass before falling back to deterministic templates</li>
+  <li><strong>No arbitrary code</strong>: Execution runs through the existing Clojure runtime, never through LLM-generated source files</li>
+</ul>
+
+<h3>API Endpoints</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/transform/from-nl</code></td><td>Generate transform graph from NL</td></tr>
+  <tr><td>POST</td><td><code>/transform/apply</code></td><td>Apply generated transform to canvas</td></tr>
+</table>
+
+<!-- ================================================================== -->
+<!-- SCHEDULING -->
+<!-- ================================================================== -->
+<h2 id="scheduling">Scheduling (Cron)</h2>
+
+<p>Bitool includes a built-in scheduler for recurring pipeline execution. The Scheduler node (<code>Sc</code> btype) can be attached to any graph.</p>
+
+<h3>Setting Up a Schedule</h3>
+<ol>
+  <li>Add a <strong>Scheduler</strong> node to your graph from the node palette</li>
+  <li>Configure the cron expression (e.g., <code>*/15 * * * *</code> for every 15 minutes)</li>
+  <li>The scheduler evaluates the expression on each tick and enqueues an execution request</li>
+</ol>
+
+<h3>Cron Expression Syntax</h3>
+<p>Full 5-field cron expressions: <code>minute hour day-of-month month day-of-week</code></p>
+<table>
+  <tr><th>Syntax</th><th>Example</th><th>Meaning</th></tr>
+  <tr><td>Ranges</td><td><code>1-5</code></td><td>Monday through Friday (day-of-week)</td></tr>
+  <tr><td>Steps</td><td><code>*/15</code></td><td>Every 15 minutes</td></tr>
+  <tr><td>Lists</td><td><code>MON,WED,FRI</code></td><td>Specific days</td></tr>
+  <tr><td>Named tokens</td><td><code>JAN</code>, <code>SUN</code></td><td>Month/day names</td></tr>
+</table>
+
+<h3>Execution Integration</h3>
+<ul>
+  <li>Scheduler enqueues requests into the same execution queue as manual runs</li>
+  <li>Deduplication prevents overlapping runs of the same pipeline</li>
+  <li>Run state (<code>scheduler_run_state</code> table) provides a full audit trail: when each run triggered, whether it succeeded or failed</li>
+  <li>Monitor scheduled runs in the <a href="#ops-console">Operations Console</a></li>
+</ul>
+
+<!-- ================================================================== -->
+<!-- SCHEMA TRAINING & FINGERPRINTING -->
+<!-- ================================================================== -->
+<h2 id="schema-training">Schema Training &amp; Fingerprinting</h2>
+
+<p>Before AI Reporting can answer questions about your data, it needs business context &mdash; what each table and column means. Bitool offers two complementary training paths.</p>
+
+<h3>1. Schema Fingerprinting (Zero-LLM)</h3>
+<p>Bitool auto-recognizes <strong>8 common SaaS schemas</strong> without any LLM calls:</p>
+<table>
+  <tr><th>Source</th><th>Detection Method</th></tr>
+  <tr><td>Stripe</td><td>Marker tables: <code>charge</code>, <code>customer</code>, <code>subscription</code>, etc.</td></tr>
+  <tr><td>HubSpot</td><td>Marker tables: <code>contact</code>, <code>deal</code>, <code>company</code>, etc.</td></tr>
+  <tr><td>Salesforce</td><td>Marker tables: <code>account</code>, <code>opportunity</code>, <code>lead</code>, etc.</td></tr>
+  <tr><td>Shopify</td><td>Marker tables: <code>order</code>, <code>product</code>, <code>customer</code>, etc.</td></tr>
+  <tr><td>QuickBooks</td><td>Marker tables: <code>invoice</code>, <code>bill</code>, <code>account</code>, etc.</td></tr>
+  <tr><td>GA4</td><td>Marker tables: <code>events</code>, <code>sessions</code>, etc.</td></tr>
+  <tr><td>Jira</td><td>Marker tables: <code>issue</code>, <code>sprint</code>, <code>project</code>, etc.</td></tr>
+  <tr><td>Zendesk</td><td>Marker tables: <code>ticket</code>, <code>user</code>, <code>organization</code>, etc.</td></tr>
+</table>
+<p>Detection requires 2+ marker table matches. Handles Fivetran naming (<code>charge</code>), prefixed naming (<code>stripe_charges</code>), and double-underscore (<code>stripe__charges</code>) patterns. Detected sources appear as badges in the reporting sidebar.</p>
+
+<h3>2. Auto-Train (LLM-Assisted)</h3>
+<p>For tables not recognized by fingerprinting:</p>
+<ol>
+  <li>Click <strong>Auto-Train</strong> in the reporting panel (or call <code>POST /api/reporting/auto-train</code>)</li>
+  <li>Bitool samples 3 rows from each table</li>
+  <li>The LLM generates business descriptions for each table and column</li>
+  <li>Descriptions are stored in the <code>schema_context</code> table and used to enrich future AI prompts</li>
+</ol>
+
+<div class="callout callout-success">
+  <strong>Curated descriptions take priority</strong>
+  Fingerprinted descriptions (source = "fingerprint") are checked before LLM generation. This means recognized SaaS schemas get instant, accurate context with zero LLM cost.
+</div>
+
+<h3>Manual Training</h3>
+<p>You can also manually add or edit business descriptions:</p>
+<ul>
+  <li><strong>Table-level</strong>: "This table contains all Stripe payment charges"</li>
+  <li><strong>Column-level</strong>: "amount &mdash; charge amount in cents (USD)"</li>
+</ul>
+<p>API: <code>POST /api/reporting/context/saveEntry</code> to create/update, <code>DELETE /api/reporting/context/id/:context_id</code> to remove.</p>
+
+<!-- ================================================================== -->
+<!-- AI ASSISTANT -->
+<!-- ================================================================== -->
+<h2 id="ai-assistant">AI Assistant</h2>
+
+<p>Bitool includes an embedded AI advisor that assists across Bronze, Silver, and Gold workflows. The assistant provides contextual help without requiring you to leave the platform.</p>
+
+<h3>Capabilities (14 Task Types)</h3>
+<table>
+  <tr><th>Route</th><th>Task</th><th>What it does</th></tr>
+  <tr><td><code>/aiExplainPreviewSchema</code></td><td>Preview Schema Explanation</td><td>Explains inferred fields from an API endpoint response</td></tr>
+  <tr><td><code>/aiSuggestBronzeKeys</code></td><td>Bronze Key Suggestion</td><td>Recommends business keys for deduplication from inferred fields</td></tr>
+  <tr><td><code>/aiExplainModelProposal</code></td><td>Proposal Explanation</td><td>Explains why a Silver/Gold proposal was generated a certain way</td></tr>
+  <tr><td><code>/aiExplainProposalValidation</code></td><td>Validation Analysis</td><td>Diagnoses why a proposal validation failed</td></tr>
+  <tr><td><code>/aiSuggestSilverTransforms</code></td><td>Silver Transform Suggestion</td><td>Recommends transform logic for Silver proposals</td></tr>
+  <tr><td><code>/aiGenerateSilverFromBRD</code></td><td>BRD &rarr; Silver Proposal</td><td>Converts business requirements into Silver model proposals</td></tr>
+  <tr><td><code>/aiGenerateGoldFromBRD</code></td><td>BRD &rarr; Gold Proposal</td><td>Converts business requirements into Gold mart proposals</td></tr>
+  <tr><td><code>/aiSuggestGoldMartDesign</code></td><td>Gold Mart Design</td><td>Suggests aggregation, grain, and materialization for Gold marts</td></tr>
+  <tr><td><code>/aiExplainSchemaDrift</code></td><td>Drift Explanation</td><td>Explains what a schema drift event means and its severity</td></tr>
+  <tr><td><code>/aiSuggestDriftRemediation</code></td><td>Drift Remediation</td><td>Suggests how to fix or adapt to detected schema drift</td></tr>
+  <tr><td><code>/aiExplainEndpointBusinessShape</code></td><td>Endpoint Business Shape</td><td>Explains the business domain and entity structure of an API endpoint</td></tr>
+  <tr><td><code>/aiExplainTargetStrategy</code></td><td>Target Strategy Explanation</td><td>Explains materialization and write strategy for a target node</td></tr>
+  <tr><td><code>/aiGenerateMetricGlossary</code></td><td>Metric Glossary</td><td>Generates business metric definitions from model proposals</td></tr>
+  <tr><td><code>/aiExplainRunOrKpiAnomaly</code></td><td>KPI Anomaly Explanation</td><td>Explains unusual KPI patterns or execution anomalies</td></tr>
+</table>
+
+<h3>Deterministic Fallback</h3>
+<p>Every AI assistant function has a fallback mode when the LLM is unavailable. Fallback responses return heuristic answers with low confidence markers and a warning. The system never hard-fails on LLM outage.</p>
+
+<h3>Response Envelope</h3>
+<p>All assistant responses follow a consistent structure:</p>
+<pre><code>{
+  "summary": "Brief answer",
+  "confidence": 0.85,
+  "edits": {},
+  "recommendations": [],
+  "open_questions": [],
+  "warnings": [],
+  "debug": {}
+}</code></pre>
+<p><code>edits</code> is an object (map of proposed changes), not an array. <code>recommendations</code>, <code>open_questions</code>, and <code>warnings</code> are arrays. Task-specific keys (e.g., <code>record_grain</code>, <code>pk_reasoning</code>, <code>likely_causes</code>) are preserved alongside the standard envelope. Confidence is normalized to 0&ndash;1 scale (values above 1.0 are divided by 100).</p>
+
+<!-- ================================================================== -->
+<!-- AI REPORTING -->
+<!-- ================================================================== -->
+<h2 id="ai-reporting">Zero-Config AI Reporting</h2>
+
+<p>Connect your warehouse &mdash; PostgreSQL, MySQL, Oracle, SQL Server, DB2, Snowflake, or Databricks &mdash; ask any question, and get a validated answer in seconds. No setup, no analyst, no dashboard to build.</p>
+
+<h3>How It Works</h3>
+<div class="pipeline-diagram">
+User Question (English)
+       |
+       v
+Dynamic Tool Schema (from registry/semantic model)
+       |
+       v
+LLM generates ISL (constrained intent, not raw SQL)
+       |
+       v
+validate-isl (deterministic check against schema)
+       |
+       v
+compile-isl (ISL to SQL, with measure expansion)
+       |
+       v
+Execute on warehouse &rarr; Return results
+</div>
+
+<h3>Key Guarantees</h3>
+<ul>
+  <li><strong>No hallucinated SQL</strong>: The LLM generates a constrained ISL document, not free-form SQL. Every table, column, and join is validated before compilation.</li>
+  <li><strong>Enum-locked tables</strong>: The LLM can only reference tables that actually exist in your schema.</li>
+  <li><strong>Semantic measures</strong>: When a semantic model is published, calculated measures (e.g., <code>cost_per_mile</code>) become enum-locked options the LLM can pick from.</li>
+  <li><strong>Follow-up context</strong>: Ask follow-up questions &mdash; Bitool maintains conversation context.</li>
+</ul>
+
+<h3>Scoping Queries</h3>
+<p>You can scope the AI to specific tables by setting a <strong>table filter</strong>. This limits what the LLM sees and speeds up responses:</p>
+<pre><code>POST /api/reporting/ask
+{
+  "conn_id": 42,
+  "schema": "analytics",
+  "question": "Top 10 drivers by fuel cost this month",
+  "scope_tables": ["gold_trips", "silver_drivers"],
+  "perspective": "finance"
+}</code></pre>
+
+<h2 id="isl-pipeline">ISL Pipeline Details</h2>
+<p>ISL (Intent-Specified Language) is the intermediate representation between natural language and SQL. An ISL document looks like:</p>
+<pre><code>{
+  "table": "gold_trips",
+  "columns": ["driver_id", "drivers.region"],
+  "aggregates": [
+    {"column": "fuel_cost", "function": "SUM"},
+    {"column": "cost_per_mile", "function": "AVG"}
+  ],
+  "filters": [
+    {"column": "event_date", "op": ">=", "value": "2026-01-01"}
+  ],
+  "group_by": ["driver_id", "drivers.region"],
+  "order_by": [{"column": "SUM(fuel_cost)", "direction": "DESC"}],
+  "limit": 10
+}</code></pre>
+
+<p>When a semantic model is active, the ISL pipeline automatically:</p>
+<ul>
+  <li><strong>Injects lazy joins</strong>: Cross-entity refs like <code>drivers.region</code> trigger automatic JOIN resolution via BFS shortest-path</li>
+  <li><strong>Applies perspectives</strong>: Filters the model to the audience's allowed entities/columns/measures</li>
+  <li><strong>Enforces RLS</strong>: Injects row-level security filters based on the user's session</li>
+  <li><strong>Expands measures</strong>: Semantic measures like <code>cost_per_mile</code> are expanded to their SQL expressions at compile time</li>
+</ul>
+
+<h2 id="saved-reports">Saved Reports</h2>
+<p>Save any query result as a named report for re-execution later:</p>
+<ol>
+  <li>After a successful query, click <strong>Save Report</strong></li>
+  <li>Enter a name and optional description</li>
+  <li>The ISL, semantic model ID, and perspective are persisted together</li>
+  <li>Re-run the report at any time &mdash; it restores the full semantic context (model, perspective, RLS)</li>
+</ol>
+
+<div class="callout callout-info">
+  <strong>Semantic Binding</strong>
+  Saved reports carry <code>semantic_model_id</code> and <code>perspective_name</code>. When re-executed, the original semantic model and perspective are restored, ensuring consistent results even as the underlying data changes.
+</div>
+
+<!-- ================================================================== -->
+<!-- SEMANTIC LAYER -->
+<!-- ================================================================== -->
+<h2 id="semantic-overview">Semantic Layer Overview</h2>
+
+<p>The Semantic Layer is a named, versioned, governed business layer between raw tables and reports. It bundles everything the ISL pipeline needs into a single object: entities, relationships, measures, hierarchies, and business descriptions.</p>
+
+<h3>Why It Matters</h3>
+<p>Without a semantic layer, every report rebuilds context from scratch: which tables to use, how they join, what measures mean. The semantic layer captures this once and enforces it everywhere:</p>
+<ul>
+  <li>AI reporting uses entity names and measure definitions instead of raw table/column names</li>
+  <li>Joins are resolved automatically from declared relationships (lazy associations)</li>
+  <li>Calculated measures are expanded at compile time</li>
+  <li>Perspectives control what each audience can see</li>
+  <li>Row-level security filters are enforced transparently</li>
+</ul>
+
+<h2 id="auto-generate">Auto-Generate a Semantic Model</h2>
+
+<p>Bitool infers 80% of the semantic layer from existing Silver/Gold proposals. No manual YAML or LookML required.</p>
+
+<div class="step-grid">
+  <div class="step-card">
+    <div class="step-num">1</div>
+    <h4>Generate</h4>
+    <p><code>POST /api/semantic/generate</code> with <code>conn_id</code> and <code>graph_ids</code>. Bitool assembles entities, columns, relationships, measures, and descriptions from existing proposals.</p>
+  </div>
+  <div class="step-card">
+    <div class="step-num">2</div>
+    <h4>Review</h4>
+    <p>The model starts as <span class="badge badge-blue">draft</span>. Browse entities, check column roles, verify relationships. Edit anything that needs adjustment.</p>
+  </div>
+  <div class="step-card">
+    <div class="step-num">3</div>
+    <h4>Validate</h4>
+    <p><code>POST /api/semantic/models/:id/validate</code> checks: expression syntax, column dependencies, measure cycles, relationship uniqueness.</p>
+  </div>
+  <div class="step-card">
+    <div class="step-num">4</div>
+    <h4>Publish</h4>
+    <p><code>POST /api/semantic/models/:id/publish</code> transitions to <span class="badge badge-green">published</span>. AI reporting now uses this model automatically.</p>
+  </div>
+</div>
+
+<h3>Model Structure</h3>
+<pre><code>{
+  "entities": {
+    "trips": {
+      "kind": "fact",
+      "table": "gold_trips",
+      "columns": [
+        {"name": "trip_id",    "role": "dimension", "type": "BIGINT"},
+        {"name": "miles",      "role": "measure",   "type": "DOUBLE"},
+        {"name": "fuel_cost",  "role": "measure",   "type": "DOUBLE"},
+        {"name": "event_date", "role": "time_dimension", "type": "DATE"}
+      ]
+    },
+    "drivers": {
+      "kind": "dimension",
+      "table": "silver_drivers",
+      "columns": [
+        {"name": "driver_id",   "role": "business_key"},
+        {"name": "driver_name", "role": "attribute"},
+        {"name": "region",      "role": "attribute"}
+      ]
+    }
+  },
+  "relationships": [
+    {"from": "trips", "from_column": "driver_id",
+     "to": "drivers", "to_column": "driver_id",
+     "type": "many_to_one", "join": "LEFT"}
+  ],
+  "calculated_measures": [
+    {"name": "cost_per_mile",
+     "expression": "fuel_cost / NULLIF(miles, 0)",
+     "entity": "trips"}
+  ],
+  "restricted_measures": [
+    {"name": "emea_fuel_cost",
+     "base_measure": "SUM(fuel_cost)",
+     "filter_column": "region",
+     "filter_values": ["EMEA"],
+     "entity": "trips"}
+  ],
+  "hierarchies": [
+    {"name": "geography", "entity": "drivers",
+     "levels": [{"column": "region"}, {"column": "driver_name"}]}
+  ]
+}</code></pre>
+
+<h2 id="measures">Measures &amp; Hierarchies</h2>
+
+<h3>Calculated Measures</h3>
+<p>Define business metrics as expressions over entity columns:</p>
+<pre><code>POST /api/semantic/models/:id/measures/calculated
+{
+  "name": "cost_per_mile",
+  "entity": "trips",
+  "expression": "fuel_cost / NULLIF(miles, 0)",
+  "description": "Fuel efficiency metric"
+}</code></pre>
+
+<p>Supported expression language:</p>
+<ul>
+  <li><strong>Arithmetic</strong>: <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code></li>
+  <li><strong>Functions</strong>: <code>NULLIF</code>, <code>COALESCE</code>, <code>ABS</code>, <code>ROUND</code>, <code>CAST</code></li>
+  <li><strong>Aggregates</strong>: <code>SUM</code>, <code>COUNT</code>, <code>AVG</code>, <code>MIN</code>, <code>MAX</code> (post-aggregate measures)</li>
+  <li><strong>References</strong>: Bare column names resolve to the entity's columns or other calculated measures</li>
+</ul>
+
+<div class="callout callout-warning">
+  <strong>Dependency Ordering</strong>
+  Calculated measures may reference other calculated measures. Bitool topologically sorts them and rejects cycles. At compile time, nested references are expanded recursively.
+</div>
+
+<h3>Restricted Measures</h3>
+<p>Filtered aggregates that apply a WHERE condition automatically:</p>
+<pre><code>POST /api/semantic/models/:id/measures/restricted
+{
+  "name": "emea_fuel_cost",
+  "entity": "trips",
+  "base_measure": "SUM(fuel_cost)",
+  "filter_column": "region",
+  "filter_values": ["EMEA"]
+}</code></pre>
+
+<h3>Hierarchies</h3>
+<p>Define drill paths for dimensional analysis:</p>
+<pre><code>POST /api/semantic/models/:id/hierarchies
+{
+  "name": "geography",
+  "entity": "drivers",
+  "levels": [
+    {"column": "region"},
+    {"column": "driver_name"}
+  ]
+}</code></pre>
+
+<h2 id="perspectives">Perspectives (Audience-Scoped Views)</h2>
+
+<p>Perspectives are named subsets of a semantic model that control what a particular audience sees. The finance team sees revenue metrics; ops sees fleet utilization; executives see both but with fewer detail columns.</p>
+
+<h3>Creating a Perspective</h3>
+<pre><code>POST /api/semantic/models/:id/perspectives
+{
+  "name": "finance",
+  "audience": "finance_team",
+  "description": "Revenue and cost metrics for finance",
+  "spec": {
+    "entities": ["trips", "drivers"],
+    "columns": {
+      "trips": ["miles", "fuel_cost", "region", "event_date"]
+    },
+    "measures": ["cost_per_mile", "emea_fuel_cost"],
+    "hierarchies": ["geography"]
+  }
+}</code></pre>
+
+<p>Any key omitted or null means "no restriction" (allow all). When a perspective is active:</p>
+<ul>
+  <li>Only the listed entities, columns, measures, and hierarchies are visible</li>
+  <li>Relationships between excluded entities are removed</li>
+  <li>The AI reporting tool schema is scoped accordingly</li>
+</ul>
+
+<div class="callout callout-danger">
+  <strong>Consistency Validation</strong>
+  Bitool validates that retained measures and hierarchies still have their column dependencies after perspective filtering. A perspective that hides <code>miles</code> but keeps <code>cost_per_mile</code> (which divides by miles) is rejected with a clear error.
+</div>
+
+<h3>Using a Perspective in Queries</h3>
+<pre><code>POST /api/reporting/ask
+{
+  "conn_id": 42,
+  "question": "What is our cost per mile by region?",
+  "perspective": "finance"
+}</code></pre>
+
+<h3>Preview Without Saving</h3>
+<pre><code>POST /api/semantic/models/:id/perspectives/preview
+{
+  "spec": {
+    "entities": ["trips"],
+    "measures": ["cost_per_mile"]
+  }
+}</code></pre>
+
+<h2 id="nl-editing">Natural Language Model Editing</h2>
+
+<p>Edit your semantic model using plain English commands instead of JSON. Bitool parses the command, applies it, validates the result, and persists if valid.</p>
+
+<h3>Supported Commands</h3>
+<table>
+  <tr><th>Command Pattern</th><th>Example</th></tr>
+  <tr><td>Add calculated measure</td><td><code>add measure cost_per_mile as fuel_cost / NULLIF(miles, 0) on trips</code></td></tr>
+  <tr><td>Remove measure</td><td><code>remove measure cost_per_mile</code></td></tr>
+  <tr><td>Add hierarchy</td><td><code>add hierarchy geography on drivers with levels region, driver_name</code></td></tr>
+  <tr><td>Remove hierarchy</td><td><code>remove hierarchy geography</code></td></tr>
+  <tr><td>Add relationship</td><td><code>add relationship trips.driver_id to drivers.driver_id as many_to_one LEFT</code></td></tr>
+  <tr><td>Remove relationship</td><td><code>remove relationship from trips to drivers</code></td></tr>
+  <tr><td>Prefer relationship</td><td><code>prefer relationship from trips to drivers</code></td></tr>
+  <tr><td>Set description</td><td><code>set description of trips to "One row per completed trip"</code></td></tr>
+  <tr><td>Rename entity</td><td><code>rename entity trips to completed_trips</code></td></tr>
+  <tr><td>Rename measure</td><td><code>rename measure cost_per_mile to fuel_efficiency</code></td></tr>
+</table>
+
+<h3>Preview Before Apply</h3>
+<pre><code>POST /api/semantic/models/:id/edit/preview
+{
+  "command": "add measure total_fuel as SUM(fuel_cost) on trips"
+}</code></pre>
+<p>Returns the modified model and validation result without persisting.</p>
+
+<h2 id="lazy-associations">Lazy Associations (Automatic Joins)</h2>
+
+<p>Relationships in the semantic model are <strong>lazy</strong> &mdash; they're defined once and only resolved when a query references a column from the associated entity. This eliminates unnecessary joins and matches SAP Datasphere's association pattern.</p>
+
+<h3>How It Works</h3>
+<ol>
+  <li>You define relationships: <code>trips.driver_id &rarr; drivers.driver_id (many_to_one LEFT)</code></li>
+  <li>A user asks: <em>"Total miles by driver region"</em></li>
+  <li>The ISL references <code>drivers.region</code> &mdash; a column on the <code>drivers</code> entity</li>
+  <li>The lazy join resolver detects this cross-entity reference</li>
+  <li>BFS shortest-path finds the join route: <code>trips &rarr; drivers</code></li>
+  <li>A LEFT JOIN is injected into the ISL automatically</li>
+</ol>
+
+<h3>Ambiguity Resolution</h3>
+<p>When multiple join paths of equal length exist (e.g., <code>A &rarr; B &rarr; D</code> and <code>A &rarr; C &rarr; D</code>), Bitool:</p>
+<ul>
+  <li>Detects all shortest paths via layer-by-layer BFS</li>
+  <li>If one path has all edges marked <code>:preferred true</code>, uses that path</li>
+  <li>Otherwise, rejects with an ambiguity error listing the candidates</li>
+</ul>
+
+<!-- ================================================================== -->
+<!-- GOVERNANCE -->
+<!-- ================================================================== -->
+<h2 id="approval-workflow">Approval Workflow</h2>
+
+<p>Semantic models follow a governed lifecycle: <span class="badge badge-blue">draft</span> &rarr; <span class="badge badge-orange">in_review</span> &rarr; <span class="badge badge-green">published</span>.</p>
+
+<h3>Submit for Review</h3>
+<pre><code>POST /api/semantic/models/:id/review/submit
+{
+  "submitted_by": "alice@company.com",
+  "requested_reviewer": "bob@company.com"
+}</code></pre>
+<p>The model must pass validation before submission. An optional <code>requested_reviewer</code> assigns the review to a specific person.</p>
+
+<h3>Review</h3>
+<pre><code>POST /api/semantic/models/:id/review
+{
+  "reviewer": "bob@company.com",
+  "decision": "approved",
+  "comment": "LGTM, measures look correct"
+}</code></pre>
+<table>
+  <tr><th>Decision</th><th>Effect</th></tr>
+  <tr><td><code>approved</code></td><td>Status &rarr; <span class="badge badge-green">published</span></td></tr>
+  <tr><td><code>rejected</code></td><td>Status &rarr; <span class="badge badge-blue">draft</span> (author revises)</td></tr>
+  <tr><td><code>needs_changes</code></td><td>Status &rarr; <span class="badge badge-blue">draft</span> with reviewer comment</td></tr>
+</table>
+
+<h3>Pending Reviews Queue</h3>
+<pre><code>GET /api/semantic/reviews/pending?reviewer=bob@company.com</code></pre>
+<p>Returns all models currently in <span class="badge badge-orange">in_review</span> assigned to the specified reviewer.</p>
+
+<h3>Audit Trail</h3>
+<pre><code>GET /api/semantic/models/:id/reviews</code></pre>
+<p>Returns the complete review history: who reviewed, what they decided, and their comments.</p>
+
+<h2 id="rls">Row-Level Security (RLS)</h2>
+
+<p>RLS policies restrict query results based on the user's session attributes. They are enforced transparently at ISL query time &mdash; no code changes needed in reports.</p>
+
+<h3>Creating an RLS Policy</h3>
+<pre><code>POST /api/semantic/models/:id/rls
+{
+  "entity": "drivers",
+  "column_name": "region",
+  "user_field": "region",
+  "allowed_values": ["EMEA", "NA", "APAC"]
+}</code></pre>
+
+<p>This policy means: when a user whose session has <code>region = "EMEA"</code> runs a query, a <code>WHERE silver_drivers.region = 'EMEA'</code> filter is injected automatically. If their session value is NOT in <code>allowed_values</code>, the query is blocked with a 403.</p>
+
+<h3>How RLS is Enforced</h3>
+<ol>
+  <li>User submits a question via <code>/api/reporting/ask</code></li>
+  <li>After lazy join injection, the pipeline checks RLS policies for the active model</li>
+  <li>For each policy, it checks the user's session for the <code>user_field</code></li>
+  <li>If the user's value is in <code>allowed_values</code>, a WHERE filter is injected into the ISL</li>
+  <li>If not in <code>allowed_values</code> or the session field is missing, the request is blocked</li>
+  <li>The ISL is then validated and compiled with the RLS filters included</li>
+</ol>
+
+<div class="callout callout-danger">
+  <strong>Transparent Enforcement</strong>
+  RLS filters are injected server-side before SQL compilation. The user never sees the filter in their question, and cannot bypass it. Even saved reports re-apply RLS on execution.
+</div>
+
+<h2 id="promotion">Model Promotion</h2>
+
+<p>Promote a published model to a different workspace, connection, or schema. The promoted copy starts as a new draft in the target scope.</p>
+
+<pre><code>POST /api/semantic/models/:id/promote
+{
+  "target_conn_id": 99,
+  "target_schema": "production",
+  "target_workspace_key": "ws-prod",
+  "target_name": "Fleet Operations (prod)",
+  "promoted_by": "alice@company.com"
+}</code></pre>
+
+<p>Promotion records an audit entry in the source model's version history showing what was promoted and where.</p>
+
+<h2 id="impact-analysis">Impact Analysis</h2>
+
+<p>Before editing or archiving a model, check what depends on it:</p>
+
+<pre><code>GET /api/semantic/models/:id/impact</code></pre>
+
+<p>Returns:</p>
+<ul>
+  <li><strong>Explicit matches</strong>: Saved reports with <code>semantic_model_id</code> pointing to this model (definitive)</li>
+  <li><strong>Inferred matches</strong>: Reports whose ISL structurally references this model's entity tables or measure names</li>
+  <li>For each impacted report: ID, name, description, creator, match type, and which tables/measures matched</li>
+</ul>
+
+<pre><code>{
+  "model_id": 42,
+  "model_name": "Fleet Operations",
+  "model_tables": ["gold_trips", "silver_drivers"],
+  "measure_names": ["cost_per_mile", "emea_fuel_cost"],
+  "impacted_count": 3,
+  "impacted_reports": [
+    {"report_id": 101, "report_name": "Driver Costs", "match": "explicit"},
+    {"report_id": 205, "report_name": "Regional KPIs", "match": "inferred",
+     "matched_tables": ["gold_trips"]}
+  ]
+}</code></pre>
+
+<!-- ================================================================== -->
+<!-- OPS CONSOLE -->
+<!-- ================================================================== -->
+<h2 id="ops-console">Operations Console</h2>
+
+<p>The Operations Console provides real-time visibility into every running pipeline, ingestion job, and data quality metric. Access it via the <strong>Ops Console</strong> tab.</p>
+
+<h3>Dashboard Sections</h3>
+<table>
+  <tr><th>Section</th><th>What It Shows</th></tr>
+  <tr><td>Pipeline Overview</td><td>All active pipelines, run status, last completion, error rate</td></tr>
+  <tr><td>Source Health</td><td>Lag monitoring, circuit breaker status, backpressure metrics</td></tr>
+  <tr><td>Queue &amp; Workers</td><td>Worker lease status, queue depth, pending/active/completed jobs</td></tr>
+  <tr><td>Batches &amp; Manifests</td><td>Ingestion batch lifecycle, manifest tracking, retention policies</td></tr>
+  <tr><td>Checkpoints &amp; Replay</td><td>Watermark positions, checkpoint verification, replay controls</td></tr>
+  <tr><td>Bad Records</td><td>Quarantined records with failure reasons and replay actions</td></tr>
+  <tr><td>Schema Drift</td><td>Detected schema changes with severity and remediation suggestions</td></tr>
+  <tr><td>Admin &amp; Policies</td><td>Global configuration, rate limits, retention policies</td></tr>
+</table>
+
+<h2 id="monitoring">Monitoring &amp; Alerts</h2>
+
+<h3>Data Freshness</h3>
+<p>Bitool tracks when each table was last updated and raises freshness alerts when data goes stale:</p>
+<pre><code>GET /freshnessAlerts?conn_id=42</code></pre>
+
+<h3>Execution Runs</h3>
+<p>View all pipeline execution runs with status, duration, row counts, and error details:</p>
+<pre><code>GET /executionRuns?conn_id=42&status=failed</code></pre>
+
+<h3>Alert Lifecycle</h3>
+<p>Alerts follow a lifecycle: <strong>fired</strong> &rarr; <strong>acknowledged</strong> &rarr; <strong>silenced</strong> or <strong>resolved</strong>. The Ops Console shows all active alerts with severity levels and remediation suggestions.</p>
+
+<h2 id="schema-drift">Schema Drift Detection</h2>
+
+<p>When upstream sources change their schema (new columns, removed columns, type changes), Bitool detects the drift automatically and:</p>
+<ol>
+  <li>Raises a drift alert with severity (added columns = low, removed = high, type change = medium)</li>
+  <li>Shows a diff between the expected and actual schema</li>
+  <li>Suggests remediation actions using AI (<code>/aiSuggestDriftRemediation</code>)</li>
+  <li>Allows you to approve the drift (update the schema) or reject it (keep the old schema and quarantine new records)</li>
+</ol>
+
+<h2 id="checkpoints">Checkpoints &amp; Replay</h2>
+
+<p>Every ingestion maintains a watermark checkpoint so it can resume exactly where it left off:</p>
+<ul>
+  <li><strong>Verify</strong>: Check that all checkpoints are consistent and no gaps exist</li>
+  <li><strong>Reset</strong>: Roll back a checkpoint to re-ingest from a specific point</li>
+  <li><strong>Replay</strong>: Re-process a specific batch or set of bad records</li>
+  <li><strong>Rollback</strong>: Remove a batch's data from the warehouse and restore the previous checkpoint</li>
+</ul>
+
+<!-- ================================================================== -->
+<!-- ADVANCED -->
+<!-- ================================================================== -->
+<h2 id="endpoint-authoring">Endpoint Authoring</h2>
+
+<p>Create REST APIs directly from your graph transformations:</p>
+<ol>
+  <li>Add an <strong>Endpoint</strong> node to your graph with URL path and parameters</li>
+  <li>Connect it to transform nodes (Filter, Join, Aggregation, etc.)</li>
+  <li>Add a <strong>Response Builder</strong> to shape the output (JSON structure)</li>
+  <li>Optionally add a <strong>Validator</strong> for input parameter validation</li>
+  <li>Click <strong>Deploy Endpoints</strong> to register the API routes</li>
+</ol>
+
+<p>Deployed endpoints are live REST APIs that execute the graph on each request, with parameters flowing from the URL/body into the Endpoint node's columns.</p>
+
+<h2 id="multi-tenant">Multi-Tenancy &amp; Workspaces</h2>
+
+<p>Bitool supports multi-tenant operation through workspaces:</p>
+<ul>
+  <li><strong>Tenants</strong>: Top-level isolation (separate organizations)</li>
+  <li><strong>Workspaces</strong>: Sub-divisions within a tenant (dev, staging, prod)</li>
+  <li><strong>Members</strong>: Users assigned to workspaces with roles (viewer, editor, admin)</li>
+  <li><strong>Graph assignment</strong>: Graphs and semantic models can be scoped to specific workspaces</li>
+  <li><strong>Promotion</strong>: Move published models between workspaces (dev &rarr; prod)</li>
+</ul>
+
+<h2 id="api-reference">API Reference</h2>
+
+<h3>Reporting APIs</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/api/reporting/ask</code></td><td>Ask a question in natural language</td></tr>
+  <tr><td>GET</td><td><code>/api/reporting/schema</code></td><td>Get schema for a connection</td></tr>
+  <tr><td>POST</td><td><code>/api/reporting/save</code></td><td>Save a report</td></tr>
+  <tr><td>GET</td><td><code>/api/reporting/saved</code></td><td>List saved reports</td></tr>
+  <tr><td>POST</td><td><code>/api/reporting/run-saved</code></td><td>Re-execute a saved report</td></tr>
+  <tr><td>DELETE</td><td><code>/api/reporting/saved/:report_id</code></td><td>Delete a saved report</td></tr>
+  <tr><td>POST</td><td><code>/api/reporting/auto-train</code></td><td>Auto-train business context</td></tr>
+</table>
+
+<h3>Semantic Layer APIs</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/api/semantic/generate</code></td><td>Auto-generate model from proposals</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models</code></td><td>List models</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models/:model_id</code></td><td>Get model detail</td></tr>
+  <tr><td>PUT</td><td><code>/api/semantic/models/:model_id</code></td><td>Update model</td></tr>
+  <tr><td>DELETE</td><td><code>/api/semantic/models/:model_id</code></td><td>Archive model</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/publish</code></td><td>Publish model</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/validate</code></td><td>Validate model</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models/:model_id/versions</code></td><td>List version history</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models/:model_id/versions/:version</code></td><td>Get specific version detail</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/measures/calculated</code></td><td>Add calculated measure</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/measures/restricted</code></td><td>Add restricted measure</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/hierarchies</code></td><td>Add hierarchy</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models/:model_id/perspectives</code></td><td>List perspectives</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/perspectives</code></td><td>Create perspective</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models/:model_id/perspectives/:perspective_id</code></td><td>Get perspective (ownership-enforced)</td></tr>
+  <tr><td>DELETE</td><td><code>/api/semantic/models/:model_id/perspectives/:perspective_id</code></td><td>Delete perspective (ownership-enforced)</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/perspectives/preview</code></td><td>Preview perspective</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/edit</code></td><td>NL model editing</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/edit/preview</code></td><td>Preview NL edit</td></tr>
+</table>
+
+<h3>Governance APIs</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/review/submit</code></td><td>Submit for review</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/review</code></td><td>Submit review decision</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models/:model_id/reviews</code></td><td>Review audit trail</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/reviews/pending</code></td><td>Pending reviews queue</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/promote</code></td><td>Promote to target workspace</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models/:model_id/rls</code></td><td>List RLS policies</td></tr>
+  <tr><td>POST</td><td><code>/api/semantic/models/:model_id/rls</code></td><td>Add RLS policy</td></tr>
+  <tr><td>DELETE</td><td><code>/api/semantic/models/:model_id/rls/:policy_id</code></td><td>Delete RLS policy (ownership-enforced)</td></tr>
+  <tr><td>GET</td><td><code>/api/semantic/models/:model_id/impact</code></td><td>Impact analysis</td></tr>
+</table>
+
+<h3>Transform APIs</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/transform/from-nl</code></td><td>Generate transform graph from NL</td></tr>
+  <tr><td>POST</td><td><code>/transform/apply</code></td><td>Apply generated transform to canvas</td></tr>
+</table>
+
+<h3>GIL APIs</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/gil/from-nl</code></td><td>Generate GIL from natural language</td></tr>
+  <tr><td>POST</td><td><code>/gil/validate</code></td><td>Validate a GIL document</td></tr>
+  <tr><td>POST</td><td><code>/gil/compile</code></td><td>Compile GIL (dry run)</td></tr>
+  <tr><td>POST</td><td><code>/gil/apply</code></td><td>Apply GIL mutations to graph</td></tr>
+</table>
+
+<h3>Pipeline APIs</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/pipeline/from-nl</code></td><td>Generate full pipeline from NL</td></tr>
+  <tr><td>POST</td><td><code>/pipeline/preview</code></td><td>Preview generated pipeline</td></tr>
+  <tr><td>POST</td><td><code>/pipeline/apply</code></td><td>Apply pipeline to workspace</td></tr>
+  <tr><td>POST</td><td><code>/pipeline/edit</code></td><td>Edit existing pipeline from NL</td></tr>
+  <tr><td>GET</td><td><code>/pipeline/metric-packages</code></td><td>List available metric packages</td></tr>
+  <tr><td>POST</td><td><code>/pipeline/generate-sdp</code></td><td>Generate deployment artifact</td></tr>
+  <tr><td>POST</td><td><code>/pipeline/deploy</code></td><td>Deploy pipeline end-to-end</td></tr>
+  <tr><td>POST</td><td><code>/proposeSilverSchema</code></td><td>Auto-propose Silver schema</td></tr>
+  <tr><td>POST</td><td><code>/proposeGoldSchema</code></td><td>Auto-propose Gold schema</td></tr>
+  <tr><td>POST</td><td><code>/runApiIngestion</code></td><td>Run API ingestion</td></tr>
+  <tr><td>POST</td><td><code>/runFileIngestion</code></td><td>Run file ingestion</td></tr>
+  <tr><td>POST</td><td><code>/runKafkaIngestion</code></td><td>Run Kafka ingestion</td></tr>
+</table>
+
+<h3>Training &amp; Context APIs</h3>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>POST</td><td><code>/api/reporting/auto-train</code></td><td>Auto-train business context (fingerprint + LLM)</td></tr>
+  <tr><td>GET</td><td><code>/api/reporting/context</code></td><td>List schema context entries</td></tr>
+  <tr><td>POST</td><td><code>/api/reporting/context/saveEntry</code></td><td>Create/update context entry</td></tr>
+  <tr><td>DELETE</td><td><code>/api/reporting/context/id/:context_id</code></td><td>Delete context entry</td></tr>
+  <tr><td>GET</td><td><code>/api/reporting/table-stats</code></td><td>Get table statistics</td></tr>
+  <tr><td>GET</td><td><code>/api/reporting/sample</code></td><td>Sample rows from a table</td></tr>
+</table>
+
+<!-- Footer -->
+<div style="margin-top: 4rem; padding-top: 2rem; border-top: 2px solid var(--border); color: var(--text-light); font-size: 0.85rem;">
+  <p>Bitool User Guide &mdash; Generated from technical design documents. For the latest API details, refer to the source code or run <code>lein ring server</code> and explore endpoints with your browser.</p>
+  <p>Questions? File an issue or check the docs/ directory for deep technical design references.</p>
+</div>
+
+</div>
+</body>
+</html>

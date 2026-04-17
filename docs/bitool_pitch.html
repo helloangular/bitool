@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitool — Intent to Verified Data Pipeline</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #ffffff;
+    --bg-card: #f8f9fb;
+    --bg-card-hover: #f1f3f6;
+    --bg-accent: #eef2ff;
+    --border: #e2e5eb;
+    --border-accent: #6366f1;
+    --text: #1e293b;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-bright: #4f46e5;
+    --accent-glow: rgba(99, 102, 241, 0.08);
+    --green: #059669;
+    --green-bg: rgba(5, 150, 105, 0.06);
+    --red: #dc2626;
+    --red-bg: rgba(220, 38, 38, 0.05);
+    --yellow: #b45309;
+    --yellow-bg: rgba(180, 83, 9, 0.05);
+    --blue: #2563eb;
+    --gradient-1: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    --gradient-2: linear-gradient(135deg, #059669 0%, #2563eb 100%);
+    --gradient-3: linear-gradient(135deg, #d97706 0%, #dc2626 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Nav ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    font-weight: 800; font-size: 20px;
+    background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-links { display: flex; gap: 28px; }
+  .nav-links a {
+    color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--text); }
+
+  /* ── Hero ── */
+  .hero {
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+    padding: 120px 40px 80px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 50% 30%, rgba(99, 102, 241, 0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 30% 70%, rgba(168, 85, 247, 0.04) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero-badge {
+    display: inline-block; padding: 6px 16px;
+    border: 1px solid var(--border-accent); border-radius: 100px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.5px;
+    color: var(--accent-bright); background: var(--accent-glow);
+    margin-bottom: 32px; text-transform: uppercase;
+  }
+  .hero h1 {
+    font-size: clamp(42px, 6vw, 80px);
+    font-weight: 900; line-height: 1.05; letter-spacing: -2px;
+    margin-bottom: 24px; max-width: 900px;
+  }
+  .hero h1 .gradient {
+    background: var(--gradient-1);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero .subtitle {
+    font-size: clamp(18px, 2.2vw, 22px);
+    color: var(--text-secondary); max-width: 680px;
+    line-height: 1.6; margin-bottom: 48px;
+  }
+  .hero-cta { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 14px 28px; border-radius: 10px;
+    font-size: 15px; font-weight: 600;
+    text-decoration: none; transition: all 0.2s; cursor: pointer; border: none;
+  }
+  .btn-primary {
+    background: var(--gradient-1); color: #fff;
+    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.25);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(99, 102, 241, 0.3); }
+  .btn-secondary {
+    background: transparent; color: var(--text); border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--text-muted); background: var(--bg-card); }
+
+  /* ── Flow ── */
+  .flow-diagram {
+    margin-top: 80px;
+    display: flex; align-items: center; gap: 0; flex-wrap: wrap; justify-content: center;
+    position: relative; z-index: 1;
+  }
+  .flow-node {
+    padding: 14px 24px; border-radius: 12px;
+    font-size: 14px; font-weight: 600; text-align: center; min-width: 170px;
+  }
+  .flow-node.intent { background: var(--accent-glow); border: 1px solid var(--border-accent); color: var(--accent-bright); }
+  .flow-node.graph { background: #ecfdf5; border: 1px solid #a7f3d0; color: var(--green); }
+  .flow-node.sql { background: #fffbeb; border: 1px solid #fde68a; color: var(--yellow); }
+  .flow-node.exec { background: #fef2f2; border: 1px solid #fecaca; color: var(--red); }
+  .flow-arrow { font-size: 24px; color: var(--text-muted); padding: 0 10px; }
+  .flow-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+  .flow-bidir { font-size: 18px; color: var(--green); padding: 0 6px; }
+
+  /* ── Sections ── */
+  section { padding: 120px 40px; max-width: 1200px; margin: 0 auto; }
+  .section-label {
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--accent); margin-bottom: 16px;
+  }
+  section h2 {
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 800; letter-spacing: -1px; line-height: 1.15; margin-bottom: 20px;
+  }
+  section .lead {
+    font-size: 18px; color: var(--text-secondary); max-width: 700px; margin-bottom: 56px; line-height: 1.7;
+  }
+  .divider { width: 100%; max-width: 1200px; margin: 0 auto; height: 1px; background: var(--border); }
+
+  /* ── Cards ── */
+  .card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  @media (max-width: 900px) { .card-grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px; transition: border-color 0.3s, transform 0.2s;
+  }
+  .card:hover { border-color: var(--text-muted); transform: translateY(-2px); }
+  .card .icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; margin-bottom: 20px;
+  }
+  .card h3 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+  .card p { font-size: 14px; color: var(--text-secondary); line-height: 1.65; }
+  .card .verdict {
+    margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);
+    font-size: 13px; font-weight: 600;
+  }
+
+  /* ── Insight Block ── */
+  .insight-block {
+    background: var(--bg-card); border: 1px solid var(--border-accent);
+    border-radius: 20px; padding: 56px; text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .insight-block::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--gradient-1);
+  }
+  .insight-block blockquote {
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 700; line-height: 1.4; max-width: 800px;
+    margin: 0 auto 24px; letter-spacing: -0.5px;
+  }
+  .insight-block blockquote .hl {
+    background: var(--gradient-1);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .insight-block .caption {
+    font-size: 15px; color: var(--text-secondary); max-width: 600px; margin: 0 auto;
+  }
+
+  /* ── Dual Rep Diagram ── */
+  .dual-rep {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: center;
+    margin: 48px 0;
+  }
+  @media (max-width: 768px) { .dual-rep { grid-template-columns: 1fr; gap: 16px; } }
+  .dual-rep .box {
+    padding: 32px; border-radius: 16px; text-align: center;
+    background: var(--bg-card); border: 1px solid var(--border);
+  }
+  .dual-rep .box h4 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .dual-rep .box p { font-size: 13px; color: var(--text-secondary); }
+  .dual-rep .box.active { border-color: var(--border-accent); }
+  .dual-rep .arrows {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 0 16px; font-size: 22px; color: var(--accent); font-weight: 700;
+  }
+  .dual-rep .arrows span { line-height: 1.2; }
+
+  /* ── Steps ── */
+  .steps { display: flex; flex-direction: column; gap: 64px; }
+  .step { display: grid; grid-template-columns: 80px 1fr; gap: 32px; align-items: start; }
+  @media (max-width: 768px) { .step { grid-template-columns: 1fr; } }
+  .step-num {
+    width: 64px; height: 64px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 800; color: #fff;
+  }
+  .step h3 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+  .step p { font-size: 15px; color: var(--text-secondary); line-height: 1.7; max-width: 640px; }
+  .step .example {
+    margin-top: 16px; padding: 16px 20px;
+    background: rgba(99, 102, 241, 0.05);
+    border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0;
+    font-size: 14px; font-style: italic; color: var(--accent-bright);
+  }
+  .tags { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag { padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+  .tag.bronze { background: #f3f0ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+  .tag.silver { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .tag.gold { background: #fefce8; color: #a16207; border: 1px solid #fde68a; }
+
+  /* ── Comparison ── */
+  .comparison {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    border-radius: 16px; overflow: hidden; border: 1px solid var(--border);
+  }
+  .comparison th, .comparison td {
+    padding: 16px 20px; text-align: left; font-size: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .comparison thead th {
+    background: var(--bg-card); font-weight: 700; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);
+  }
+  .comparison thead th:last-child { color: var(--accent-bright); }
+  .comparison tbody td { background: var(--bg); }
+  .comparison tbody td:first-child { font-weight: 600; }
+  .comparison tbody td:last-child { background: #f5f3ff; color: var(--accent-bright); font-weight: 500; }
+  .comparison tbody tr:last-child td { border-bottom: none; }
+  .check { color: var(--green); }
+  .cross { color: var(--red); opacity: 0.7; }
+
+  /* ── Governance ── */
+  .gov-flow {
+    display: flex; align-items: center; justify-content: center; gap: 0; flex-wrap: wrap; margin: 40px 0;
+  }
+  .gov-step {
+    padding: 12px 20px; border-radius: 10px;
+    font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  }
+  .gov-arrow { color: var(--text-muted); padding: 0 8px; font-size: 18px; }
+
+  /* ── Arch Cards ── */
+  .arch-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  @media (max-width: 900px) { .arch-cards { grid-template-columns: 1fr; } }
+  .arch-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 32px;
+  }
+  .arch-card h3 {
+    font-size: 16px; font-weight: 700; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .arch-card h3 .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .arch-card p { font-size: 14px; color: var(--text-secondary); line-height: 1.65; }
+  .arch-card ul { list-style: none; margin-top: 16px; }
+  .arch-card ul li {
+    font-size: 13px; color: var(--text-secondary); padding: 6px 0;
+    border-top: 1px solid var(--border);
+  }
+  .arch-card ul li:first-child { border-top: none; }
+
+  /* ── Demo ── */
+  .demo-box {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 56px; position: relative; overflow: hidden;
+  }
+  .demo-box::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--gradient-2);
+  }
+  .demo-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin: 40px 0; }
+  @media (max-width: 768px) { .demo-stats { grid-template-columns: repeat(2, 1fr); } }
+  .demo-stat { text-align: center; }
+  .demo-stat .number {
+    font-size: 42px; font-weight: 900; letter-spacing: -2px;
+    background: var(--gradient-2); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .demo-stat .label { font-size: 13px; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
+  .demo-bullets { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 32px; margin-top: 32px; }
+  @media (max-width: 768px) { .demo-bullets { grid-template-columns: 1fr; } }
+  .demo-bullets li {
+    list-style: none; font-size: 14px; color: var(--text-secondary);
+    padding: 8px 0 8px 20px; position: relative;
+  }
+  .demo-bullets li::before {
+    content: ''; position: absolute; left: 0; top: 14px;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+  }
+
+  /* ── Killer Feature ── */
+  .killer-feature {
+    background: linear-gradient(135deg, rgba(99,102,241,0.05) 0%, rgba(5,150,105,0.04) 100%);
+    border: 1px solid var(--border-accent);
+    border-radius: 20px; padding: 56px; text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .killer-feature::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--green), var(--accent));
+  }
+  .chat-bubble {
+    display: inline-block; max-width: 500px; text-align: left;
+    margin: 8px 0; padding: 14px 20px; border-radius: 16px;
+    font-size: 14px; line-height: 1.5;
+  }
+  .chat-bubble.user {
+    background: var(--accent-glow); border: 1px solid var(--border-accent);
+    color: var(--accent-bright); margin-left: auto; border-bottom-right-radius: 4px;
+  }
+  .chat-bubble.system {
+    background: #fff; border: 1px solid var(--border);
+    color: var(--text-secondary); margin-right: auto; border-bottom-left-radius: 4px;
+  }
+  .chat-container {
+    display: flex; flex-direction: column; align-items: center;
+    max-width: 560px; margin: 32px auto;
+  }
+  .chat-container > .chat-bubble.user { align-self: flex-end; }
+  .chat-container > .chat-bubble.system { align-self: flex-start; }
+
+  /* ── Vision ── */
+  .vision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 768px) { .vision-grid { grid-template-columns: 1fr; } }
+  .vision-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 32px;
+  }
+  .vision-card .v-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+  .vision-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
+  .vision-card p { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+
+  /* ── Principles ── */
+  .principles { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 768px) { .principles { grid-template-columns: 1fr; } }
+  .principle { padding: 28px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-card); }
+  .principle h4 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+  .principle p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+  /* ── Video Timeline ── */
+  .video-timeline { position: relative; padding-left: 32px; }
+  .video-timeline::before {
+    content: ''; position: absolute; left: 11px; top: 0; bottom: 0;
+    width: 2px; background: var(--border);
+  }
+  .vt-item { position: relative; margin-bottom: 40px; }
+  .vt-item::before {
+    content: ''; position: absolute; left: -27px; top: 6px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); border: 3px solid #fff;
+  }
+  .vt-time { font-size: 12px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; margin-bottom: 4px; }
+  .vt-item h4 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .vt-item p { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+  .vt-item .voiceover {
+    margin-top: 10px; padding: 12px 16px;
+    background: rgba(129,140,248,0.06);
+    border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0;
+    font-size: 13px; font-style: italic; color: var(--accent-bright);
+  }
+
+  /* ── Moat ── */
+  .moat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 40px; }
+  @media (max-width: 900px) { .moat-grid { grid-template-columns: 1fr; } }
+
+  /* ── CTA ── */
+  .final-cta {
+    text-align: center; padding: 120px 40px; position: relative;
+  }
+  .final-cta::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse at 50% 50%, rgba(99,102,241,0.05) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .final-cta h2 {
+    font-size: clamp(36px, 5vw, 56px);
+    font-weight: 900; letter-spacing: -1.5px; margin-bottom: 20px;
+  }
+  .final-cta .tagline {
+    font-size: 20px; color: var(--text-secondary); margin-bottom: 40px;
+  }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #f1f3f6; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ NAV ═══════════ -->
+<nav>
+  <div class="nav-brand">Bitool</div>
+  <div class="nav-links">
+    <a href="#problem">Problem</a>
+    <a href="#why-now">Why Now</a>
+    <a href="#insight">Insight</a>
+    <a href="#magic">Magic Loop</a>
+    <a href="#reporting">AI Reporting</a>
+    <a href="#semantic">Semantic Layer</a>
+    <a href="#transform">Transform</a>
+    <a href="#moat">Moat</a>
+    <a href="#proof">Proof</a>
+    <a href="#team">Team</a>
+  </div>
+</nav>
+
+<!-- ═══════════ HERO ═══════════ -->
+<section class="hero">
+  <div class="hero-badge">A New Control Surface for Data</div>
+  <h1>Intent to <span class="gradient">Verified Data Pipeline</span></h1>
+  <p class="subtitle">
+    Not better ETL. Not another SQL generator.<br>
+    A system that converts business intent into a correct, inspectable data graph &mdash; where humans validate <em>structure</em>, not syntax.
+  </p>
+  <div class="hero-cta">
+    <a href="#magic" class="btn btn-primary">See the Breakthrough &darr;</a>
+    <a href="#demo" class="btn btn-secondary">Live Proof &rarr;</a>
+  </div>
+
+  <div class="flow-diagram">
+    <div>
+      <div class="flow-node intent">Business Intent</div>
+      <div class="flow-label">Plain English</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node graph" style="border-width:2px;">Visual Graph</div>
+      <div class="flow-label" style="color:var(--green);font-weight:700;">Source of Truth</div>
+    </div>
+    <div class="flow-bidir">&harr;</div>
+    <div>
+      <div class="flow-node sql">Compiled SQL</div>
+      <div class="flow-label">Deterministic Artifact</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node exec">Warehouse</div>
+      <div class="flow-label">Databricks / Snowflake</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ THE PROBLEM ═══════════ -->
+<section id="problem">
+  <div class="section-label">The Problem</div>
+  <h2>The $82B data infrastructure market has three options. All broken.</h2>
+  <p class="lead">Every tool forces a bad tradeoff. The real bottleneck isn't writing SQL &mdash; it's <strong>trusting it</strong>.</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="icon" style="background:var(--red-bg);color:var(--red);">&lt;/&gt;</div>
+      <h3>Write SQL</h3>
+      <p>Hire data engineers. Wait weeks. Debug 400-line queries nobody else can read. When something breaks, only the author can fix it.</p>
+      <div class="verdict" style="color:var(--red);">Bottleneck: engineering time &amp; bus factor</div>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--yellow-bg);color:var(--yellow);">&#9634;</div>
+      <h3>Drag &amp; Drop</h3>
+      <p>Informatica, Matillion &mdash; visual but manual. You're still constructing every node, every join, every filter by hand. Assembly with a better UI.</p>
+      <div class="verdict" style="color:var(--yellow);">Bottleneck: manual construction at scale</div>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:rgba(99,102,241,0.06);color:var(--accent);">&#9733;</div>
+      <h3>Ask an AI</h3>
+      <p>LLMs hallucinate joins, invent columns, and fall into correction loops. The output is a wall of text that still requires an engineer to validate.</p>
+      <div class="verdict" style="color:var(--accent);">Bottleneck: validation trust gap</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ WHY NOW ═══════════ -->
+<section id="why-now">
+  <div class="section-label">Why Now</div>
+  <h2>Four forces converging at once.</h2>
+  <p class="lead">This product wasn't possible 3 years ago. In 3 years, the window closes. Here's what changed.</p>
+
+  <div class="card-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card">
+      <div class="icon" style="background:rgba(99,102,241,0.06);color:var(--accent);">1</div>
+      <h3>LLMs make intent capture possible</h3>
+      <p>For the first time, a system can reliably convert "build me a Samsara analytics pipeline" into structured graph intent. This was science fiction before GPT-4 class models. But the LLM alone isn't the product &mdash; it's the starting point.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--red-bg);color:var(--red);">2</div>
+      <h3>Enterprises don't trust text-only AI generation</h3>
+      <p>Early LLM-to-SQL tools showed high demo appeal but low production adoption. Teams can't deploy SQL they can't verify. The trust gap is the #1 reason AI data tools stall after POC. Visual verification solves this.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--yellow-bg);color:var(--yellow);">3</div>
+      <h3>Data stacks are fragmented and manual</h3>
+      <p>The average mid-market data team uses 5-8 tools across ingestion, transformation, orchestration, monitoring, and reporting. Every warehouse &mdash; Snowflake, Databricks, BigQuery, Redshift, DuckDB &mdash; needs a pipeline-to-report layer on top, but none ship one. Pipeline creation remains a multi-week engineering project at most companies.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--green-bg);color:var(--green);">4</div>
+      <h3>Governance pressure is accelerating</h3>
+      <p>SOX, GDPR, and AI regulation are forcing companies to audit their data lineage and transformation logic. "It's in a SQL file somewhere" doesn't pass compliance review. Governed, versioned, visual pipelines are becoming a requirement, not a nice-to-have.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:40px;text-align:center;">
+    <p style="color:var(--text-secondary);font-size:15px;max-width:640px;margin:0 auto;">
+      <strong style="color:var(--text);">The window:</strong> LLMs are good enough to generate graph structure, but not good enough that raw text output is trustworthy.
+      That gap is exactly where visual verification creates lasting value &mdash; before models get so good that text alone is sufficient.
+    </p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ THE DEEPER INSIGHT ═══════════ -->
+<section id="insight">
+  <div class="section-label">The Deeper Insight</div>
+  <h2>The industry is arguing about the wrong thing.</h2>
+  <p class="lead">Visual vs. code? Informatica vs. dbt? That's a false choice. The real question is different.</p>
+
+  <div class="insight-block">
+    <blockquote>
+      What is the <span class="hl">source of truth</span> &mdash; and can a human verify it without reading code?
+    </blockquote>
+    <p class="caption">
+      In dbt, the DAG is read-only documentation. In Informatica, the canvas is manual. In LLM tools, the output is raw text.
+      None of them let a human <em>see</em> and <em>fix</em> the pipeline structure directly.
+    </p>
+  </div>
+
+  <div style="height:48px"></div>
+
+  <div class="insight-block">
+    <blockquote>
+      The visual graph is not UI. It is <span class="hl">the ground truth representation</span>.<br>
+      SQL is just one serialization of it.
+    </blockquote>
+    <p class="caption">
+      This is how Spark, Presto, and every query planner already think internally &mdash; in logical plans, not syntax.
+      We're exposing that layer to humans and LLMs for the first time.
+    </p>
+  </div>
+
+  <div style="height:56px"></div>
+
+  <!-- Bidirectional Dual Representation -->
+  <h3 style="text-align:center;font-size:20px;margin-bottom:8px;">Bidirectional Dual Representation</h3>
+  <p style="text-align:center;color:var(--text-secondary);font-size:15px;margin-bottom:32px;">
+    Neither side is read-only. Edit the join visually &rarr; SQL regenerates. Edit the SQL &rarr; graph updates.
+  </p>
+
+  <div class="dual-rep">
+    <div class="box active">
+      <h4 style="color:var(--green);">Visual Graph</h4>
+      <p>Editable. Inspectable. Click any node to see what it does and why. Non-engineers can verify correctness by looking at structure.</p>
+    </div>
+    <div class="arrows">
+      <span>&rarr;</span>
+      <span>&larr;</span>
+    </div>
+    <div class="box">
+      <h4 style="color:var(--yellow);">Compiled SQL</h4>
+      <p>Deterministic. Auditable. Same graph always produces the same SQL. Engineers can edit directly when they want to.</p>
+    </div>
+  </div>
+
+  <div style="text-align:center;margin-top:32px;">
+    <p style="color:var(--text-muted);font-size:14px;">The LLM bootstraps both from intent. The human catches errors visually.<br>
+    A wrong join is <strong style="color:var(--text);">obvious in a graph</strong>, invisible in a 200-line query.</p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ THE KILLER FEATURE ═══════════ -->
+<section id="magic">
+  <div class="section-label">The Killer Feature</div>
+  <h2>Explain. Edit. Done.</h2>
+  <p class="lead">The interaction loop that nobody else has. Click any node, understand it in English, change it in English.</p>
+
+  <div class="killer-feature">
+    <h3 style="font-size:24px;margin-bottom:8px;">The Magic Loop</h3>
+    <p style="color:var(--text-secondary);font-size:15px;margin-bottom:16px;">This is what makes it a product, not a feature.</p>
+
+    <div class="chat-container">
+      <div class="chat-bubble user">
+        Click any node &rarr; "Explain this pipeline in plain English"
+      </div>
+      <div class="chat-bubble system">
+        "This joins orders with customers, filters US region, and aggregates revenue by month. The customer table is merged on customer_id using SCD Type 2."
+      </div>
+      <div class="chat-bubble user">
+        "Only include active customers"
+      </div>
+      <div class="chat-bubble system">
+        Added filter node: customers.status = 'active'<br>
+        Graph updated &bull; SQL recompiled &bull; Ready for review
+      </div>
+    </div>
+
+    <p style="color:var(--text-muted);font-size:13px;margin-top:24px;">
+      Understand &rarr; Edit &rarr; Verify &rarr; Ship. Without touching SQL. Without re-prompting an LLM in a loop.
+    </p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ AI REPORTING ═══════════ -->
+<section id="reporting">
+  <div class="section-label">Intent to Report</div>
+  <h2>Ask a question. Get a <span style="background:var(--gradient-1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">validated answer</span> in seconds.</h2>
+  <p class="lead">The same graph-first architecture that makes pipeline generation trustworthy also makes reporting trustworthy. No hallucinated SQL. No unconstrained LLM output. Just verified answers.</p>
+
+  <!-- ISL Pipeline Diagram -->
+  <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;margin:48px 0;">
+    <div>
+      <div class="flow-node intent">User Question</div>
+      <div class="flow-label">Plain English</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node graph" style="border-width:2px;">ISL Document</div>
+      <div class="flow-label" style="color:var(--green);font-weight:700;">Constrained Intent</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node sql">Validate &amp; Compile</div>
+      <div class="flow-label">Deterministic</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node exec">SQL &rarr; Results</div>
+      <div class="flow-label">Your Warehouse</div>
+    </div>
+  </div>
+
+  <div class="card-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card">
+      <div class="icon" style="background:rgba(99,102,241,0.06);color:var(--accent);">&#9878;</div>
+      <h3>ISL: The Safety Layer</h3>
+      <p>The LLM never writes SQL. It generates an ISL (Intelligent Structured Language) document &mdash; a constrained intent object. Table names are enum-locked to your actual schema. Every column reference is validated before compilation. The ISL is then compiled to SQL deterministically.</p>
+      <div class="verdict" style="color:var(--green);">Zero hallucinated SQL reaches your database</div>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--green-bg);color:var(--green);">&#9733;</div>
+      <h3>Semantic Model Awareness</h3>
+      <p>When a published semantic model exists, reporting automatically uses it. Calculated measures (<code style="font-size:12px;">cost_per_mile</code>), restricted measures (<code style="font-size:12px;">emea_revenue</code>), dimension hierarchies, and lazy associations become enum-locked options the LLM picks from. Row-level security filters are injected transparently.</p>
+      <div class="verdict" style="color:var(--accent);">Governed + context-aware, not just pattern-matching</div>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--yellow-bg);color:var(--yellow);">&#9881;</div>
+      <h3>Seven Supported Backends</h3>
+      <p>PostgreSQL, MySQL, Oracle, SQL Server, DB2, Snowflake, and Databricks. Connect your warehouse, auto-train schema context (or let fingerprinting detect Stripe, HubSpot, Salesforce, Shopify, and 4 more SaaS schemas), and start asking questions immediately.</p>
+      <div class="verdict" style="color:var(--green);">Works on your existing warehouse &mdash; no data movement</div>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--red-bg);color:var(--red);">&#9673;</div>
+      <h3>Save, Share, Re-Execute</h3>
+      <p>Reports are saved with their ISL document, semantic model binding, and perspective. Re-executing a saved report restores the full semantic context &mdash; including RLS enforcement &mdash; so reports stay correct even as models evolve. Follow-up questions maintain conversational context.</p>
+      <div class="verdict" style="color:var(--accent);">Reports are reproducible artifacts, not one-shot queries</div>
+    </div>
+  </div>
+
+  <!-- Demo conversation -->
+  <div style="margin-top:48px;">
+    <div class="killer-feature" style="background:linear-gradient(135deg, rgba(5,150,105,0.04) 0%, rgba(99,102,241,0.05) 100%);border-color:var(--green);">
+      <h3 style="font-size:20px;margin-bottom:8px;">Intent to Report: Live Example</h3>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px;">From question to validated results &mdash; no SQL, no dashboards, no analyst queue.</p>
+      <div class="chat-container">
+        <div class="chat-bubble user">"Top 10 drivers by fuel cost this month"</div>
+        <div class="chat-bubble system">
+          Generated ISL &bull; Validated against schema &bull; Compiled to SQL<br>
+          10 rows returned in 1.2s<br>
+          <span style="font-size:12px;color:var(--text-muted);">Pipeline: NL &rarr; ISL &rarr; Validate &rarr; SQL &rarr; Execute</span>
+        </div>
+        <div class="chat-bubble user">"Break that down by region"</div>
+        <div class="chat-bubble system">
+          Follow-up detected &bull; Context preserved &bull; Added GROUP BY region<br>
+          24 rows returned &bull; Auto-chart: bar chart by region
+        </div>
+        <div class="chat-bubble user">"Save this as 'Monthly Fuel by Region'"</div>
+        <div class="chat-bubble system">
+          Report saved with ISL + semantic model binding<br>
+          Re-run anytime &mdash; RLS policies enforced per user session
+        </div>
+      </div>
+      <p style="color:var(--text-muted);font-size:13px;margin-top:24px;">
+        Every step is validated. The LLM picks from enum-locked tables and measures. The compiler generates SQL. The user sees results, not code.
+      </p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ SEMANTIC LAYER ═══════════ -->
+<section id="semantic">
+  <div class="section-label">Semantic Layer</div>
+  <h2>The intelligence layer between <span style="background:var(--gradient-2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">raw tables and business answers</span>.</h2>
+  <p class="lead">Bitool already computes entity classification, column roles, grain, measures, and join relationships during Silver/Gold automation. The Semantic Layer surfaces this as a first-class, browsable, governed business model &mdash; no YAML, no LookML, no dbt metrics files.</p>
+
+  <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="card">
+      <div class="icon" style="background:rgba(99,102,241,0.06);color:var(--accent);">&#9670;</div>
+      <h3>Auto-Generated Models</h3>
+      <p>One click assembles a Semantic Model from your existing Silver/Gold proposals, schema context, and FK relationships. Entities are classified as fact/dimension with confidence scores. Column roles (business_key, measure, attribute, time_dimension) are inferred automatically.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--green-bg);color:var(--green);">&#402;</div>
+      <h3>Calculated &amp; Restricted Measures</h3>
+      <p>Define <code style="font-size:12px;">cost_per_mile = fuel_cost / NULLIF(miles, 0)</code> once. Query it by name forever. Restricted measures like <code style="font-size:12px;">emea_revenue</code> add automatic WHERE clauses. Both become enum-locked options the LLM picks from during AI Reporting.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--yellow-bg);color:var(--yellow);">&#8645;</div>
+      <h3>Hierarchies &amp; Drill Paths</h3>
+      <p>Define <code style="font-size:12px;">geography: region &rarr; city &rarr; store</code>. The AI suggests drill-down queries based on hierarchy levels. Time hierarchies support <code style="font-size:12px;">year &rarr; quarter &rarr; month &rarr; week &rarr; day</code> granularity automatically.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--accent-glow);color:var(--accent);">&#128065;</div>
+      <h3>Perspectives (Audience Views)</h3>
+      <p>Create scoped views of the same model for different audiences. Finance sees revenue measures; operations sees operational metrics. The underlying model stays unified &mdash; perspectives filter entities, columns, and measures without duplication.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--green-bg);color:var(--green);">&#8634;</div>
+      <h3>Lazy Associations</h3>
+      <p>JOINs are resolved at query-time, not compile-time. Reference <code style="font-size:12px;">drivers.region</code> in a trips query &mdash; the semantic layer injects the correct LEFT JOIN automatically based on declared relationships. No manual join configuration per query.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--yellow-bg);color:var(--yellow);">&#9998;</div>
+      <h3>NL Model Editing</h3>
+      <p>Edit models in plain English: <em>"add measure cost_per_mile as fuel_cost / miles on trips"</em>. The system parses, validates against the existing model, and applies. Preview before committing. No YAML, no SQL, no config files.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:40px;">
+    <div class="insight-block">
+      <blockquote>
+        SAP Datasphere, Looker LookML, and dbt Semantic Layer all require manual model definition.<br>
+        Bitool <span class="hl">auto-generates 80%</span> from existing pipeline artifacts &mdash; then lets you refine with natural language.
+      </blockquote>
+      <p class="caption">The intelligence already exists in your Silver/Gold proposals. We surface it, not re-create it.</p>
+    </div>
+  </div>
+
+  <!-- Governance lifecycle -->
+  <div style="margin-top:48px;">
+    <h3 style="font-size:20px;font-weight:700;margin-bottom:16px;text-align:center;">Model Governance Lifecycle</h3>
+    <div class="gov-flow">
+      <div class="gov-step">Draft</div><span class="gov-arrow">&rarr;</span>
+      <div class="gov-step">In Review</div><span class="gov-arrow">&rarr;</span>
+      <div class="gov-step">Published</div><span class="gov-arrow">&rarr;</span>
+      <div class="gov-step">Promote</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:24px;text-align:center;">
+      <div style="font-size:12px;color:var(--text-secondary);">Submit for review with designated reviewer</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Approve, reject, or request changes with comments</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Published models power AI Reporting</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Workspace-scoped promotion (dev &rarr; staging &rarr; prod)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:24px;">
+      <div style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;color:var(--accent);">Row-Level Security</div>
+        <div style="font-size:12px;color:var(--text-secondary);">Dimension filters injected per user session. EMEA users only see EMEA data. Policy enforcement is transparent and automatic.</div>
+      </div>
+      <div style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;color:var(--accent);">Impact Analysis</div>
+        <div style="font-size:12px;color:var(--text-secondary);">Before changing a model, see which saved reports and ISL queries reference affected tables, joins, and measures.</div>
+      </div>
+      <div style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;color:var(--accent);">Version History</div>
+        <div style="font-size:12px;color:var(--text-secondary);">Every model version is immutable. Full diff between versions. Rollback to any prior publish. Complete audit trail.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ NL TO TRANSFORM ═══════════ -->
+<section id="transform">
+  <div class="section-label">Text to Transform</div>
+  <h2>Describe a data transformation. Get a <span style="background:var(--gradient-1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">validated, executable graph</span>.</h2>
+  <p class="lead">The same safety pattern that makes AI Reporting trustworthy &mdash; LLM proposes, deterministic compiler validates &mdash; applied to graph generation. Describe transforms in English, get real executable graphs without writing Python or SQL.</p>
+
+  <!-- Pipeline diagram -->
+  <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;margin:48px 0;">
+    <div>
+      <div class="flow-node intent">User Description</div>
+      <div class="flow-label">Plain English</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node graph" style="border-width:2px;">Constrained GIL</div>
+      <div class="flow-label" style="color:var(--green);font-weight:700;">Validated Intent</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node sql">Compile &amp; Apply</div>
+      <div class="flow-label">Graph Nodes</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node exec">Runtime Execution</div>
+      <div class="flow-label">Clojure Engine</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+    <div class="card">
+      <h3>Logic &amp; Conditional Nodes</h3>
+      <p>Transform graphs use Logic (Fu) and Conditional (C) nodes as first-class execution primitives. Logic nodes support ordered assignments, expression evaluation, and multiple outputs. Conditional nodes support if-else, if-elif-else, case, cond, and pattern-match branching.</p>
+      <p style="margin-top:12px;font-size:13px;color:var(--text-muted);">Execution runs through the existing Clojure runtime &mdash; not through generated source files. No Python, no Spark, no external runtime.</p>
+    </div>
+    <div class="card">
+      <h3>Safety Guarantees</h3>
+      <p>The LLM generates constrained transform GIL &mdash; a restricted subset that only allows valid transform shapes (source &rarr; logic &rarr; conditional &rarr; response &rarr; output). Topology validation enforces linear chains. Data flow validation checks that every column reference resolves to a known upstream output.</p>
+      <p style="margin-top:12px;font-size:13px;color:var(--text-muted);">When the LLM output is invalid, a structured repair pass fires. When repair fails, deterministic fallback templates handle common patterns (order processing, customer mastering, lead scoring, invoice, eligibility).</p>
+    </div>
+  </div>
+
+  <div class="killer-feature" style="margin-top:40px;">
+    <h3 style="font-size:20px;margin-bottom:8px;">What Users Can Say</h3>
+    <div class="chat-container">
+      <div class="chat-bubble user">"Create an API flow that normalizes customer input, assigns a risk score, branches on risk level, and returns a decision payload."</div>
+      <div class="chat-bubble system">Generated 5-node transform graph: Endpoint &rarr; Normalize &rarr; Risk Score &rarr; Route Branch &rarr; Response Builder &rarr; Output<br>Validated &bull; Preview ready &bull; Click "Apply" to render on canvas</div>
+    </div>
+    <p style="color:var(--text-muted);font-size:13px;margin-top:16px;">This replaces what would otherwise be a Python transform node, a custom Informatica mapping, or a hand-built dbt model.</p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ INTENT TO PIPELINE ═══════════ -->
+<section id="intent-pipeline">
+  <div class="section-label">Intent to Pipeline</div>
+  <h2>One sentence &rarr; complete <span style="background:var(--gradient-2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Bronze + Silver + Gold</span> pipeline.</h2>
+  <p class="lead">Describe a business need. Bitool generates the entire medallion pipeline: API connector, Bronze ingestion, Silver cleaning, Gold analytics models, cron schedule, and ops monitoring &mdash; from a single natural language statement.</p>
+
+  <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;margin:40px 0;">
+    <div>
+      <div class="flow-node intent">Business Intent</div>
+      <div class="flow-label">"Ingest Samsara data and build driver analytics"</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node" style="background:#f3f0ff;border:1px solid #ddd6fe;color:#6d28d9;">Parse Intent</div>
+      <div class="flow-label">PipelineIntent</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;">Plan Pipeline</div>
+      <div class="flow-label">PipelineSpec</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div>
+      <div class="flow-node graph">Apply</div>
+      <div class="flow-label">Bronze + Silver + Gold</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+    <div style="padding:20px;border-radius:12px;border:1px solid var(--border);background:var(--bg-card);text-align:center;">
+      <div class="tag bronze" style="margin-bottom:8px;">Bronze</div>
+      <div style="font-size:13px;color:var(--text-secondary);">API connector with auth, pagination, rate limits, watermarks. Bronze GIL auto-generated and applied.</div>
+    </div>
+    <div style="padding:20px;border-radius:12px;border:1px solid var(--border);background:var(--bg-card);text-align:center;">
+      <div class="tag silver" style="margin-bottom:8px;">Silver</div>
+      <div style="font-size:13px;color:var(--text-secondary);">Cleaned, typed, deduplicated dimension and fact tables. Silver proposals auto-generated from Bronze schema.</div>
+    </div>
+    <div style="padding:20px;border-radius:12px;border:1px solid var(--border);background:var(--bg-card);text-align:center;">
+      <div class="tag gold" style="margin-bottom:8px;">Gold</div>
+      <div style="font-size:13px;color:var(--text-secondary);">Analytics marts with aggregated measures. Metric packages (conversion funnel, cohort analysis, etc.) available.</div>
+    </div>
+  </div>
+
+  <p style="text-align:center;margin-top:24px;color:var(--text-secondary);font-size:14px;">
+    <strong style="color:var(--text);">Built-in connector knowledge:</strong> Pre-built registry of API specs, auth methods, pagination strategies, and rate limits. The planner knows how to connect before the LLM is invoked.
+  </p>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ THE PRODUCT ═══════════ -->
+<section id="product">
+  <div class="section-label">The Product</div>
+  <h2>Five layers. One platform.</h2>
+  <p class="lead">Not a point solution. A full-stack data platform with AI at the design layer and determinism everywhere else.</p>
+
+  <div class="card-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card">
+      <div class="icon" style="background:rgba(99,102,241,0.06);color:var(--accent);">&#9998;</div>
+      <h3>Design Layer</h3>
+      <p>Visual graph canvas where users build pipelines from intent or by hand. LLM-powered graph generation constrained by connector registries. Bidirectional graph &harr; SQL sync. Click-to-explain on any node.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--green-bg);color:var(--green);">&#9881;</div>
+      <h3>Compilation Layer</h3>
+      <p>Deterministic compiler: graph &rarr; SQL &rarr; Databricks/Snowflake job configs. Full medallion semantics (Bronze/Silver/Gold). Same graph always produces the same execution plan. No AI in the compiler.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:rgba(99,102,241,0.06);color:var(--accent);">&#9733;</div>
+      <h3>Reporting Layer</h3>
+      <p>Natural language &rarr; ISL &rarr; validated SQL &rarr; results. Semantic model awareness, calculated/restricted measures, lazy JOINs, RLS enforcement, saved reports, conversational follow-ups &mdash; all without writing SQL.</p>
+    </div>
+    <div class="card">
+      <div class="icon" style="background:var(--yellow-bg);color:var(--yellow);">&#9878;</div>
+      <h3>Governance Layer</h3>
+      <p>Propose &rarr; Compile &rarr; Validate &rarr; Review &rarr; Publish &rarr; Monitor. Semantic model approval workflows, row-level security, workspace-scoped promotion, impact analysis. Nothing reaches production without gates.</p>
+    </div>
+    <div class="card" style="grid-column: span 2;">
+      <div class="icon" style="background:var(--red-bg);color:var(--red);">&#9673;</div>
+      <h3>Operations Layer</h3>
+      <p>Real-time Ops Console: pipeline health, source freshness SLAs, schema drift detection with AI-powered remediation, bad record inspection and replay, full medallion chain monitoring. 9 screens wired to 50+ backend routes.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:48px;">
+    <h3 style="font-size:20px;font-weight:700;margin-bottom:24px;">Key Architectural Decisions</h3>
+    <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="card">
+        <h3 style="font-size:15px;">Graph Intent Language (GIL)</h3>
+        <p>Structured IR between NL and graph. Constrains LLM output to valid graph operations. Deterministic compilation: same graph &rarr; same SQL every time. LLM is only in the proposal path, never in execution.</p>
+      </div>
+      <div class="card">
+        <h3 style="font-size:15px;">Silver as Canonical Layer</h3>
+        <p>Three-layer medallion with Silver as the bidirectional contract between business demand (Gold) and source supply (Bronze). Change Gold &rarr; Silver tells you what Bronze you need.</p>
+      </div>
+      <div class="card">
+        <h3 style="font-size:15px;">AI in design only</h3>
+        <p>AI assists proposals, explanations, and suggestions. The compiler, validator, governance gates, and execution engine are entirely deterministic. This is what makes enterprise trust possible.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ MOAT ═══════════ -->
+<section id="moat">
+  <div class="section-label">Competitive Moat</div>
+  <h2>Why incumbents can't copy this.</h2>
+  <p class="lead">This isn't a feature. It's a structural advantage that requires a different foundational architecture.</p>
+
+  <table class="comparison">
+    <thead>
+      <tr>
+        <th>Capability</th>
+        <th>dbt / SQL-first</th>
+        <th>Looker / Tableau</th>
+        <th>Informatica / Visual</th>
+        <th>LLM SQL Gen</th>
+        <th>Bitool</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>AI bootstraps pipeline from intent</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>Visual graph is editable (not read-only)</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>Full pipeline: ingest &rarr; transform &rarr; model &rarr; report</td>
+        <td style="color:var(--text-muted);">transform only</td>
+        <td style="color:var(--text-muted);">report only</td>
+        <td style="color:var(--text-muted);">ingest + transform</td>
+        <td style="color:var(--text-muted);">report only</td>
+        <td class="check">&#10003; end-to-end</td>
+      </tr>
+      <tr>
+        <td>Graph &harr; SQL bidirectional sync</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>Semantic layer (measures, hierarchies, RLS)</td>
+        <td style="color:var(--text-muted);">dbt metrics (YAML)</td>
+        <td style="color:var(--text-muted);">LookML / Tableau Prep</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003; auto-generated</td>
+      </tr>
+      <tr>
+        <td>NL &rarr; validated report (no raw SQL)</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">Duet AI / Ask Data (limited)</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">NL &rarr; SQL (unvalidated)</td>
+        <td class="check">&#10003; ISL pipeline</td>
+      </tr>
+      <tr>
+        <td>Deterministic compiler (no LLM in prod)</td>
+        <td class="check">&#10003;</td>
+        <td class="check">&#10003;</td>
+        <td class="check">&#10003;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>Full medallion (Bronze / Silver / Gold)</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">partial</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>NL &rarr; transform graph generation</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>Schema drift detection &amp; AI remediation</td>
+        <td style="color:var(--text-muted);">requires additional tools</td>
+        <td class="cross">&#10007;</td>
+        <td style="color:var(--text-muted);">basic</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+      <tr>
+        <td>No DE team required for setup</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="cross">&#10007;</td>
+        <td class="check">&#10003;</td>
+        <td class="check">&#10003;</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="moat-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card" style="border-left:3px solid var(--red);">
+      <h3>dbt can't flip to graph-native</h3>
+      <p>SQL is their source of truth. Their entire ecosystem &mdash; packages, macros, community &mdash; depends on it. Making the graph the authority would break everything they've built.</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--yellow);">
+      <h3>Informatica can't bolt on AI intent</h3>
+      <p>Their authoring model is manual construction. Adding LLM-powered graph generation requires rebuilding the core paradigm, not just adding a feature.</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--green);">
+      <h3>Looker / Tableau can't own the pipeline</h3>
+      <p>They're consumption layers bolting LLM onto dashboards. No ingestion, no transforms, no medallion architecture. Their semantic layers (LookML, Tableau Prep) require a DE team to maintain. Bitool auto-generates the semantic model from the pipeline that built the data.</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--accent);">
+      <h3>LLM tools can't add visual verification</h3>
+      <p>They'd need to build an entire graph engine, compiler, and bidirectional sync. Text-in, text-out is fundamentally limited for building trust. And they have no pipeline underneath &mdash; they're querying someone else's tables.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ PROOF ═══════════ -->
+<section id="proof">
+  <div class="section-label">Proof</div>
+  <h2>Working product. Real data. Live pipelines.</h2>
+  <p class="lead">Not a concept deck. Bitool is a working product with a live reference deployment.</p>
+
+  <div class="demo-box">
+    <h3 style="font-size:20px;margin-bottom:4px;">Reference: Samsara Analytics</h3>
+    <p style="font-size:14px;color:var(--text-secondary);margin-bottom:32px;">Complete analytics platform built on Bitool &mdash; Samsara telematics API to executive dashboards.</p>
+
+    <div class="demo-stats">
+      <div class="demo-stat"><div class="number">37</div><div class="label">Live Reports</div></div>
+      <div class="demo-stat"><div class="number">18</div><div class="label">KPI Metrics</div></div>
+      <div class="demo-stat"><div class="number">9</div><div class="label">Report Categories</div></div>
+      <div class="demo-stat"><div class="number">17</div><div class="label">Gold Marts</div></div>
+    </div>
+
+    <h3 style="font-size:16px;margin:32px 0 16px;">What's running</h3>
+    <ul class="demo-bullets">
+      <li>15+ Samsara API endpoints ingesting automatically</li>
+      <li>Bronze schema inference with watermarks and primary keys</li>
+      <li>Silver dimension tables with merge logic and governance</li>
+      <li>17 Gold marts powering every report and dashboard</li>
+      <li>Operational monitoring with per-endpoint freshness tracking</li>
+      <li>Schema drift detection with AI explanation and remediation</li>
+      <li>Natural-language Q&amp;A constrained to governed schema</li>
+      <li>Full governance lifecycle: propose &rarr; compile &rarr; validate &rarr; publish</li>
+    </ul>
+
+    <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border);">
+      <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px;"><strong style="color:var(--text);">What this proves:</strong></p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">End-to-end works</div>
+          <div style="font-size:12px;color:var(--text-secondary);">API ingestion &rarr; medallion modeling &rarr; governed dashboards &mdash; one platform, not 6 tools stitched together</div>
+        </div>
+        <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">AI + governance coexist</div>
+          <div style="font-size:12px;color:var(--text-secondary);">LLM-assisted design with deterministic compilation and full audit trail &mdash; not "AI generates, pray it's correct"</div>
+        </div>
+        <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Vertical depth is achievable fast</div>
+          <div style="font-size:12px;color:var(--text-secondary);">37 reports across 9 categories from a single API integration &mdash; the kind of project that typically takes a data team 6-12 weeks</div>
+        </div>
+        <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Ops is production-grade</div>
+          <div style="font-size:12px;color:var(--text-secondary);">Schema drift detection, freshness SLAs, bad record replay, medallion chain monitoring &mdash; not just "it runs"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ WEDGE & EXPANSION ═══════════ -->
+<section id="wedge">
+  <div class="section-label">Wedge &amp; Expansion</div>
+  <h2>Start narrow. Expand into the data operating system.</h2>
+  <p class="lead">Land with a specific, painful use case. Expand as the graph becomes the system of record for data logic.</p>
+
+  <!-- Wedge -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:48px;">
+    <div class="vision-card" style="border-left:3px solid var(--green);">
+      <div class="v-label" style="color:var(--green);">The Wedge</div>
+      <h3>API-heavy operational analytics</h3>
+      <p><strong>Who:</strong> Mid-market data teams (3-10 people) building pipelines from SaaS APIs &mdash; telematics, fintech, logistics, IoT.</p>
+      <p style="margin-top:12px;"><strong>Pain:</strong> Each new API integration is a 4-8 week project. Schema changes break pipelines silently. Business users wait months for new reports.</p>
+      <p style="margin-top:12px;"><strong>Why Bitool wins here:</strong> API connector knowledge is built-in, not general-purpose. Medallion architecture maps directly to the operational analytics pattern. Schema drift matters most with APIs that change frequently.</p>
+    </div>
+    <div class="vision-card" style="border-left:3px solid var(--accent);">
+      <div class="v-label" style="color:var(--accent);">The Expansion</div>
+      <h3>Semantic data operating system</h3>
+      <p><strong>Year 1-2:</strong> API ingestion + medallion modeling for operational analytics teams. Prove the graph-as-truth model works.</p>
+      <p style="margin-top:12px;"><strong>Year 2-3:</strong> Add database, file, and streaming sources. Expand from operational to business analytics. The graph becomes the system of record for all data logic in the org.</p>
+      <p style="margin-top:12px;"><strong>Year 3+:</strong> Platform play. Third-party connectors, marketplace for semantic blocks, enterprise governance layer. The visual graph becomes what Git is to code &mdash; the canonical version-controlled representation.</p>
+    </div>
+  </div>
+
+  <!-- Market sizing -->
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:40px;margin-bottom:48px;">
+    <h3 style="text-align:center;font-size:18px;margin-bottom:24px;">Market Context</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;text-align:center;">
+      <div>
+        <div style="font-size:32px;font-weight:900;background:var(--gradient-1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">$82B</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Data infrastructure &amp; analytics market (2024)</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Every Snowflake, Databricks, BigQuery, DuckDB deployment needs an ingest-to-report layer on top</div>
+      </div>
+      <div>
+        <div style="font-size:32px;font-weight:900;background:var(--gradient-2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">73%</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Of data teams still use manual SQL for transformations</div>
+      </div>
+      <div>
+        <div style="font-size:32px;font-weight:900;background:var(--gradient-3);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">6-12 wk</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Average time to production for a new data pipeline</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ICP -->
+  <h3 style="font-size:20px;font-weight:700;margin-bottom:24px;">Buyer &amp; User</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:48px;">
+    <div class="vision-card">
+      <div class="v-label" style="color:var(--green);">Buyer</div>
+      <h3>Head of Data / VP Analytics</h3>
+      <p>Buying for speed and governance. Their team is backlogged with pipeline requests. They need to ship faster without sacrificing auditability. Budget: displaces 2-3 existing tools (ingestion + transformation + orchestration).</p>
+    </div>
+    <div class="vision-card">
+      <div class="v-label" style="color:var(--accent);">User</div>
+      <h3>Analytics Engineer / Senior Analyst</h3>
+      <p>Semi-technical. Understands data modeling. Doesn't want to hand-write every SQL transformation. The person who currently spends 60% of their time on pipeline plumbing instead of analysis.</p>
+    </div>
+  </div>
+
+  <!-- GTM signal -->
+  <h3 style="font-size:20px;font-weight:700;margin-bottom:24px;">Go-to-Market</h3>
+  <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="card">
+      <h3>Bottom-up adoption</h3>
+      <p>Free tier for individual graphs. Analytics engineers try it on a side project, prove value, bring it to the team. Same motion as dbt's early growth.</p>
+    </div>
+    <div class="card">
+      <h3>Vertical templates</h3>
+      <p>Pre-built connector knowledge + medallion templates for logistics, fintech, e-commerce. Reduce time-to-value from weeks to hours for specific verticals.</p>
+    </div>
+    <div class="card">
+      <h3>Platform expansion</h3>
+      <p>Land with ingestion + modeling. Expand into orchestration, monitoring, governance, and semantic layer. Each pipeline built increases switching cost.</p>
+    </div>
+  </div>
+
+  <div style="height:48px;"></div>
+
+  <div class="insight-block">
+    <blockquote>
+      AI gives you a 70% correct pipeline instantly.<br>
+      The visual graph lets you <span class="hl">verify and fix the other 30%</span> without reading SQL.
+    </blockquote>
+    <p class="caption">
+      Better than "trust the AI blindly." Better than "learn SQL to check its work."<br>
+      That's the product. That's the pitch.
+    </p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════ WHY THIS TEAM ═══════════ -->
+<section id="team">
+  <div class="section-label">Why This Team</div>
+  <h2>What's hard here &mdash; and why we can do it.</h2>
+  <p class="lead">This isn't an AI wrapper. It's a compiler + graph engine + ops platform. The hard parts are all below the LLM.</p>
+
+  <div class="card-grid" style="grid-template-columns: repeat(2, 1fr);margin-bottom:48px;">
+    <div class="card">
+      <h3>The hard technical problems</h3>
+      <p style="margin-bottom:12px;">Most AI-data startups are thin layers over LLMs. We're building infrastructure:</p>
+      <ul style="list-style:none;font-size:14px;color:var(--text-secondary);">
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--text);">Graph compiler:</strong> Deterministic translation from visual graph to SQL + execution plans across dialects</li>
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--text);">Bidirectional sync:</strong> Graph &harr; SQL synchronization that preserves intent through round-trips</li>
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--text);">Constrained generation:</strong> GIL (Graph Intent Language) that limits LLM output to valid graph operations</li>
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--text);">Medallion semantics:</strong> Silver as a bidirectional alignment layer, not just a table naming convention</li>
+        <li style="padding:6px 0;"><strong style="color:var(--text);">Production ops:</strong> Checkpoint/replay, schema drift detection, freshness SLAs, bad record handling</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>What we've already built</h3>
+      <p style="margin-bottom:12px;">This is a working product, not a pitch for future work:</p>
+      <ul style="list-style:none;font-size:14px;color:var(--text-secondary);">
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><span class="check">&#10003;</span> &nbsp;Visual graph engine with 15+ node types and live editing</li>
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><span class="check">&#10003;</span> &nbsp;Deterministic graph &rarr; SQL compiler (Databricks &amp; Snowflake)</li>
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><span class="check">&#10003;</span> &nbsp;API ingestion runtime with auth, pagination, watermarks, checkpointing</li>
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><span class="check">&#10003;</span> &nbsp;Full medallion lifecycle: Bronze &rarr; Silver &rarr; Gold with governance</li>
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><span class="check">&#10003;</span> &nbsp;AI-assisted modeling with constrained generation (GIL)</li>
+        <li style="padding:6px 0;border-bottom:1px solid var(--border);"><span class="check">&#10003;</span> &nbsp;Ops Console: drift detection, freshness monitoring, bad record replay</li>
+        <li style="padding:6px 0;"><span class="check">&#10003;</span> &nbsp;Live reference deployment with 37 reports and 18 KPIs</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Principles (compact) -->
+  <h3 style="font-size:20px;font-weight:700;margin-bottom:24px;">Design Principles</h3>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+    <div style="padding:20px;border-radius:10px;border:1px solid var(--border);background:var(--bg-card);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">AI proposes. Humans decide.</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Proposals, not mutations. Governance gates, not blind trust.</div>
+    </div>
+    <div style="padding:20px;border-radius:10px;border:1px solid var(--border);background:var(--bg-card);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">Graph is truth. SQL is artifact.</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Visual graph is authoritative. SQL is compiled from it deterministically.</div>
+    </div>
+    <div style="padding:20px;border-radius:10px;border:1px solid var(--border);background:var(--bg-card);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">Deterministic where it matters.</div>
+      <div style="font-size:12px;color:var(--text-secondary);">AI in design. Deterministic compiler + validator + execution in production.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ FINAL CTA ═══════════ -->
+<div class="final-cta">
+  <h2>Intent to <span style="background:var(--gradient-1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Verified Pipeline</span></h2>
+  <p class="tagline">A new control surface for data. Working product. Real moat. Clear wedge.</p>
+  <div class="hero-cta">
+    <a href="#" class="btn btn-primary">Schedule a Conversation</a>
+    <a href="#" class="btn btn-secondary">See Live Demo</a>
+  </div>
+  <div style="margin-top:40px;color:var(--text-muted);font-size:13px;">Bitool &mdash; AI proposes. You decide. The graph proves it.</div>
+</div>
+
+</body>
+</html>

@@ -96,6 +96,20 @@
     (is (not-any? #(nil? (:id %)) coords))
     (is (not-any? #(nil? (:btype %)) coords))))
 
+(deftest normalize-api-endpoint-config-preserves-load-type-auto
+  (let [normalized (g2/normalize-api-endpoint-config
+                    {:endpoint_url "fleet/vehicles"
+                     :load_type "incremental"
+                     :load_type_auto true})]
+    (is (= "incremental" (:load_type normalized)))
+    (is (true? (:load_type_auto normalized)))))
+
+(deftest normalize-api-endpoint-config-defaults-load-type-auto-false-when-missing
+  (let [normalized (g2/normalize-api-endpoint-config
+                    {:endpoint_url "fleet/vehicles"})]
+    (is (= "full" (:load_type normalized)))
+    (is (false? (:load_type_auto normalized)))))
+
 ;; ---------------------------------------------------------------------------
 ;; DB Execute node (Dx)
 ;; ---------------------------------------------------------------------------

@@ -94,7 +94,7 @@
                        :source? false
                        :terminal? false
                        :save-fn g2/save-conditional
-                       :config-keys [:cond_type :branches :default_branch]
+                       :config-keys [:cond_type :branches :default_branch :headers]
                        :required-config [:cond_type]}
    "table"            {:btype (get g2/btype-codes "table")
                        :source? true

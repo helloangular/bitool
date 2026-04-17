@@ -69,9 +69,9 @@
         g3          (db/getGraph gid)
         tg-node-id  (first (sort (remove #{1 api-node-id} (keys (:n g3)))))
 
-        ;; Step 4: Connect edges: API -> Target -> Output
-        _           (g2/connect-single-node gid api-node-id tg-node-id)
-        _           (g2/connect-single-node gid tg-node-id 1)
+        ;; Step 4: Connect edges: API -> Output -> Target
+        _           (g2/connect-single-node gid api-node-id 1)
+        _           (g2/connect-single-node gid 1 tg-node-id)
 
         ;; Step 5: Save API config
         g4          (db/getGraph gid)
